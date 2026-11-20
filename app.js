@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=609' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=610' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -386,8 +386,11 @@ function waterMat(f) {
         float s = dot(pp, fd), a = dot(pp, pd), lane = floor(a * 1.2), hl = fract(sin(lane * 12.9898) * 43758.5);
         float seg = s * .18 - t * (.2 + hl * .12) + hl * 7.0, sid = floor(seg), sh2 = fract(sin((lane * 31.7 + sid) * 3.1) * 4375.5);
         if (sh2 > .62 && fract(seg) < .22) c = mix(c, lite * 1.06 + vec3(.04), .32); }
-      if (d > 7.0) { vec2 qq = floor(vGW.xz * 1.5) / 1.5; float big = fln > 0.0 ? flowCaus(qq + vec2(t * .25, -t * .2), fv, t, 38.0, 14.0) : texture2D(uCaus, qq / 38.0 + vec2(t * .004, -t * .003)).r;
-        if (big > .3) c = mix(c, lite, .07 + .05 * big); }
+      float bigNet = 0.0; // Runde 185 (phone test: not visible): two large Voronoi layers drifting against each other - a clear net of light lines; drawn after the sky reflection
+      if (d > 5.0) { vec2 qq = floor(vGW.xz * 1.5) / 1.5;
+        bigNet = fln > 0.0 ? min(flowCaus(qq + vec2(t * .25, -t * .2), fv, t, 26.0, 14.0), flowCaus(qq - vec2(t * .2, -t * .3), fv, t, 33.0, 18.0))
+                           : min(texture2D(uCaus, qq / 26.0 + vec2(t * .009, -t * .006)).r, texture2D(uCaus, qq / 33.0 - vec2(t * .007, t * .008)).r);
+        bigNet *= smoothstep(5.0, 9.0, d); }
       // 3 reflection of the bank in broken pixel rows (vegetation at natural banks, the wall at quays)
       { float row = floor(vGW.z * 2.0), sh = sin(row * 1.7 + t * 1.3) * .35;
         if (hard < .5 && d + sh > 1.0 && d + sh < 3.2) c = mix(c, vec3(.17, .27, .16), .42);
@@ -416,7 +419,8 @@ function waterMat(f) {
           sky = fogColor;
         #endif
         float dash = fract(sin(floor(vGW.z * 2.0) * 12.9 + floor(vGW.x * .8 + sin(t * .7 + vGW.z) * .6) * 7.7) * 437.5); // broken short dashes, drifting
-        c = mix(c, mix(sky, b, .35), fr * (fr > .5 ? .38 : dash < .55 ? .32 : .08)); } // never washes the water out (phone test Jan-Fedder-Promenade) // every other pixel row at medium angles: broken reflection
+        c = mix(c, mix(sky, b, .35), fr * (fr > .5 ? .38 : dash < .55 ? .32 : .08)); }
+      if (bigNet > .3) c = mix(c, lite * 1.12 + vec3(.05), .28 + .14 * bigNet); // never washes the water out (phone test Jan-Fedder-Promenade) // every other pixel row at medium angles: broken reflection
       vec2 sp = floor(vGW.xz / vec2(1.0, .35));            // glints: rare, short sparkles that come and go (2.4 m bars kept showing up as 'beams' - phone test)
       float ph = floor(t * .9 + fract(sin(dot(sp, vec2(3.7, 9.1))) * 91.0) * 5.0);
       float g = fract(sin(dot(sp, vec2(7.13, 157.1)) + ph * 3.1) * 43758.5);

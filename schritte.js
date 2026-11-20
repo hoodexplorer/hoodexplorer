@@ -43,10 +43,13 @@
     plip(sr) { const b = new Float32Array(Math.floor(.25 * sr)); noise(b, sr, 0, .02, 'bp', 900, .8, .5, .002); bubble(b, sr, .005, (2.5 + R() * 1.5) / 1000, .5); return norm(b, .6); }, // a fish leaves the water
     plop(sr) { const b = new Float32Array(Math.floor(.45 * sr)); noise(b, sr, 0, .035, 'bp', 520 + R() * 160, .7, 1, .002); thump(b, sr, 0, 90, 30, .2); // and falls back in
       const n = 3 + Math.floor(R() * 3); for (let i = 0; i < n; i++) bubble(b, sr, .01 + R() * .12, (2.5 + R() * 3.5) / 1000, .3 + R() * .3); return norm(b, .75); },
-    lap(sr) { const b = new Float32Array(Math.floor(.7 * sr)); noise(b, sr, 0, .3, 'lp', 380, .7, .7, .06); const n = 2 + Math.floor(R() * 3);
-      for (let i = 0; i < n; i++) bubble(b, sr, .05 + R() * .3, (4 + R() * 5) / 1000, .35 + R() * .3); noise(b, sr, .35, .2, 'bp', 700, .7, .12, .03); return norm(b, .7); },
-    slap(sr) { const b = new Float32Array(Math.floor(.4 * sr)); noise(b, sr, 0, .05, 'bp', 380 + R() * 120, .8, 1, .006); thump(b, sr, 0, 65, 25, .3);
-      for (let i = 0; i < 2; i++) bubble(b, sr, .03 + R() * .15, (3 + R() * 4) / 1000, .2); return norm(b, .7); },
+    /* Runde 185 (phone test: nothing to hear at a pond): phone speakers give almost nothing below ~400 Hz - shore sounds now sit at
+       0.6-1.5 kHz (still dark), a wave lapping = a soft rush rising and falling plus 3-6 gluggs, a quay slap = a short slap and gluggs */
+    lap(sr) { const b = new Float32Array(Math.floor(.9 * sr)); noise(b, sr, 0, .45, 'bp', 700 + R() * 200, .6, .55, .12); const n = 3 + Math.floor(R() * 4);
+      for (let i = 0; i < n; i++) bubble(b, sr, .08 + R() * .45, (2.2 + R() * 2.6) / 1000, .4 + R() * .35); noise(b, sr, .45, .3, 'bp', 1000, .7, .18, .05); return norm(b, .8); },
+    slap(sr) { const b = new Float32Array(Math.floor(.5 * sr)); noise(b, sr, 0, .05, 'bp', 650 + R() * 200, .8, 1, .005); thump(b, sr, 0, 140, 30, .15);
+      for (let i = 0; i < 3; i++) bubble(b, sr, .03 + R() * .2, (2.2 + R() * 2.4) / 1000, .3); return norm(b, .8); },
+    shore(sr) { const b = new Float32Array(Math.floor(3.0 * sr)); loopNoise(b, sr, 'bp', 800, .5, .35); population(b, sr, 18, 2 / 1000, 5 / 1000, 1.2, .55); return norm(b, .6); }, // a quiet steady lapping at the bank
     brook(sr) { const b = new Float32Array(Math.floor(2.4 * sr)); loopNoise(b, sr, 'lp', 700, .6, .5); population(b, sr, 140, 1.5 / 1000, 7 / 1000, 1.6, .5); return norm(b, .7); },
     rainwater(sr) { const b = new Float32Array(Math.floor(2.0 * sr)); loopNoise(b, sr, 'bp', 1300, .5, .25); population(b, sr, 260, 1.2 / 1000, 3 / 1000, 1.0, .35); return norm(b, .6); },
     snow(sr) { const b = new Float32Array(Math.floor(.34 * sr)); // Ferse: dumpfer Druck + dichtes Knirschen, Ballen: leiser, kürzer
