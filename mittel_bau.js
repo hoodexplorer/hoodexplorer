@@ -8,20 +8,20 @@
 (() => {
   const X = window.HXTR; if (!X || !window.THREE || (window.HX_WELT || 'heute') !== 'mittel') return;
   let CELLS = null; const atlas = new THREE.TextureLoader().load('welten/mittel_atlas.png?v=3', t => { t.needsUpdate = true; });
-  atlas.magFilter = atlas.minFilter = THREE.NearestFilter; atlas.generateMipmaps = false; atlas.encoding = THREE.sRGBEncoding;
-  fetch('welten/mittel_atlas.json?v=3').then(r => r.json()).then(j => { CELLS = j; if (window.HXMB) HXMB.onReady && HXMB.onReady(); });
-  const uNight = { value: 0 }, uTime = { value: 0 };
-  const mat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: .5, side: THREE.DoubleSide });
+  atlas.magFilter = atlas.minFilter = THREE.NearestFilter; atlas.onUpdate = () => { if (atlas.image) uAtSz.value.set(atlas.image.width, atlas.image.height); }; atlas.generateMipmaps = false; atlas.encoding = THREE.sRGBEncoding;
+  fetch('welten/mittel_atlas.json?v=5').then(r => r.json()).then(j => { CELLS = j; if (window.HXMB) HXMB.onReady && HXMB.onReady(); });
+  const uNight = { value: 0 }, uTime = { value: 0 }, uAtSz = { value: new THREE.Vector2(512, 512) };
+  const mat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: .5, side: THREE.DoubleSide }); mat.extensions = { derivatives: true }; // fwidth for the fade below
 
   // ------------------------------------------------------------------ Geometrie-Sammler mit Lage-Stapel
   class K {
-    constructor() { this.p = []; this.uv = []; this.c = []; this.g = []; this.s = []; this.b = []; this.bc = [0, 0, 0]; this.spin = [0, 0, 0, 0]; this.T = [[0, 0, 0, 0]]; }
+    constructor() { this.p = []; this.uv = []; this.c = []; this.g = []; this.s = []; this.b = []; this.a = []; this.bc = [0, 0, 0]; this.spin = [0, 0, 0, 0]; this.T = [[0, 0, 0, 0]]; }
     push(x, y, z, r) { const [px, py, pz, pr] = this.T[this.T.length - 1], c = Math.cos(pr), s = Math.sin(pr); this.T.push([px + x * c + z * s, py + y, pz - x * s + z * c, pr + r]); }
     pop() { this.T.pop(); }
     P(x, y, z) { const [px, py, pz, pr] = this.T[this.T.length - 1], c = Math.cos(pr), s = Math.sin(pr); return [px + x * c + z * s, py + y, pz - x * s + z * c]; }
     poly(pts, uvs, cell, glow) { // Dreiecksfächer
       const C = CELLS[cell] || CELLS.c_putz; const W = pts.map(p => this.P(p[0], p[1], p[2]));
-      for (let i = 1; i + 1 < W.length; i++) for (const k of [0, i, i + 1]) { this.p.push(...W[k]); this.uv.push(uvs[k][0], uvs[k][1]); this.c.push(C[0], C[1], C[2], C[3]); this.g.push(glow || 0); this.s.push(...this.spin); this.b.push(...this.bc); }
+      for (let i = 1; i + 1 < W.length; i++) for (const k of [0, i, i + 1]) { this.p.push(...W[k]); this.uv.push(uvs[k][0], uvs[k][1]); this.c.push(C[0], C[1], C[2], C[3]); this.g.push(glow || 0); this.s.push(...this.spin); this.b.push(...this.bc); this.a.push(C[6] === undefined ? .5 : C[6], C[7] === undefined ? .5 : C[7], C[8] === undefined ? .5 : C[8]); }
     }
     wall(a, b, y0, h, cell, rep) { // senkrechtes Viereck a=(x,z) → b; rep = [Meter je Kachel] → Wiederholung
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]), u = rep ? L / rep[0] : .998, v = rep ? h / rep[1] : .998, o = rep ? 0 : .002;
@@ -448,7 +448,7 @@
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(k.p, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(k.uv, 2));
     g.setAttribute('aCell', new THREE.Float32BufferAttribute(k.c, 4)); g.setAttribute('aGlow', new THREE.Float32BufferAttribute(k.g, 1));
-    g.setAttribute('aSpin', new THREE.Float32BufferAttribute(k.s, 4)); g.setAttribute('aBld', new THREE.Float32BufferAttribute(k.b, 3));
+    g.setAttribute('aSpin', new THREE.Float32BufferAttribute(k.s, 4)); g.setAttribute('aBld', new THREE.Float32BufferAttribute(k.b, 3)); g.setAttribute('aAvg', new THREE.Float32BufferAttribute(k.a, 3));
     g.computeVertexNormals(); g.computeBoundingSphere(); return g;
   }
   // Schildanker für Text des Workers (welten.js): auf dem Brett über der Tür
@@ -459,23 +459,26 @@
      between the figure and the camera dissolves as a whole into a pixel pattern (72 % of its pixels); big estates (castle, palace,
      manor) only get a small dithered hole along the line of sight. Before, a hard 12 m cylinder cut everything near the view line. */
   function prep(sh, U) {
-    sh.uniforms.uNight = uNight; sh.uniforms.uTime = uTime;
+    sh.uniforms.uNight = uNight; sh.uniforms.uTime = uTime; sh.uniforms.uAtSz = uAtSz;
     const see = !!(U && U.uPlayer); if (see) { sh.uniforms.uPlayer = U.uPlayer; sh.uniforms.uToCam = U.uToCam; sh.uniforms.uCamDist = U.uCamDist; }
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aCell; attribute float aGlow; attribute vec4 aSpin; attribute vec3 aBld; uniform float uTime; varying vec4 vCell; varying float vGlow; varying vec3 vBld; varying vec3 vWp;')
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvCell = aCell; vGlow = aGlow; vBld = aBld;')
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aCell; attribute float aGlow; attribute vec4 aSpin; attribute vec3 aBld; attribute vec3 aAvg; uniform float uTime; varying vec4 vCell; varying float vGlow; varying vec3 vBld; varying vec3 vWp; varying vec3 vAvg;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvCell = aCell; vGlow = aGlow; vBld = aBld; vAvg = aAvg;')
       .replace('#include <project_vertex>', '#include <project_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;')
       .replace('#include <begin_vertex>', `vec3 transformed = vec3(position);
         if (aSpin.w > 5.0) { bool wh = aSpin.w > 50.0; float ry = aSpin.w - (wh ? 100.0 : 10.0), a = uTime * (wh ? -.7 : .45);
           vec3 n = vec3(sin(ry), 0.0, cos(ry)), q = transformed - aSpin.xyz; float c = cos(a), s = sin(a);
           transformed = aSpin.xyz + q * c + cross(n, q) * s + n * dot(n, q) * (1.0 - c); }`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec4 vCell; varying float vGlow; uniform float uNight; varying vec3 vBld; varying vec3 vWp;' + (see ? '\nuniform vec3 uPlayer; uniform vec3 uToCam; uniform float uCamDist;\nfloat hxB2(vec2 a){a=floor(a);return fract(a.x*0.5+a.y*a.y*0.75);} float hxBayer(vec2 a){return hxB2(0.5*a)*0.25+hxB2(a);}' : ''))
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec4 vCell; varying float vGlow; uniform float uNight; varying vec3 vBld; varying vec3 vWp; varying vec3 vAvg; uniform vec2 uAtSz;' + (see ? '\nuniform vec3 uPlayer; uniform vec3 uToCam; uniform float uCamDist;\nfloat hxB2(vec2 a){a=floor(a);return fract(a.x*0.5+a.y*a.y*0.75);} float hxBayer(vec2 a){return hxB2(0.5*a)*0.25+hxB2(a);}' : ''))
       .replace('void main() {', see ? `void main() {
         if (vBld.z != 0.0 && uCamDist > 0.5) { float hl = max(length(uToCam.xz), 1e-4); vec2 tc = uToCam.xz / hl; float ch = uCamDist * hl;
           if (vBld.z > 0.0) { vec2 c = vBld.xy - uPlayer.xz; float s = dot(c, tc), d = abs(c.x * tc.y - c.y * tc.x);
             if (s > 0.0 && s - vBld.z < min(ch, vBld.z + 16.0) && d < vBld.z * 0.8 && hxBayer(gl_FragCoord.xy) < 0.72) discard; }
           else { vec3 rel = vWp - uPlayer - vec3(0.0, 1.0, 0.0); float s = dot(rel, uToCam);
             if (s > 0.3 && s < uCamDist && dot(rel.xz, uToCam.xz) > 0.4) { float dl = length(rel - uToCam * s); if (dl < 4.5 && hxBayer(gl_FragCoord.xy) < 0.85 * (1.0 - smoothstep(2.5, 4.5, dl))) discard; } } }` : 'void main() {')
-      .replace('#include <map_fragment>', 'vec4 texelColor = texture2D(map, vCell.xy + fract(vUv) * vCell.zw); texelColor = mapTexelToLinear(texelColor); diffuseColor *= texelColor;')
+      .replace('#include <map_fragment>', `vec4 texelColor = texture2D(map, vCell.xy + fract(vUv) * vCell.zw);
+        vec2 hxTp = fwidth(vUv) * vCell.zw * uAtSz; // Runde 168: texels per screen pixel - where a texel gets smaller than a pixel (far away, Px 2 on phones)
+        if (vAvg.r >= 0.0) texelColor.rgb = mix(texelColor.rgb, vAvg, smoothstep(0.75, 1.5, sqrt(hxTp.x * hxTp.y))); // fine bricks and tiles fade to their mean colour instead of flickering
+        texelColor = mapTexelToLinear(texelColor); diffuseColor *= texelColor;`)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow * (.35 + uNight * 1.2);');
   }
   (function tick(t) { uNight.value = X.night || 0; uTime.value = (t || 0) / 1000; requestAnimationFrame(tick); })();
