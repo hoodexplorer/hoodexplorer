@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=623'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=624'); // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2238,10 +2238,15 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         sights.push({ name: f.props.name || 'Tankstelle', cls: 'fuel', x, z, rank: 99, quiet: true });
       } } } }
   // playgrounds: swings and slides (sprites); sports pitches: white lines, goals on large pitches
+  /* Runde 196 (phone: the climbing frame / swing looked wrong from every side): the same playground often comes twice (two map layers,
+     or a polygon over the tile edge) and each copy set its own swing - two frames 0.4-2.5 m apart, turned differently, read as one
+     tangled frame. Now every playground item keeps 4 m from the others, and stands only inside its own tile. */
+  const pgAt = [], TBp = ground.tileBox;
   for (const q of playPolys) {
     let ax = Infinity, bx = -Infinity, az = Infinity, bz = -Infinity; for (let i = 0; i < q.length; i += 2) { ax = Math.min(ax, q[i]); bx = Math.max(bx, q[i]); az = Math.min(az, q[i + 1]); bz = Math.max(bz, q[i + 1]); }
     const n = Math.min(4, 1 + Math.floor(Math.abs(ringArea(q)) / 250));
     for (let i = 0, tries = 0; i < n && tries < 20; tries++) { const x = ax + rnd() * (bx - ax), z = az + rnd() * (bz - az); if (!inPoly(x, z, q) || fpAt(x, z)) continue;
+      if (TBp && (x < TBp[0] || x > TBp[2] || z < TBp[1] || z > TBp[3])) continue; if (pgAt.some(o => (o[0] - x) ** 2 + (o[1] - z) ** 2 < 16)) continue; pgAt.push([x, z]);
       const t = i % 2 ? 27 : 26; ground.spr.push(x, z, 3.2, 3.2, t, sprY(x, z, hashStr('pg' + x.toFixed(1)))); i++; }
   }
   for (const q of pitchPolys) {
