@@ -53,12 +53,16 @@ function trNear(G, x, z) { let t = -1, td = 60 * 60; for (let n = 0; n < G.xs.le
 /* Runde 171: an emergency run (gore scene) - a police car or ambulance starts out of the picture 90-230 m away, drives with blue light
    along the shortest way (aStar of the autopilot) to the place, parks at the kerb with the blue light still on; release() lets it drive
    off without it. Parked/dispatched cars are not removed by distance. */
-TR.dispatch = (x, z, id) => {
+TR.dispatch = (x, z, id, hint) => { // Runde 172: hint = {x, z} - start there (ahead of the driver): the car comes towards him
   const G = TR.G, A = window.HXD && HXD.aStar; if (!G || !A || !TR.on || !TR_V.length) return null; const type = TR_V.findIndex(v => v.id === id); if (type < 0) return null;
-  const t = trNear(G, x, z); if (t < 0) return null; const cam = X.camera, P = new THREE.Vector3();
-  for (let tr = 0, tries = 0; tr < 150 && tries < 4; tr++) { const a = (Math.random() * G.xs.length) | 0, d = Math.hypot(G.xs[a] - x, G.zs[a] - z); if (d < 90 || d > 230 || !G.adj[a].length) continue;
-    P.set(G.xs[a], X.terrainH(G.xs[a], G.zs[a]) + 1, G.zs[a]).project(cam); if (tr < 120 && P.z < 1 && Math.abs(P.x) < 1.1 && Math.abs(P.y) < 1.1) continue; // comes from out of the picture
-    tries++; const path = A(G, a, t); if (!path || path.length < 2) continue;
+  const t = trNear(G, x, z); if (t < 0) return null; const cam = X.camera, P = new THREE.Vector3(), starts = [];
+  if (hint) { const near = []; for (let n = 0; n < G.xs.length; n++) { if (!G.adj[n].length) continue; const d = Math.hypot(G.xs[n] - hint.x, G.zs[n] - hint.z); if (d < 35 && Math.hypot(G.xs[n] - x, G.zs[n] - z) > 30) near.push([d, n]); }
+    near.sort((p, q) => p[0] - q[0]); for (const q of near.slice(0, 3)) starts.push(q[1]); }
+  for (let tr = 0, tries = 0; tr < 150 + starts.length && tries < 4 + starts.length; tr++) { let a;
+    if (tr < starts.length) a = starts[tr];
+    else { a = (Math.random() * G.xs.length) | 0; const d = Math.hypot(G.xs[a] - x, G.zs[a] - z); if (d < 90 || d > 230 || !G.adj[a].length) continue;
+      P.set(G.xs[a], X.terrainH(G.xs[a], G.zs[a]) + 1, G.zs[a]).project(cam); if (tr < 120 && P.z < 1 && Math.abs(P.x) < 1.1 && Math.abs(P.y) < 1.1) continue; } // fallback: from out of the picture
+    tries++; const path = A(G, a, t); if (!path || path.length < 2 || path.length > 120) continue;
     const V = TR_V[type], c = { a: path[0], b: path[1], path, pi: 1, dest: 1, tx: x, tz: z, t: 0, seed: Math.random(), type, len: V.len, siren: true, v: 0, x: G.xs[a], z: G.zs[a], y: 0, h: 0, col: null };
     trSetEdge(c); c.v = c.vmax * .6; c.h = Math.atan2(c.bx - c.ax, c.bz - c.az); c.x -= Math.cos(c.h) * c.off; c.z += Math.sin(c.h) * c.off; c.y = X.terrainH(c.x, c.z); c.n = path.length > 2 ? path[2] : -1;
     TR.cars.push(c); return c; }

@@ -128,7 +128,9 @@ function ambush(Rt, idx, n) {
       S.add({ x: x - dz * off * sd, z: z + dx * off * sd, h: Math.atan2(dz * sd, -dx * sd), v, stop: off * 2 + 2 }); }
     return; }
 }
+let ROUTE = null; // Runde 172: the autopilot's route, for the emergency cars to come towards the driver
 G.huntTarget = (Rt, idx, n) => {
+  ROUTE = { Rt, idx, n, at: performance.now() };
   if (!G.on || !G.hunt) return null; const S = window.HXPASS, V = X.DV; if (!S) return null;
   ambush(Rt, idx, n);
   const fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h);
@@ -169,11 +171,17 @@ function makeTape(x, z) { // eight posts on a ring (pulled in where a house stan
     const tp = new THREE.Mesh(geo, TAPE_MAT); tp.position.set((ax + bx) / 2, (ay + by) / 2 + .9, (az + bz) / 2); tp.rotation.y = -Math.atan2(bz - az, bx - ax); tp.rotation.z = Math.atan2(by - ay, L); g.add(tp); }
   X.scene.add(g); return g;
 }
+function aheadHint(dist) { // a point dist metres ahead of the driver: on the autopilot's route, else straight ahead (on foot: where he looks)
+  const D = X.DRV, V = X.DV, P = X.P, drv = D && D.on, ox = drv ? V.x : P.x, oz = drv ? V.z : P.z;
+  if (drv && ROUTE && performance.now() - ROUTE.at < 1500) { const { Rt, idx, n } = ROUTE; let acc = 0, px = ox, pz = oz;
+    for (let k = idx; k < n; k++) { const x = Rt[k * 2], z = Rt[k * 2 + 1]; acc += Math.hypot(x - px, z - pz); px = x; pz = z; if (acc >= dist) return { x, z }; } if (acc > 30) return { x: px, z: pz }; }
+  const h = drv ? V.h : P.yaw; return { x: ox + Math.sin(h) * dist, z: oz + Math.cos(h) * dist };
+}
 function walkTo(f, tx, tz) { const d = Math.hypot(tx - f.x, tz - f.z); f.sx = f.x; f.sz = f.z; f.h = Math.atan2(tx - f.x, tz - f.z); f.v = 1.25; f.stop = Math.max(.2, d); f.wait = 0; }
 function sceneStep(dt) {
   const S = SC; if (!S) return; const T = window.TR, PS = window.HXPASS, t = performance.now() / 1000; S.t += dt;
-  if (S.want.length && S.t > S.next) { const k = S.want[0], id = k === 'pol' ? (R() < .6 ? 'polKombi' : 'polSuv') : k; const c = T.dispatch(S.x, S.z, id); // one car after the other, 3 s apart
-    if (c) { c.kind = k; S.cars.push(c); S.want.shift(); S.next = S.t + 3; } else S.next = S.t + 1.5; if (S.t > 25) S.want = []; }
+  if (S.want.length && S.t > S.next) { const k = S.want[0], id = k === 'pol' ? (R() < .6 ? 'polKombi' : 'polSuv') : k; const c = T.dispatch(S.x, S.z, id, aheadHint(55 + S.cars.length * 25 + R() * 20)); // one car after the other, 3 s apart; ahead of the driver: oncoming
+    if (c) { c.kind = k; S.cars.push(c); S.want.shift(); S.next = S.t + 2.5; } else S.next = S.t + 1.5; if (S.t > 25) S.want = []; }
   for (const c of S.cars) if (c.park && !c.arrived) { c.arrived = 1; S.arr = t; // out they get, and to the place
     const ids = c.kind === 'pol' ? ['polizist', 'polizistin'] : c.kind === 'rtw' ? ['notaerztin', 'notaerztin'] : ['notaerztin'], rx = Math.cos(c.h), rz = -Math.sin(c.h);
     ids.forEach((id, i) => { const f = PS.add({ x: c.x + rx * 1.5 * (i ? -1 : 1) - Math.sin(c.h) * i, z: c.z + rz * 1.5 * (i ? -1 : 1) - Math.cos(c.h) * i, h: c.h, v: 0, var: PS.fig[id], unit: true, gore: false, car: c });
