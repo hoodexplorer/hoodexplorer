@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=613' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=614' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2952,7 +2952,8 @@ $('invClose').addEventListener('click', () => { $('inv').hidden = true; });
 document.querySelectorAll('.coinimg').forEach(i => { i.src = COIN_URL; });
 [groundMat, bldMat, carMat].forEach(withLamp);
 /* Runde 144: what the telephone booths (zellen.js) need */
-window.HXZ_API = { scene, P, DRV, tiles, LAYERS, get started() { return started; }, buildingAt: (x, z) => !!buildingAt(x, z), terrainH: (x, z) => terrainH(x, z), water: (x, z) => !!waterFloor(x, z),
+window.HXZ_API = { scene, P, DRV, tiles, LAYERS, clearCars(x, z, r) { let n = 0; for (const [k, a] of carTiles) { if (k === 'drv') continue; for (let i = 0; i < a.length; i += 6) if (a[i + 3] >= 0 && a[i + 3] < 8 && (a[i] - x) ** 2 + (a[i + 1] - z) ** 2 < r * r) { a[i + 3] = -1; n++; } } if (n) { carDirty = true; carVer++; } return n; }, // Runde 188: no parked cars in front of a telephone booth
+  get started() { return started; }, buildingAt: (x, z) => !!buildingAt(x, z), terrainH: (x, z) => terrainH(x, z), water: (x, z) => !!waterFloor(x, z),
   underground: (x, z) => !!(TUN.segs.length && underground(x, z, terrainH(x, z) + 1)), toLocal: (a, b) => toLocal(a, b), toLatLon: (x, z) => toLatLon(x, z), streetAt: (x, z) => streetAt(x, z, 40),
   night: () => Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)) };
 /* Runde 141: what the weather module (wetter.js) needs */

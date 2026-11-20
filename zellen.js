@@ -121,7 +121,8 @@ function scan() { // a few cells per call, only for loaded tiles
 }
 function prune() { // tiles dropped: their booths go; buildings arriving later (3D houses) may cover a booth
   for (const [ck, k] of CELLTILE) if (!A.tiles.has(k)) { CELLTILE.delete(ck); if (BOOTHS.get(ck)) dirty = true; BOOTHS.delete(ck); }
-  for (const [ck, b] of BOOTHS) if (b) { if (A.buildingAt(b.x, b.z)) { BOOTHS.set(ck, null); dirty = true; continue; } const y = A.terrainH(b.x, b.z); if (Math.abs(y - b.y) > .02) { b.y = y; dirty = true; } }
+  for (const [ck, b] of BOOTHS) if (b) { if (A.buildingAt(b.x, b.z)) { BOOTHS.set(ck, null); dirty = true; continue; }
+    if (A.clearCars) { A.clearCars(b.x, b.z, 3.2); A.clearCars(b.x + Math.sin(b.yaw) * 3, b.z + Math.cos(b.yaw) * 3, 3.4); } /* Runde 188: no parked cars at the booth or in front of its door (cars of tiles that arrive later too: every 3 s) */ const y = A.terrainH(b.x, b.z); if (Math.abs(y - b.y) > .02) { b.y = y; dirty = true; } }
 }
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _e = new THREE.Euler();
 let LIST = []; const _lit = new THREE.Color();
