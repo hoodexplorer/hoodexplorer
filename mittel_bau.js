@@ -15,13 +15,13 @@
 
   // ------------------------------------------------------------------ Geometrie-Sammler mit Lage-Stapel
   class K {
-    constructor() { this.p = []; this.uv = []; this.c = []; this.g = []; this.s = []; this.spin = [0, 0, 0, 0]; this.T = [[0, 0, 0, 0]]; }
+    constructor() { this.p = []; this.uv = []; this.c = []; this.g = []; this.s = []; this.b = []; this.bc = [0, 0, 0]; this.spin = [0, 0, 0, 0]; this.T = [[0, 0, 0, 0]]; }
     push(x, y, z, r) { const [px, py, pz, pr] = this.T[this.T.length - 1], c = Math.cos(pr), s = Math.sin(pr); this.T.push([px + x * c + z * s, py + y, pz - x * s + z * c, pr + r]); }
     pop() { this.T.pop(); }
     P(x, y, z) { const [px, py, pz, pr] = this.T[this.T.length - 1], c = Math.cos(pr), s = Math.sin(pr); return [px + x * c + z * s, py + y, pz - x * s + z * c]; }
     poly(pts, uvs, cell, glow) { // Dreiecksfächer
       const C = CELLS[cell] || CELLS.c_putz; const W = pts.map(p => this.P(p[0], p[1], p[2]));
-      for (let i = 1; i + 1 < W.length; i++) for (const k of [0, i, i + 1]) { this.p.push(...W[k]); this.uv.push(uvs[k][0], uvs[k][1]); this.c.push(C[0], C[1], C[2], C[3]); this.g.push(glow || 0); this.s.push(...this.spin); }
+      for (let i = 1; i + 1 < W.length; i++) for (const k of [0, i, i + 1]) { this.p.push(...W[k]); this.uv.push(uvs[k][0], uvs[k][1]); this.c.push(C[0], C[1], C[2], C[3]); this.g.push(glow || 0); this.s.push(...this.spin); this.b.push(...this.bc); }
     }
     wall(a, b, y0, h, cell, rep) { // senkrechtes Viereck a=(x,z) → b; rep = [Meter je Kachel] → Wiederholung
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]), u = rep ? L / rep[0] : .998, v = rep ? h / rep[1] : .998, o = rep ? 0 : .002;
@@ -57,13 +57,13 @@
   const rnd = s => () => (s = (s * 16807) % 2147483647) / 2147483647;
   const pick = (r, a) => a[Math.floor(r() * a.length)];
   const FACH = ['fach_x', 'fach_k', 'fach_leer', 'fach_raute'], GLAS = ['fenster_teal_gruen', 'fenster_blau_rot', 'fenster_teal_blau'];
-  function walls(k, w, d, y, h, r, stone, putz2) { // vier Wände: Stein als eine Fläche je Seite, Fachwerk ein Viereck je Feld
+  function walls(k, w, d, y, h, r, stone, putz2, hz) { // hz (Runde 167): Hansestadt - Backstein statt Bruchstein, Fachwerk mit Backstein // vier Wände: Stein als eine Fläche je Seite, Fachwerk ein Viereck je Feld
     const P = [[-w / 2, d / 2], [w / 2, d / 2], [w / 2, -d / 2], [-w / 2, -d / 2]];
     for (let i = 0; i < 4; i++) { const a = P[i], c = P[(i + 1) % 4], L = Math.hypot(c[0] - a[0], c[1] - a[1]);
-      if (stone) { k.wall(a, c, y, h, 'stein', [3.2, 3.2]); continue; }
+      if (stone) { k.wall(a, c, y, h, hz ? 'backstein' : 'stein', hz ? [1.6, 1.6] : [3.2, 3.2]); continue; }
       const n = Math.max(1, Math.round(L / 1.6));
       for (let j = 0; j < n; j++) k.wall([a[0] + (c[0] - a[0]) * j / n, a[1] + (c[1] - a[1]) * j / n], [a[0] + (c[0] - a[0]) * (j + 1) / n, a[1] + (c[1] - a[1]) * (j + 1) / n], y, h,
-        putz2 ? pick(r, ['fach2_x', 'fach2_leer']) : pick(r, FACH)); }
+        hz ? pick(r, ['fachbs_x', 'fachbs_k', 'fachbs_leer']) : putz2 ? pick(r, ['fach2_x', 'fach2_leer']) : pick(r, FACH)); }
   }
   /* Runde 164 (phone test: gaps between roof and wall): the roof planes run exactly through the top edge of the long walls and
      the ridge - the eaves hang below the wall top - so the gable triangle (wall top → ridge) closes against the roof */
@@ -80,11 +80,11 @@
   }
   const ROOFS = ['dach_rot', 'dach_rot', 'dach_braun', 'dach_blau'], RED = ['dach_rot', 'dach_rot2', 'dach_rot3'];
   function house(k, o) { // o: {w, d, fl, seed, kind, roofs, sign}
-    const r = rnd(o.seed), w = o.w, d = o.d, fl = o.fl, fh = 2.8, tex = pick(r, o.roofs || ROOFS), putz2 = r() < .35, glas = pick(r, GLAS), kind = o.kind || 'haus';
+    const r = rnd(o.seed), w = o.w, d = o.d, fl = o.fl, fh = 2.8, tex = pick(r, o.roofs || (o.hz ? RED : ROOFS)), putz2 = r() < .35, glas = pick(r, GLAS), kind = o.kind || 'haus';
     const jet = kind === 'haus' ? .5 * (fl - 1) : 0; let y = 0, ww = w - jet, dd = d - jet; // Runde 164: the top floor ends at the collision edge (camera did not clip into overhangs)
     for (let f = 0; f < fl; f++) {
       const stone = f === 0 && (r() < .55 || kind === 'turm' || kind === 'rathaus' || kind === 'taverne');
-      walls(k, ww, dd, y, fh, r, stone, putz2);
+      walls(k, ww, dd, y, fh, r, stone || (o.hz && f === 0), putz2, o.hz);
       const nb = Math.max(1, Math.round(ww / 1.6));
       for (let i = 0; i < nb; i++) { const u = -ww / 2 + ww * (i + .5) / nb;
         if (f === 0 && i === Math.floor(nb / 2)) { k.sticker(stone ? 'tuer' : 'tuer_holz', u, y, dd / 2, 0); continue; }
@@ -133,13 +133,13 @@
     for (let i = 0; i < 3; i++) k.sprite('fass', 9 + i * .9, .4, 12); k.sprite('kiste', 7, .4, 12.5); k.sprite('heu', -11, .4, 4, .5);
   }
 
-  function church(k, seed) { // Schiff 9 × 16, Westturm vorn (+z), Bogenfenster leuchten nachts
-    const L = 16, W = 9, H = 7;
-    k.box(W, L, H, 0, 0, 0, 'stein', [3.2, 3.2], false);
-    k.push(0, 0, 0, Math.PI / 2); roof(k, L, W, 5, H, 'dach_blau'); k.pop();
+  function church(k, seed, hz) { // Schiff 9 × 16, Westturm vorn (+z), Bogenfenster leuchten nachts; hz: Backsteingotik mit Kupferhelm
+    const L = 16, W = 9, H = 7, ST = hz ? 'backstein' : 'stein', TT = hz ? 'backstein' : 'stein_turm', RF = hz ? 'dach_rot2' : 'dach_blau', SP = hz ? 'dach_kupfer' : 'dach_blau', RP = hz ? [1.6, 1.6] : [3.2, 3.2];
+    k.box(W, L, H, 0, 0, 0, ST, RP, false);
+    k.push(0, 0, 0, Math.PI / 2); roof(k, L, W, 5, H, RF); k.pop();
     for (const z of [-4.5, -1.5, 1.5, 4.5]) for (const s of [-1, 1]) { k.push(s * W / 2, 0, z, s * Math.PI / 2); k.sticker('fenster_bogen_licht', 0, 2.6, 0, 0, 0, 0, .05, 1); k.pop(); }
     const T = 5.4, tz = L / 2 + T / 2;
-    k.box(T, T, 17, 0, 0, tz, 'stein_turm', [3.2, 3.2], false); k.cone(T * .74, 11, 0, 17, tz, 4, 'dach_blau', Math.PI / 4);
+    const TH = hz ? 22 : 17; k.box(T, T, TH, 0, 0, tz, TT, RP, false); k.cone(T * .74, hz ? 15 : 11, 0, TH, tz, hz ? 8 : 4, SP, Math.PI / 4);
     k.sticker('tuer', 0, 0, tz + T / 2, 0); k.sticker('uhr', 0, 10, tz + T / 2, 0, 1.4, 1.4); k.sticker('fenster_bogen', 0, 13, tz + T / 2, 0);
     for (const s of [1, 2, 3]) { k.push(0, 0, tz, s * Math.PI / 2); k.sticker('fenster_bogen', 0, 13, T / 2, 0); k.pop(); }
   }
@@ -330,7 +330,7 @@
       else for (const sx of [-1, 1]) { for (let kk = 0; kk < 3; kk++) b.sprite('formbaum', sx * (2.6 + kk * 2.6), YF - 4.5, 0, 1.0); b.sprite('statue', sx * 2.4, YF - 2.0, 0, .9); }
     });
   }
-  function gutshof(k, seed, sx, nbW) { // Hof-Karree: Herrenhaus hinten, Scheune und Stall an den Seiten (sx spiegelt), Hofmauer mit offenem Tor vorn
+  function gutshof(k, seed, sx, nbW, torh) { // Hof-Karree: Herrenhaus hinten, Scheune und Stall an den Seiten (sx spiegelt), Hofmauer mit offenem Tor vorn
     const b = bl(k), r = rnd(seed), HX = 12, HY0 = -12, HY1 = 10;
     const hmat = pick(r, ['putz_weiss', 'putz_ocker', 'backstein']), hroof = pick(r, ['walm', 'krueppel', 'mansarde']);
     const hdach = hroof !== 'mansarde' ? pick(r, ['dach_rot', 'dach_rot2', 'dach_schiefer']) : pick(r, ['dach_schiefer', 'dach_rot2']);
@@ -367,7 +367,13 @@
     mauer([left, HY0], [-GW - .4, HY0]); mauer([GW + .4, HY0], [right, HY0]);
     mauer([left, HY0], [left, sx > 0 ? HY1 - sw : HY1 - tw]); mauer([right, HY0], [right, sx > 0 ? HY1 - tw : HY1 - sw]);
     mauer([-HX, HY1 + .25], [-hw / 2, HY1 + .25]); mauer([hw / 2, HY1 + .25], [HX, HY1 + .25]);
-    for (const e of [-1, 1]) { b.box(.9, .9, 3.0, e * (GW + .45), HY0, 0, 'backstein', [1.6, 1.6], false); b.cone(.75, .8, e * (GW + .45), HY0, 3.0, 4, 'c_ziegel', 1.6, Math.PI / 4);
+    if (torh) { const TD = 5, TH = 5.4; // Runde 167: Torhaus über der Einfahrt - zwei Pfeilerbauten, Raum über der Durchfahrt, Walmdach, Wappen
+      for (const e of [-1, 1]) b.box(2.4, TD, TH, e * 2.6, HY0, 0, 'backstein', [1.6, 1.6], false);
+      b.box(2.8, TD, TH - 3.4, 0, HY0, 3.4, 'backstein', [1.6, 1.6], false);
+      b.poly([[-1.4, HY0 - TD / 2, 3.4], [1.4, HY0 - TD / 2, 3.4], [1.4, HY0 + TD / 2, 3.4], [-1.4, HY0 + TD / 2, 3.4]], U1, 'c_holz_d');
+      b.at(0, HY0, 0, 0, () => walmdach(b, 7.6, TD, 2.6, TH, 'dach_rot', .35));
+      b.sticker(pick(r, ['wappen', 'wappen_rot']), 0, HY0 - TD / 2, 3.7, 0, 1.0, 1.15, .05); b.sticker('fenster_stall', 0, HY0 + TD / 2, 3.8, Math.PI); }
+    else for (const e of [-1, 1]) { b.box(.9, .9, 3.0, e * (GW + .45), HY0, 0, 'backstein', [1.6, 1.6], false); b.cone(.75, .8, e * (GW + .45), HY0, 3.0, 4, 'c_ziegel', 1.6, Math.PI / 4);
       const hx0 = e * GW, px = hx0 - e * GW * Math.cos(1.15), py = HY0 + GW * Math.sin(1.15), u0 = e < 0 ? .002 : .998; // Torflügel nach innen offen
       b.poly([[hx0, HY0, .05], [px, py, .05], [px, py, 2.85], [hx0, HY0, 2.85]], [[u0, .002], [.5, .002], [.5, .998], [u0, .998]], 'hoftor'); }
     b.cone(1.8, 1.1, sx * 3.5, -3.0, 0, 6, 'mist', 1.6); const wx = -sx * 3.0; // Misthaufen; Ziehbrunnen oder Taubenhaus
@@ -378,17 +384,53 @@
     b.sprite('fass', -sx * 7.0, 7.5); b.sprite('kiste', -sx * 7.8, 7.0); b.sprite('heu', sx * 6.0, 6.5, 0, .8);
   }
 
+  // ------------------------------------------------------------------ Runde 167: Nebengebäude (Kapelle, Remise, Orangerie)
+  function chapel(k, seed) { // Hof- oder Dorfkapelle: Schiff 6 × 10, halbrunde Apsis hinten, Dachreiter mit Glocke vorn, Tür im Giebel (+z)
+    const r = rnd(seed), W = 6, L = 10, H = 4.6, wall = pick(r, ['stein', 'putz_weiss', 'backstein']), dach = pick(r, ['dach_rot', 'dach_rot2', 'dach_schiefer']);
+    k.box(W, L, H, 0, 0, 0, wall, [3.2, 3.2], false);
+    k.push(0, 0, 0, Math.PI / 2); roof(k, L, W, 3.4, H, dach, .3); k.pop();
+    k.prism(2.6, H - .5, 0, 0, -L / 2, 8, wall); k.cone(2.9, 2.4, 0, H - .5, -L / 2, 8, dach, Math.PI / 8);
+    for (const z of [-2.6, 0, 2.6]) for (const s of [-1, 1]) { k.push(s * W / 2, 0, z, s * Math.PI / 2); const lit = r() < .3; k.sticker(lit ? 'fenster_bogen_licht' : 'fenster_bogen', 0, 1.7, 0, 0, 0, 0, .05, lit ? 1 : 0); k.pop(); }
+    k.sticker('tuer', 0, 0, L / 2, 0); k.sticker('fenster_bogen', 0, 3.4, L / 2, 0, .9, 1.3, .05);
+    k.box(1.1, 1.1, 1.9, 0, H + 2.4, L / 2 - 1.3, 'c_holz_d', [1.6, 1.6], false); k.cone(.95, 2.3, 0, H + 4.3, L / 2 - 1.3, 4, 'dach_schiefer', Math.PI / 4);
+    k.sticker('c_eisen', 0, H + 2.9, L / 2 - .74, 0, .5, .6, .02); // Glocke im Dachreiter
+    k.sprite('busch', -3.8, 0, 3.4, .9); k.sprite('blumen', 2.2, 0, 5.6, 1.1);
+  }
+  function remise(k, seed) { // Wagenremise: drei offene Tore nach vorn (+z), Wagen und Stroh darin
+    const r = rnd(seed), W = 12, D = 6, H = 3.6, m = pick(r, ['backstein', 'bretter']);
+    k.wall([-W / 2, -D / 2], [W / 2, -D / 2], 0, H, m, [1.6, 1.6]); k.wall([-W / 2, D / 2], [-W / 2, -D / 2], 0, H, m, [1.6, 1.6]); k.wall([W / 2, -D / 2], [W / 2, D / 2], 0, H, m, [1.6, 1.6]);
+    for (const x of [-W / 2 + .3, -2, 2, W / 2 - .3]) k.box(.6, .6, H, x, 0, D / 2 - .3, m, [1.6, 1.6], false);
+    k.wall([-W / 2, D / 2], [W / 2, D / 2], H - .7, .7, m, [1.6, 1.6]);
+    k.poly([[-W / 2, .02, D / 2], [W / 2, .02, D / 2], [W / 2, .02, -D / 2], [-W / 2, .02, -D / 2]], [[0, 0], [W / 1.6, 0], [W / 1.6, D / 1.6], [0, D / 1.6]], 'kies');
+    roof(k, W, D, 2.2, H, pick(r, ['dach_rot', 'dach_rot2', 'dach_stroh']), .4);
+    k.sticker('wagen', -4, 0, -1.6, 0, 0, 0, 0); k.sprite('strohballen', 0, 0, -1.2, 1.0, .3); k.sprite('kiste', 4, 0, -1.6); k.sprite('fass', 4.8, 0, -.6);
+  }
+  function orangerie(k, seed) { // langer Gartensaal: Sandsteinsockel, hohe Bogenfenster, Walmdach, Kübelbäume davor (+z)
+    const r = rnd(seed), W = 26, D = 8, H = 5.2, p = pick(r, ['putz_ocker', 'putz_weiss', 'putz_rose']);
+    k.box(W, D, .8, 0, 0, 0, 'sandstein', [1.6, 1.6], false); k.box(W, D, H - .8, 0, .8, 0, p, [3.2, 4.0], false);
+    walmdach(bl(k), W, D, 2.0, H, 'dach_schiefer', .4);
+    for (let i = 0; i < 9; i++) { const x = -W / 2 + (i + .5) * W / 9;
+      if (i === 4) { k.sticker('portal', x, .8, D / 2, 0, 2.4, 3.8, .05); k.sticker(pick(r, ['wappen', 'wappen_rot']), x, 4.0, D / 2, 0, 1.0, 1.15, .06); continue; }
+      const lit = r() < .3; k.sticker(lit ? 'fenster_bogen_licht' : 'fenster_bogen', x, 1.2, D / 2, 0, 1.8, 3.2, .05, lit ? 1 : 0);
+      if (i < 8) k.sprite('formbaum', x + W / 18, 0, D / 2 + 2.2, .85); }
+    for (const s of [-1, 1]) { k.push(s * W / 2, 0, 0, s * Math.PI / 2); k.sticker('fenster_bogen', 0, 1.2, 0, 0, 1.6, 2.8, .05); k.pop(); }
+  }
   // ------------------------------------------------------------------ Modell-Namen des Workers → Baukasten
   const DIM = { m_haus_a: [8.7, 10.7, 2], m_haus_b: [7.7, 11.7, 3], m_haus_c: [9.7, 10.7, 2], m_haus_d: [8.7, 12.7, 3], m_laden_a: [8.7, 10.7, 2], m_laden_b: [9.7, 11.7, 3],
     m_taverne: [10.7, 12.7, 3], m_rathaus: [14.7, 12.7, 3] };
-  const KIT = new Set([...Object.keys(DIM), 'm_burg', 'm_kirche', 'm_brunnen', 'm_stand_a', 'm_stand_b', 'm_stufe', 'm_windmuehle', 'm_wassermuehle', 'm_scheune', 'm_bauernhaus', 'm_schloss', 'm_gutshof']);
+  const KIT = new Set([...Object.keys(DIM), 'm_burg', 'm_kirche', 'm_brunnen', 'm_stand_a', 'm_stand_b', 'm_stufe', 'm_windmuehle', 'm_wassermuehle', 'm_scheune', 'm_bauernhaus', 'm_schloss', 'm_gutshof', 'm_kapelle', 'm_remise', 'm_orangerie']);
+  const BR = { m_burg: -1, m_schloss: -1, m_gutshof: -1, m_kirche: 10, m_orangerie: 13, m_windmuehle: 4.5, m_wassermuehle: 6, m_scheune: 8, m_bauernhaus: 6, m_kapelle: 6, m_remise: 6.5, m_brunnen: 0, m_stand_a: 0, m_stand_b: 0, m_stufe: 0 };
   const seedOf = it => (Math.abs(Math.round(it.x * 7.31) * 73856093 ^ Math.round(it.z * 3.17) * 19349663) % 2147483646) + 1;
   function item(k, it) {
-    k.T = [[it.x, it.y, it.z, it.ry]]; const s = seedOf(it);
+    k.T = [[it.x, it.y, it.z, it.ry]]; const s = seedOf(it), D0 = DIM[it.v];
+    k.bc = [it.x, it.z, D0 ? Math.hypot(D0[0], D0[1]) / 2 * .85 : BR[it.v] !== undefined ? BR[it.v] : 5]; // Runde 167: see-through per building, like today's world
     if (DIM[it.v]) { const [w, d, fl] = DIM[it.v], kind = it.v === 'm_taverne' ? 'taverne' : it.v === 'm_rathaus' ? 'rathaus' : 'haus';
-      house(k, { w: w - .4, d: d - .6, fl: kind === 'haus' ? fl - (fl === 3 && (s % 3 === 0) ? 1 : 0) : fl, seed: s, kind, sign: !!it.t }); }
+      house(k, { w: w - .4, d: d - .6, fl: kind === 'haus' ? fl - (fl === 3 && (s % 3 === 0) ? 1 : 0) : fl, seed: s, kind, sign: !!it.t, hz: it.f === 'h' }); }
     else if (it.v === 'm_burg') castle(k, s);
-    else if (it.v === 'm_kirche') church(k, s);
+    else if (it.v === 'm_kirche') church(k, s, it.f === 'h');
+    else if (it.v === 'm_kapelle') chapel(k, s);
+    else if (it.v === 'm_remise') remise(k, s);
+    else if (it.v === 'm_orangerie') orangerie(k, s);
     else if (it.v === 'm_brunnen') well(k);
     else if (it.v === 'm_stand_a' || it.v === 'm_stand_b') stall(k, s);
     else if (it.v === 'm_stufe') k.box(5.2, 1, it.sy, 0, 0, 0, 'stein', [3.2, 3.2]);
@@ -397,7 +439,7 @@
     else if (it.v === 'm_scheune') barn(k, s);
     else if (it.v === 'm_bauernhaus') farmhouse(k, s);
     else if (it.v === 'm_schloss') schloss(k, s, it.f && it.f[0] === 'p' ? 'pavillon' : 'fluegel', !!(it.f && it.f[1] === 'w')); // Grundform vom Worker (passt zur Kollision)
-    else if (it.v === 'm_gutshof') gutshof(k, s, it.f && it.f[0] === 'l' ? -1 : 1, it.f ? +it.f[1] : 0);
+    else if (it.v === 'm_gutshof') gutshof(k, s, it.f && it.f[0] === 'l' ? -1 : 1, it.f ? +it.f[1] : 0, !!(it.f && it.f[2] === 't'));
   }
   function build(list) {
     if (!CELLS) return null; const k = new K();
@@ -406,22 +448,33 @@
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(k.p, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(k.uv, 2));
     g.setAttribute('aCell', new THREE.Float32BufferAttribute(k.c, 4)); g.setAttribute('aGlow', new THREE.Float32BufferAttribute(k.g, 1));
-    g.setAttribute('aSpin', new THREE.Float32BufferAttribute(k.s, 4));
+    g.setAttribute('aSpin', new THREE.Float32BufferAttribute(k.s, 4)); g.setAttribute('aBld', new THREE.Float32BufferAttribute(k.b, 3));
     g.computeVertexNormals(); g.computeBoundingSphere(); return g;
   }
   // Schildanker für Text des Workers (welten.js): auf dem Brett über der Tür
   function sign(it) { const D = DIM[it.v]; if (!D) return null; return { x: 0, y: 2.8 - .15, z: (D[1] - .6) / 2 + .1, w: Math.min(D[0] - 1.6, 4.2), h: .6, st: 'mittel' }; }
 
   // ------------------------------------------------------------------ Material: Atlas-Zelle, Wiederholung, Nachtglühen
-  function prep(sh) {
+  /* Runde 167 (phone test: houses cut open when turning, a circle in the diorama): like today's world, a building that really stands
+     between the figure and the camera dissolves as a whole into a pixel pattern (72 % of its pixels); big estates (castle, palace,
+     manor) only get a small dithered hole along the line of sight. Before, a hard 12 m cylinder cut everything near the view line. */
+  function prep(sh, U) {
     sh.uniforms.uNight = uNight; sh.uniforms.uTime = uTime;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aCell; attribute float aGlow; attribute vec4 aSpin; uniform float uTime; varying vec4 vCell; varying float vGlow;')
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvCell = aCell; vGlow = aGlow;')
+    const see = !!(U && U.uPlayer); if (see) { sh.uniforms.uPlayer = U.uPlayer; sh.uniforms.uToCam = U.uToCam; sh.uniforms.uCamDist = U.uCamDist; }
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aCell; attribute float aGlow; attribute vec4 aSpin; attribute vec3 aBld; uniform float uTime; varying vec4 vCell; varying float vGlow; varying vec3 vBld; varying vec3 vWp;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvCell = aCell; vGlow = aGlow; vBld = aBld;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;')
       .replace('#include <begin_vertex>', `vec3 transformed = vec3(position);
         if (aSpin.w > 5.0) { bool wh = aSpin.w > 50.0; float ry = aSpin.w - (wh ? 100.0 : 10.0), a = uTime * (wh ? -.7 : .45);
           vec3 n = vec3(sin(ry), 0.0, cos(ry)), q = transformed - aSpin.xyz; float c = cos(a), s = sin(a);
           transformed = aSpin.xyz + q * c + cross(n, q) * s + n * dot(n, q) * (1.0 - c); }`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec4 vCell; varying float vGlow; uniform float uNight;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec4 vCell; varying float vGlow; uniform float uNight; varying vec3 vBld; varying vec3 vWp;' + (see ? '\nuniform vec3 uPlayer; uniform vec3 uToCam; uniform float uCamDist;\nfloat hxB2(vec2 a){a=floor(a);return fract(a.x*0.5+a.y*a.y*0.75);} float hxBayer(vec2 a){return hxB2(0.5*a)*0.25+hxB2(a);}' : ''))
+      .replace('void main() {', see ? `void main() {
+        if (vBld.z != 0.0 && uCamDist > 0.5) { float hl = max(length(uToCam.xz), 1e-4); vec2 tc = uToCam.xz / hl; float ch = uCamDist * hl;
+          if (vBld.z > 0.0) { vec2 c = vBld.xy - uPlayer.xz; float s = dot(c, tc), d = abs(c.x * tc.y - c.y * tc.x);
+            if (s > 0.0 && s - vBld.z < min(ch, vBld.z + 16.0) && d < vBld.z * 0.8 && hxBayer(gl_FragCoord.xy) < 0.72) discard; }
+          else { vec3 rel = vWp - uPlayer - vec3(0.0, 1.0, 0.0); float s = dot(rel, uToCam);
+            if (s > 0.3 && s < uCamDist && dot(rel.xz, uToCam.xz) > 0.4) { float dl = length(rel - uToCam * s); if (dl < 4.5 && hxBayer(gl_FragCoord.xy) < 0.85 * (1.0 - smoothstep(2.5, 4.5, dl))) discard; } } }` : 'void main() {')
       .replace('#include <map_fragment>', 'vec4 texelColor = texture2D(map, vCell.xy + fract(vUv) * vCell.zw); texelColor = mapTexelToLinear(texelColor); diffuseColor *= texelColor;')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow * (.35 + uNight * 1.2);');
   }

@@ -31,8 +31,8 @@
     sh.uniforms.uPlayer = U.uPlayer; sh.uniforms.uToCam = U.uToCam; sh.uniforms.uCamDist = U.uCamDist;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform vec3 uPlayer;\nvarying vec3 vRelW;')
       .replace('#include <project_vertex>', '#include <project_vertex>\nvec4 hxW = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nhxW = instanceMatrix * hxW;\n#endif\nvRelW = (modelMatrix * hxW).xyz - uPlayer;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uToCam;\nuniform float uCamDist;\nvarying vec3 vRelW;')
-      .replace('void main() {', 'void main() {\n  { vec3 rel = vRelW - vec3(0.0, 1.0, 0.0); float s = dot(rel, uToCam);\n    if (s > 0.3 && s < uCamDist && dot(rel.xz, uToCam.xz) > 0.4 && length(rel - uToCam * s) < 12.0) discard; }');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uToCam;\nuniform float uCamDist;\nvarying vec3 vRelW;\nfloat hxB2(vec2 a){a=floor(a);return fract(a.x*0.5+a.y*a.y*0.75);} float hxBayer(vec2 a){return hxB2(0.5*a)*0.25+hxB2(a);}')
+      .replace('void main() {', 'void main() {\n  { vec3 rel = vRelW - vec3(0.0, 1.0, 0.0); float s = dot(rel, uToCam);\n    if (s > 0.3 && s < uCamDist && dot(rel.xz, uToCam.xz) > 0.4) { float dl = length(rel - uToCam * s); if (dl < 5.0 && hxBayer(gl_FragCoord.xy) < 0.85 * (1.0 - smoothstep(3.0, 5.0, dl))) discard; } }'); // Runde 167: a small dithered hole instead of a hard 12 m cylinder
   }; }
   if (U) [matBody, matGlow].forEach(seeThrough);
   let MAN = null; fetch('welten/welten.json?v=441').then(r => r.json()).then(j => { MAN = j; for (const k of dirty) load(k); });
@@ -161,8 +161,7 @@
     const arr = TILES.get(key); if (!arr) return; const g = HXMB.build(arr); if (!g) return;
     const m = new THREE.Mesh(g, HXMB.mat); m.frustumCulled = true; X.scene.add(m); KMESH.set(key, m);
   }
-  if (window.HXMB) { const prev = HXMB.mat.onBeforeCompile; if (U) seeThrough(HXMB.mat); const see = HXMB.mat.onBeforeCompile;
-    HXMB.mat.onBeforeCompile = sh => { if (see && see !== prev) see(sh); HXMB.prep(sh); }; HXMB.mat.customProgramCacheKey = () => 'hxmittelkit';
+  if (window.HXMB) { HXMB.mat.onBeforeCompile = sh => HXMB.prep(sh, U); HXMB.mat.customProgramCacheKey = () => 'hxmittelkit2'; // Runde 167: see-through per building (in prep)
     HXMB.onReady = () => { for (const k of TILES.keys()) { kitTile(k); signs(k); } }; }
   function drop(prefix) { for (const k of [...TILES.keys()]) if (k.startsWith(prefix)) tile(k, null); for (const k of [...KMESH.keys()]) if (k.startsWith(prefix)) kitTile(k); }
   const wait = setInterval(() => { if (!MAN) return; clearInterval(wait); for (const k of TILES.keys()) signs(k); }, 300);
