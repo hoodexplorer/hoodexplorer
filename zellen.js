@@ -7,7 +7,7 @@
 (function () {
 'use strict';
 const A = window.HXZ_API; if (!A || !window.THREE) return;
-const CELL_LAT = .002, CELL_LON = .0033, CHANCE = .5, MAXN = 160;
+const CELL_LAT = .0016, CELL_LON = .0026, CHANCE = .8, MAXN = 160; // Runde 162: denser (~180 m cells, 80 %) - phone test: none in sight in Bielefeld's centre
 const H = (i, j, s) => { let h = (i * 374761393 + j * 668265263 + s * 2147483647) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
 
 // ------------------------------------------------------------------ model (Runde 145: a tall blue box with a lamp on the roof; 1.32 m wide, 3.2 m high, door towards +z)
@@ -80,10 +80,10 @@ const CELLTILE = new Map(); // cell key -> tile key it was decided with
 let dirty = true;
 function segNear(roads, x, z, R) { // nearest point on an ordinary street within R
   let best = null, bd = R * R;
-  for (const r of roads) { if (r.k !== 'm' || r.a || r.t || r.b || r.r) continue; const p = r.p;
+  for (const r of roads) { if (!(r.k === 'm' || (r.k === 'p' && r.w >= 4)) || r.a || r.t || r.b || r.r) continue; const p = r.p; // pedestrian zones count too (old towns)
     for (let i = 0; i + 3 < p.length; i += 2) { const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz; if (l2 < 1) continue;
       const u = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)), qx = ax + dx * u, qz = az + dz * u, d = (qx - x) ** 2 + (qz - z) ** 2;
-      if (d < bd) { bd = d; const l = Math.sqrt(l2); best = { qx, qz, tx: dx / l, tz: dz / l, w: r.w, u, l }; } } }
+      if (d < bd) { bd = d; const l = Math.sqrt(l2); best = { qx, qz, tx: dx / l, tz: dz / l, w: r.w, u, l, ped: r.k === 'p' }; } } }
   return best;
 }
 function onRoad(roads, x, z) { for (const r of roads) { if (r.k === 'p' || r.k === 't') continue; const p = r.p, w2 = (r.w / 2 + .7) ** 2;
@@ -92,14 +92,14 @@ function onRoad(roads, x, z) { for (const r of roads) { if (r.k === 'p' || r.k =
 function builtUp(x, z) { let n = 0; for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2, r = k % 2 ? 18 : 32; if (A.buildingAt(x + Math.cos(a) * r, z + Math.sin(a) * r)) n++; } return n >= (window.HX_WELT === 'mittel' ? 1 : 3); } // Runde 154: medieval towns stand looser
 function decide(t, key, ci, cj) {
   if (H(ci, cj, 1) > CHANCE) return null;
-  for (let tr = 0; tr < 3; tr++) { // up to three tries inside the cell
+  for (let tr = 0; tr < 5; tr++) { // up to five tries inside the cell
     const lat = (ci + .15 + .7 * H(ci, cj, 10 + tr)) * CELL_LAT, lon = (cj + .15 + .7 * H(ci, cj, 20 + tr)) * CELL_LON, q = A.toLocal(lat, lon);
     const s = segNear(t.roads, q.x, q.z, 70); if (!s) continue;
-    if (s.u * s.l < 6 || (1 - s.u) * s.l < 6) continue; // not right at a crossing (the segment end): mid-block on the pavement
+    if (s.u * s.l < 4 || (1 - s.u) * s.l < 4) continue; // not right at a crossing (the segment end): mid-block on the pavement
     let nx = -s.tz, nz = s.tx; if ((q.x - s.qx) * nx + (q.z - s.qz) * nz < 0) { nx = -nx; nz = -nz; } // the side of the street towards the target
-    const off = s.w / 2 + 1.5, x = s.qx + nx * off, z = s.qz + nz * off;
+    const off = s.ped ? Math.max(.9, s.w / 2 - 1.0) : s.w / 2 + 1.5, x = s.qx + nx * off, z = s.qz + nz * off; // pedestrian zone: inside it, near the edge
     let free = !onRoad(t.roads, x, z) && !A.water(x, z) && !A.underground(x, z);
-    for (const [a, b] of [[0, 0], [.8, 0], [-.8, 0], [0, .8], [0, -.8], [nx * 1.6, nz * 1.6]]) if (free && A.buildingAt(x + a, z + b)) free = false;
+    for (const [a, b] of [[0, 0], [.8, 0], [-.8, 0], [0, .8], [0, -.8]]) if (free && A.buildingAt(x + a, z + b)) free = false; // the booth's own footprint only: in narrow old towns the facades stand right at the pavement
     if (!free || !builtUp(x, z)) continue;
     return { x, z, y: A.terrainH(x, z), yaw: Math.atan2(-nx, -nz), tile: key, id: ci + '_' + cj }; // door (+z of the model) towards the street
   }
@@ -153,8 +153,10 @@ const ICON = (g, x, y, r) => { g.fillStyle = '#2f62c8'; g.strokeStyle = '#1a1206
 window.HXZ = {
   get list() { return LIST; },
   drawMini(g, MS) { if (!A.LAYERS.zellen) return; for (const b of LIST) ICON(g, b.x * MS, b.z * MS, 6); },
-  drawBig(g, toScr, d, s) { if (!A.LAYERS.zellen || s < .12) return; for (const b of LIST) { const [x, y] = toScr(b.x, b.z); ICON(g, x, y, 5 * d); } },
-  enter: b => enter(b || LIST[0]), leave, get inside() { return inside; }
+  drawBig(g, toScr, d, s) { if (!A.LAYERS.zellen || s < .03) return; const k = Math.max(.55, Math.min(1, s / .2)); for (const b of LIST) { const [x, y] = toScr(b.x, b.z); ICON(g, x, y, 5 * d * k); } }, // Runde 162: also far out (phone test: none on the zoomed-out map), smaller there
+  enter: b => enter(b || LIST[0]), leave, get inside() { return inside; },
+  scanAll() { for (let i = 0; i < 2000; i++) scan(); prune(); if (dirty) rebuild(); return LIST.length; }, // tests: the whole search at once (also without a running frame loop)
+  _reset() { for (const t of A.tiles.values()) { t.zlDone = false; t.zlCells = null; } BOOTHS.clear(); CELLTILE.clear(); dirty = true; }
 };
 
 // ------------------------------------------------------------------ per frame (called from a timer and the game loop via rAF)

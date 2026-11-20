@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=571' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=574' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1640,7 +1640,7 @@ function drawBig() {
   if (window.HXZ) HXZ.drawBig(g, toScr, W / bigCv.clientWidth, bm.s); // Runde 144
   if (LAYERS.burgen) { const d = W / bigCv.clientWidth; for (const b of burgList()) { const [sx, sy] = toScr(b.x, b.z); burgIcon(g, sx, sy, 9 * d); // Runde 154: castles with their names
       if (bm.s >= .08 && b.t) { g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(b.t, sx, sy + 22 * d); g.fillText(b.t, sx, sy + 22 * d); g.textAlign = 'start'; } } }
-  if (bm.s >= .25 && LAYERS.sights) for (const list of SIGHTS.values()) for (const s of list) if (!s.quiet) mark(s.x, s.z, seen.has(s.name) ? '#9ea6b8' : '#7fd3ff', 6); // zoomed out: no dots, they would cover the map
+  if (bm.s >= .05 && LAYERS.sights) { const r = 6 * Math.max(.5, Math.min(1, bm.s / .25)); for (const list of SIGHTS.values()) for (const s of list) if (!s.quiet) mark(s.x, s.z, seen.has(s.name) ? '#9ea6b8' : '#7fd3ff', r); } // Runde 162: visible far out too, smaller dots
   drawRouteBig(g, toScr); if (window.HXORT && HXORT.draw) HXORT.draw(g, toScr, W / bigCv.clientWidth);
   { const [sx, sy] = toScr(P.x, P.z), d = W / bigCv.clientWidth, ph = (performance.now() / 1200) % 1; // own position: pulsing ring, arrow, label
     g.strokeStyle = 'rgba(' + T.ring + ',' + (1 - ph).toFixed(2) + ')'; g.lineWidth = 3 * d; g.beginPath(); g.arc(sx, sy, (14 + ph * 26) * d, 0, 7); g.stroke();
