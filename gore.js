@@ -103,12 +103,24 @@ function burst(p, vx, vz, sp) {
 // ------------------------------------------------------------------ hits: the car's box against the pedestrians
 function hits() {
   const S = window.HXPASS, D = X.DRV, V = X.DV; if (!S || !D.on || !D.car || !S.list.length) return;
-  const sp = Math.hypot(V.vx, V.vz); if (sp < 3.5) return;
-  const fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h), L = D.car.len / 2 + .7, W = 1.25; /* Runde 194: a little more in front - someone between the bumper and a wall is hit too */
-  for (let i = S.list.length - 1; i >= 0; i--) { const p = S.list[i], dx = p.x - V.x, dz = p.z - V.z; if (dx * dx + dz * dz > 40) continue;
+  const sp = Math.hypot(V.vx, V.vz);
+  const fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h), L = D.car.len / 2 + .7, W = 1.25, vF = V.vx * fx + V.vz * fz;
+  for (let i = S.list.length - 1; i >= 0; i--) { const p = S.list[i], dx = p.x - V.x, dz = p.z - V.z; if (dx * dx + dz * dz > 400) continue;
     if (p.unit) continue;
-    if (Math.abs(dx * fx + dz * fz) < L && Math.abs(dx * rx + dz * rz) < W && Math.abs(p.y - V.y) < 2) { S.list.splice(i, 1); G.vict++; curSc = G.eins > 0 && G.vict >= G.eins ? maybeScene(p.x, p.z) : null; if (curSc) G.vict = 0; burst(p, V.vx, V.vz, sp); curSc = null; if (hunted === p) hunted = null; G.count = (G.count || 0) + 1; } }
+    const al = dx * fx + dz * fz, la = dx * rx + dz * rz; if (Math.abs(p.y - V.y) > 2) continue;
+    if (Math.abs(al) < L && Math.abs(la) < W) {
+      if (G.on && sp >= 3.5) { S.list.splice(i, 1); G.vict++; curSc = G.eins > 0 && G.vict >= G.eins ? maybeScene(p.x, p.z) : null; if (curSc) G.vict = 0; burst(p, V.vx, V.vz, sp); curSc = null; if (hunted === p) hunted = null; G.count = (G.count || 0) + 1; continue; }
+      /* Runde 203: too slow to run someone over (or gore off): the car pushes them ahead of it, and they start to run */
+      if (sp > .3) { const na = (al >= 0 ? 1 : -1) * (L + .15); p.x = V.x + fx * na + rx * la; p.z = V.z + fz * na + rz * la; p.hy = 0; flee(p, la, al >= 0 ? 1 : -1); }
+      continue; }
+    /* Runde 203: someone in the car's way sees it coming and tries to get away - starts to run when it would hit within ~1.3 s
+       (once, 70 %); at speed there is little time, so many still don't make it */
+    if (!p.fled && vF > 2 && al > 0 && Math.abs(la) < W + .6 && (al - L) / vF < 1.3) { p.fled = 1; if (R() < .7) { flee(p, la, 1); p.wait = rr(.25, .6); } } // a moment of shock first
+  }
 }
+function flee(p, la, ahead) { if (p.fleeing) return; p.fleeing = 1; p.fled = 1; const V = X.DV, fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h);
+  const sd = Math.abs(la) > .15 ? Math.sign(la) : (R() < .5 ? -1 : 1), hx = rx * sd * .85 + fx * ahead * .5, hz = rz * sd * .85 + fz * ahead * .5; // sideways out of the way, a little ahead
+  Object.assign(p, { free: true, h: Math.atan2(hx, hz), v: 3.2 + R() * 1.4, sx: p.x, sz: p.z, stop: 9 + R() * 8, wait: 0 }); if (window.HXPASS && HXPASS.fleeSound) HXPASS.fleeSound(p); }
 
 // ------------------------------------------------------------------ autopilot: a pedestrian ahead near the route becomes the target
 let hunted = null, huntT = 0;
@@ -233,7 +245,7 @@ const col = new THREE.Color();
 let last = performance.now();
 function loop(now) {
   requestAnimationFrame(loop); const dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (G.on) hits();
+  hits(); /* Runde 203: also without gore - pushing and running away */
   stainsFade(now / 1000); try { sceneStep(dt); } catch (e) { console.warn('gore scene', e); SC = null; G.scene = null; }
   // bloody tyres after a hit: marks behind the rear wheels, thinning out
   const D = X.DRV, V = X.DV;
