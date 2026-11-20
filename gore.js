@@ -171,20 +171,37 @@ function makeTape(x, z) { // eight posts on a ring (pulled in where a house stan
     const tp = new THREE.Mesh(geo, TAPE_MAT); tp.position.set((ax + bx) / 2, (ay + by) / 2 + .9, (az + bz) / 2); tp.rotation.y = -Math.atan2(bz - az, bx - ax); tp.rotation.z = Math.atan2(by - ay, L); g.add(tp); }
   X.scene.add(g); return g;
 }
-function aheadHint(dist) { // a point dist metres ahead of the driver: on the autopilot's route, else straight ahead (on foot: where he looks)
-  const D = X.DRV, V = X.DV, P = X.P, drv = D && D.on, ox = drv ? V.x : P.x, oz = drv ? V.z : P.z;
-  if (drv && ROUTE && performance.now() - ROUTE.at < 1500) { const { Rt, idx, n } = ROUTE; let acc = 0, px = ox, pz = oz;
-    for (let k = idx; k < n; k++) { const x = Rt[k * 2], z = Rt[k * 2 + 1]; acc += Math.hypot(x - px, z - pz); px = x; pz = z; if (acc >= dist) return { x, z }; } if (acc > 30) return { x: px, z: pz }; }
-  const h = drv ? V.h : P.yaw, T = window.TR, G = T && T.G;
-  if (G) { /* Runde 173 (phone test, driving by hand: nobody came): no autopilot route - follow the street the driver is on through the graph,
-       at every junction the way that keeps closest to his heading */
-    let a = -1, ad = 20 * 20; for (let k = 0; k < G.xs.length; k++) { const d = (G.xs[k] - ox) ** 2 + (G.zs[k] - oz) ** 2; if (d < ad && G.adj[k].length) { ad = d; a = k; } }
+/* Runde 176 (test at speed with the autopilot: the police car popped up 48 m ahead in the middle of the picture and was past in 1.8 s):
+   the start is the first point ahead - at least dist (55 m, at speed 4.5 s of travel) - where nobody can see a car: outside the picture,
+   behind houses, or in the haze (fog factor < 0.2, about 280 m). The points follow the autopilot's route, else the street the driver is
+   on through the graph (at each junction the way closest to his heading, only if it really leads ahead), else straight ahead. */
+function aheadPts(ox, oz, h, maxD) { // points ahead every ~10 m up to maxD
+  const pts = [], add = (x, z, acc) => { if (!pts.length || acc - pts[pts.length - 1].acc >= 9) pts.push({ x, z, acc }); };
+  if (X.DRV && X.DRV.on && ROUTE && performance.now() - ROUTE.at < 1500) { const { Rt, idx, n } = ROUTE; let acc = 0, px = ox, pz = oz;
+    for (let k = idx; k < n && acc < maxD; k++) { const x = Rt[k * 2], z = Rt[k * 2 + 1], L = Math.hypot(x - px, z - pz), m = Math.max(1, Math.ceil(L / 9));
+      for (let j = 1; j <= m; j++) add(px + (x - px) * j / m, pz + (z - pz) * j / m, acc + L * j / m); acc += L; px = x; pz = z; }
+    if (pts.length && pts[pts.length - 1].acc > 30) return pts; pts.length = 0; }
+  const T = window.TR, G = T && T.G;
+  if (G) { let a = -1, ad = 20 * 20; for (let k = 0; k < G.xs.length; k++) { const d = (G.xs[k] - ox) ** 2 + (G.zs[k] - oz) ** 2; if (d < ad && G.adj[k].length) { ad = d; a = k; } }
     if (a >= 0) { let hx = Math.sin(h), hz = Math.cos(h), acc = 0, prev = -1;
-      for (let st = 0; st < 60; st++) { const l = G.adj[a]; let b = -1, bc = -.3, bl = 0;
+      for (let st = 0; st < 120 && acc < maxD; st++) { const l = G.adj[a]; let b = -1, bc = -.3, bl = 0;
         for (let k = 0; k < l.length; k += 3) { const m = l[k]; if (m === prev) continue; const ex = G.xs[m] - G.xs[a], ez = G.zs[m] - G.zs[a], L = Math.hypot(ex, ez) || 1, co = (ex * hx + ez * hz) / L; if (co > bc) { bc = co; b = m; bl = L; } }
-        if (b < 0) break; acc += bl; hx = (G.xs[b] - G.xs[a]) / bl; hz = (G.zs[b] - G.zs[a]) / bl; prev = a; a = b; if (acc >= dist) break; }
-      const fw = (G.xs[a] - ox) * Math.sin(h) + (G.zs[a] - oz) * Math.cos(h); if (acc > 30 && fw > 25) return { x: G.xs[a], z: G.zs[a], fx: Math.sin(h), fz: Math.cos(h), ox, oz }; } } // only if it really lies ahead (one-way streets, dead ends)
-  return { x: ox + Math.sin(h) * dist, z: oz + Math.cos(h) * dist, fx: Math.sin(h), fz: Math.cos(h), ox, oz };
+        if (b < 0) break; const m = Math.max(1, Math.ceil(bl / 9)); for (let j = 1; j <= m; j++) add(G.xs[a] + (G.xs[b] - G.xs[a]) * j / m, G.zs[a] + (G.zs[b] - G.zs[a]) * j / m, acc + bl * j / m);
+        acc += bl; hx = (G.xs[b] - G.xs[a]) / bl; hz = (G.zs[b] - G.zs[a]) / bl; prev = a; a = b; }
+      const ok = pts.filter(q => (q.x - ox) * Math.sin(h) + (q.z - oz) * Math.cos(h) > 25); if (ok.length > 2) return ok; pts.length = 0; } } // only if it really leads ahead (one-way streets, dead ends)
+  for (let d = 10; d <= maxD; d += 10) pts.push({ x: ox + Math.sin(h) * d, z: oz + Math.cos(h) * d, acc: d }); return pts;
+}
+function seen(cam, x, z) { // could the player see a car standing here?
+  const y = X.terrainH(x, z) + 1.4; PV.set(x, y, z); const d = PV.distanceTo(cam.position), fog = X.scene && X.scene.fog, dens = fog && fog.density ? fog.density : 0;
+  if (dens && Math.exp(-(d * dens) * (d * dens)) < .2) return false; // lost in the haze
+  PV.project(cam); if (PV.z > 1 || Math.abs(PV.x) > 1.05 || Math.abs(PV.y) > 1.05) return false; return !hidden(cam, x, y, z);
+}
+function aheadHint(dist) {
+  const D = X.DRV, V = X.DV, P = X.P, drv = D && D.on, ox = drv ? V.x : P.x, oz = drv ? V.z : P.z, h = drv ? V.h : P.yaw, cam = X.camera;
+  const pts = aheadPts(ox, oz, h, dist + 320), alt = []; let pick = null;
+  for (const q of pts) { if (q.acc < dist) continue; if (!pick) { pick = q; if (cam && seen(cam, q.x, q.z)) { pick = null; continue; } } else if (alt.length < 6 && q.acc - (alt.length ? alt[alt.length - 1].acc : pick.acc) >= 25 && (!cam || !seen(cam, q.x, q.z))) alt.push(q); } // the first ones out of sight
+  if (!pick) pick = pts[pts.length - 1] || { x: ox + Math.sin(h) * dist, z: oz + Math.cos(h) * dist };
+  return { x: pick.x, z: pick.z, alt, fx: Math.sin(h), fz: Math.cos(h), ox, oz, seen: (x, z) => !!cam && seen(cam, x, z) };
 }
 function walkTo(f, tx, tz) { const d = Math.hypot(tx - f.x, tz - f.z); f.sx = f.x; f.sz = f.z; f.h = Math.atan2(tx - f.x, tz - f.z); f.v = 1.25; f.stop = Math.max(.2, d); f.wait = 0; }
 function sceneStep(dt) {

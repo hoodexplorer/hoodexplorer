@@ -56,6 +56,14 @@ function trNear(G, x, z) { let t = -1, td = 60 * 60; for (let n = 0; n < G.xs.le
 TR.dispatch = (x, z, id, hint) => { // Runde 172: hint = {x, z} - start there (ahead of the driver): the car comes towards him
   const G = TR.G, A = window.HXD && HXD.aStar; if (!G || !A || !TR.on || !TR_V.length) return null; const type = TR_V.findIndex(v => v.id === id); if (type < 0) return null;
   const t = trNear(G, x, z); if (t < 0) return null; const cam = X.camera, P = new THREE.Vector3(), starts = [];
+  /* Runde 177 (test at 20 m/s: one came on a parallel street 95 m to the side, one fell back to a random start): first try the points ahead
+     strictly - a node at most 15 m from the driver's way, and a way to the scene that passes within 25 m of him (really oncoming) */
+  if (hint && hint.ox !== undefined) for (const hp of [hint].concat(hint.alt || [])) { const cand = []; // the 3 nearest nodes within 30 m (divided roads: the other carriageway)
+    for (let n = 0; n < G.xs.length; n++) { if (!G.adj[n].length) continue; const d = (G.xs[n] - hp.x) ** 2 + (G.zs[n] - hp.z) ** 2; if (d < 30 * 30 && (G.xs[n] - hint.ox) * hint.fx + (G.zs[n] - hint.oz) * hint.fz > 20) cand.push([d, n]); }
+    cand.sort((p, q) => p[0] - q[0]);
+    for (const [, a] of cand.slice(0, 3)) { if (hint.seen && hint.seen(G.xs[a], G.zs[a])) continue; const path = A(G, a, t); // the start itself out of sight if (!path || path.length < 2 || path.length > 250) continue;
+      let pass = 1e9; for (const n of path) pass = Math.min(pass, Math.hypot(G.xs[n] - hint.ox, G.zs[n] - hint.oz)); if (pass > 35) continue;
+      const c = trRun(type, path, x, z); c.fromHint = 2; return c; } }
   if (hint) { const near = []; for (let n = 0; n < G.xs.length; n++) { if (!G.adj[n].length) continue; const d = Math.hypot(G.xs[n] - hint.x, G.zs[n] - hint.z); if (d < 40 && Math.hypot(G.xs[n] - x, G.zs[n] - z) > 30 && (hint.fx === undefined || (G.xs[n] - hint.ox) * hint.fx + (G.zs[n] - hint.oz) * hint.fz > 20)) near.push([d, n]); } // ahead of the driver only
     near.sort((p, q) => p[0] - q[0]); for (const q of near.slice(0, 3)) starts.push(q[1]); }
   for (let tr = 0, tries = 0; tr < 150 + starts.length && tries < 4 + starts.length; tr++) { let a;
@@ -68,6 +76,11 @@ TR.dispatch = (x, z, id, hint) => { // Runde 172: hint = {x, z} - start there (a
     TR.cars.push(c); return c; }
   return null;
 };
+function trRun(type, path, x, z) { // an emergency car starting at path[0], on its way to (x, z)
+  const G = TR.G, V = TR_V[type], c = { a: path[0], b: path[1], path, pi: 1, dest: 1, tx: x, tz: z, t: 0, seed: Math.random(), type, len: V.len, siren: true, v: 0, x: G.xs[path[0]], z: G.zs[path[0]], y: 0, h: 0, col: null };
+  trSetEdge(c); c.v = c.vmax * .6; c.h = Math.atan2(c.bx - c.ax, c.bz - c.az); c.x -= Math.cos(c.h) * c.off; c.z += Math.sin(c.h) * c.off; c.y = X.terrainH(c.x, c.z); c.n = path.length > 2 ? path[2] : -1;
+  TR.cars.push(c); return c;
+}
 TR.release = c => { if (!c || TR.cars.indexOf(c) < 0) return; c.dest = 0; c.path = null; c.park = 0; c.siren = false; c.n = trNext(c); };
 function trNext(c) { // the next node after b: random, straight on preferred, never back unless it is a dead end
   const G = TR.G, l = G.adj[c.b], dx = G.xs[c.b] - G.xs[c.a], dz = G.zs[c.b] - G.zs[c.a], dl = Math.hypot(dx, dz) || 1, opts = [];
