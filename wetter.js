@@ -198,7 +198,7 @@ let moodSig = '';
 window.WX = {
   grip: 1, walkV: 1, walkA: 1,
   get state() { return Object.assign({ kind: kindId, power }, W); },
-  puddleAt, get fxN() { return F.length; }, get stepBanks() { return Object.keys(STEPB).map(k => k + ':' + STEPB[k].length); }, stepSnd, get fish() { return FISH; },
+  puddleAt, get fxN() { return F.length; }, get stepBanks() { return Object.keys(STEPB).map(k => k + ':' + STEPB[k].length); }, stepSnd, get fish() { return FISH; }, fishSplash: null,
   mood(scene, hemi, sun, pu) {
     const L = W.light, g = 1 - L; // L < 1: overcast
     hemi.intensity *= .75 + .25 * L; sun.intensity *= L * L; scene.fog.density *= W.fog;
@@ -228,37 +228,22 @@ function waterAmb(dt, x, z, swimming) {
   if (stillD < 20 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 1200 + Math.random() * 2600; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
 }
 
-/* Runde 182/183: now and then a fish jumps out of the water - 6-22 m ahead in view, on rivers and lakes (not on ice, not at the bank).
-   The fish is a small pixel sprite (cheaper than a mesh, and seen from every side - a flat mesh vanished edge-on), turned along its
-   path on screen and mirrored when it moves to the left; larger than life like the ducks so it reads in pixel art. A small splash with
-   a ring and a soft 'plip' as it leaves the water, a bigger splash with drops, a ring and a 'plop' with bubbles as it falls back in. */
-const FISH = { t: 6 + Math.random() * 6, list: [] };
-const fishMats = (() => { const cv = document.createElement('canvas'); cv.width = 16; cv.height = 8; const g = cv.getContext('2d'); // facing right
-  const px = (c, pts) => { g.fillStyle = c; for (const [x, y, w, h] of pts) g.fillRect(x, y, w, h); };
-  px('#5f6f78', [[3, 2, 9, 2], [12, 3, 1, 2]]); px('#b9c6cc', [[2, 3, 11, 2], [13, 3, 1, 2]]); px('#e6eef0', [[4, 5, 8, 1]]); px('#8a9aa2', [[0, 1, 2, 2], [0, 5, 2, 2], [2, 3, 1, 2]]); px('#1b2226', [[11, 3, 1, 1]]);
-  const mk = flip => { const t = new THREE.CanvasTexture(cv); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; if (flip) { t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1; t.offset.x = 1; }
-    return new THREE.SpriteMaterial({ map: t, alphaTest: .5, transparent: false }); };
-  return [mk(false), mk(true)]; })();
-const _fv = new THREE.Vector3(), _fw = new THREE.Vector3();
+/* Runde 182-184: now and then a fish jumps out of the water - 6-22 m ahead in view, on rivers and lakes (not on ice, not at the bank).
+   The fish is one of the animals (tiere.js TI.jump: the same animated sprite as the swimming fish, carp or perch); every fish jump,
+   also the carp that jump on their own, splashes: a small ring, drops and a soft 'plip' as it leaves the water, a bigger splash with
+   drops in its direction, a ring and a 'plop' with bubbles as it falls back in (WX.fishSplash). */
+const FISH = { t: 6 + Math.random() * 6 };
 function fishSound(kind, x, z) { const cam = A.cam, d = cam ? Math.hypot(cam.position.x - x, cam.position.z - z) : 10; if (d < 45) stepSnd(kind, Math.pow(1 - d / 48, 2)); }
+WX.fishSplash = (x, z, kind, vx, vz) => { const y = A.waterSurf(x, z); if (y === null || y === undefined || isNaN(y)) return; const s = Math.hypot(vx || 0, vz || 0) || 1;
+  spawn(x, y + .03, z, 0, 0, 0, 1, kind === 'plop' ? .35 : .3);
+  if (kind === 'plop') burst(x, y, z, 7, 1.3, 2.4, 0, (vx || 0) / s * .6, (vz || 0) / s * .6); else burst(x, y, z, 4, .8, 1.6, 0, 0, 0);
+  fishSound(kind, x, z); };
 function fishStep(dt) {
-  const cam = A.cam;
-  for (let i = FISH.list.length - 1; i >= 0; i--) { const f = FISH.list[i]; f.t += dt; const u = Math.min(1, f.t / f.T);
-    const x = f.x + f.dx * f.L * u, z = f.z + f.dz * f.L * u, y = f.y + 4 * f.H * u * (1 - u), vy = 4 * f.H * (1 - 2 * u) / f.T;
-    f.m.position.set(x, y, z);
-    if (cam) { _fv.set(x, y, z).project(cam); _fw.set(x + f.dx * f.L / f.T * .05, y + vy * .05, z + f.dz * f.L / f.T * .05).project(cam); // direction on screen
-      const sx = (_fw.x - _fv.x) * innerWidth, sy = (_fw.y - _fv.y) * innerHeight, left = sx < 0;
-      f.m.material = fishMats[left ? 1 : 0]; f.m.material.rotation = 0; f.rot = left ? Math.atan2(-sy, -sx) : Math.atan2(sy, sx); }
-    f.m.onBeforeRender = () => { f.m.material.rotation = f.rot || 0; }; // the two materials are shared: set the turn just before drawing
-    if (u >= 1) { A.scene.remove(f.m); FISH.list.splice(i, 1); spawn(x, f.y + .03, z, 0, 0, 0, 1, .35); burst(x, f.y, z, 7, 1.3, 2.4, 0, f.dx * .6, f.dz * .6); fishSound('plop', x, z); } }
-  if ((FISH.t -= dt) > 0 || !A.waterProbe || !cam || FISH.list.length) return; FISH.t = 5 + Math.random() * 9;
+  const cam = A.cam; if ((FISH.t -= dt) > 0 || !A.waterProbe || !cam || !window.TI || !TI.jump) return; FISH.t = 5 + Math.random() * 9;
   const dir = new THREE.Vector3(); cam.getWorldDirection(dir); const hl = Math.hypot(dir.x, dir.z) || 1, fx = dir.x / hl, fz = dir.z / hl, P = A.P;
   for (let tr = 0; tr < 14; tr++) { const r = 6 + Math.random() * 16, a = (Math.random() - .5) * 1.1, cx = P.x + (fx * Math.cos(a) - fz * Math.sin(a)) * r, cz = P.z + (fz * Math.cos(a) + fx * Math.sin(a)) * r;
     const w = A.waterProbe(cx, cz); if (!w || w.d < 2.5) continue; const fl = A.waterFloor(cx, cz); if (!fl || fl.ice) continue;
-    const y = A.waterSurf(cx, cz), h = Math.random() * 6.283, k = 1.6 + Math.random() * .7, m = new THREE.Sprite(fishMats[0]);
-    m.scale.set(k * .6, k * .3, 1); m.renderOrder = 2; A.scene.add(m);
-    FISH.list.push({ m, x: cx, y, z: cz, dx: Math.sin(h), dz: Math.cos(h), L: .6 + Math.random() * .9, H: .3 + Math.random() * .4, T: .5 + Math.random() * .3, t: 0 });
-    spawn(cx, y + .03, cz, 0, 0, 0, 1, .3); burst(cx, y, cz, 4, .8, 1.6, 0, 0, 0); fishSound('plip', cx, cz); return; }
+    TI.jump(cx, cz, Math.random() * 6.283); return; } // the splash comes from tiere.js as the jump starts
 }
 
 // ------------------------------------------------------------------ per frame

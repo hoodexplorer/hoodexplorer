@@ -180,7 +180,10 @@ function tiUpdate(dt) {
       o.dir = Math.atan2(o.vz, o.vx); const sp = tHyp(o.vx, o.vz); o.ph = (o.ph + dt * (1 + sp * 2.2)) % 1; o.f = sp > .2 ? Math.floor(o.ph * 6) % 6 : 6 + (Math.floor(TI.t * 1.5 + o.d * 3) % 2);
       if (o.jump === undefined && o.sp === 'fisch_karpfen' && tR() < dt / 40) o.jump = 0;
       const ws = X2.waterSurf(o.x, o.z); o.y = (ws === null || ws === undefined ? X2.terrainH(o.x, o.z) : ws) + .03;
-      if (o.jump !== undefined) { o.jump += dt; o.y += Math.sin(Math.min(1, o.jump / 1.1) * Math.PI) * 1.1; if (o.jump > 1.1) o.jump = undefined; }
+      if (o.jump !== undefined) { // Runde 184: every jump splashes - out of the water and back in (wetter.js WX.fishSplash: ring, drops, plip/plop)
+        if (o.jump === 0 && window.WX && WX.fishSplash) WX.fishSplash(o.x, o.z, 'plip', o.vx, o.vz);
+        o.jump += dt; o.y += Math.sin(Math.min(1, o.jump / 1.1) * Math.PI) * 1.1;
+        if (o.jump > 1.1) { o.jump = undefined; if (window.WX && WX.fishSplash) WX.fishSplash(o.x, o.z, 'plop', o.vx, o.vz); if (o.temp) o.gone = 1; } }
     } else if (o.kind === 'ratte') { // along the walls, quick; flee at 6 m and vanish
       if (dP < 6 && o.st !== 2) { o.st = 2; o.t = 0; }
       if (o.st === 2) { tiSteer(o, o.x + (o.x - tx), o.z + (o.z - tz), 4, 6, dt); if (o.t > 2.5) o.gone = 1; }
@@ -224,4 +227,7 @@ function updateTiere(dt) {
   tiUpdate(dt); tiDraw();
   TI.ms += performance.now() - t0; if (++TI.msN >= 60) { TI.msAvg = TI.ms / TI.msN; TI.ms = 0; TI.msN = 0; }
 }
+/* Runde 184: a fish that jumps now - the same animated sprite as the swimming ones (carp or perch), leaves after its jump */
+TI.jump = (x, z, h) => { if (!TI.list) return null; const o = tiAdd({ kind: 'fisch', sp: tR() < .6 ? 'fisch_karpfen' : 'fisch_barsch', x, z, g: -1 - Math.floor(tR() * 1e6), vx: Math.sin(h) * .7, vz: Math.cos(h) * .7, temp: 1 });
+  o.jump = 0; o.d = 0; o.ph = 0; o.fl = 0; return o; };
 window.updateTiere = updateTiere; window.TI = TI;
