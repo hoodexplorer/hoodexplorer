@@ -110,7 +110,7 @@ function trSirenAudio() { if (TR_S.ac) return TR_S.ac; try { const ac = new (win
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { const ac = trSirenAudio(); if (ac && ac.state !== 'running') ac.resume(); }, { passive: true }));
 function trSiren(px, pz) {
   const ac = TR_S.ac; if (!ac || ac.state !== 'running') return; const t = ac.currentTime; let best = null, bd = 160;
-  if (TR.on) for (const c of TR.cars) if (c.siren && !c.park && c.v > .8) { const d = Math.hypot(c.x - px, c.z - pz); if (d < bd) { bd = d; best = c; } }
+  if (TR.on) for (const c of TR.cars) if (c.siren && c.dest && !c.park && c.v > .8) { /* Runde 175: only on a real run to a scene, not the blue-light cars of the ordinary traffic */ const d = Math.hypot(c.x - px, c.z - pz); if (d < bd) { bd = d; best = c; } }
   if (!best) { TR_S.g.gain.setTargetAtTime(0, t, .12); return; }
   const dx = best.x - px, dz = best.z - pz, d = Math.hypot(dx, dz) || 1, away = (Math.sin(best.h) * dx + Math.cos(best.h) * dz) / d * best.v; // > 0: moving away
   const f0 = Math.floor(performance.now() / 650 + best.seed * 2) % 2 ? 587 : 440;
