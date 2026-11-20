@@ -167,14 +167,20 @@ function audio() {
   const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
   const loop = (type, f, q) => { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = ac.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(); return [g, fl]; };
   [rainG, rainF] = loop('lowpass', 2400, .4); [hissG] = loop('highpass', 2600, .3);
+  if (window.HXSTEP) for (const k of HXSTEP.kinds) STEPB[k] = HXSTEP.bank(k, ac.sampleRate).map(a => { const b = ac.createBuffer(1, a.length, ac.sampleRate); b.getChannelData(0).set(a); return b; }); // Runde 179: footsteps (schritte.js)
   return ac;
 }
-['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { if (W.rain + W.snow + W.wet > .02 || target.storm) { audio(); if (ac && ac.state !== 'running') ac.resume(); } }, { passive: true }));
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { if (W.rain + W.snow + W.wet + W.cover + W.ice > .02 || target.storm) { audio(); if (ac && ac.state !== 'running') ac.resume(); } }, { passive: true }));
 function burstSnd(dur, type, f, q, vol, f2) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur); fl.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
   s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(t, Math.random()); s.stop(t + dur + .05); }
-const sPlash = () => burstSnd(.22, 'bandpass', 1300 + Math.random() * 500, 1.2, .16, 500);
-const sCrunch = () => { burstSnd(.12, 'bandpass', 2600 + Math.random() * 1200, 2.5, .07); burstSnd(.09, 'lowpass', 700, .7, .05); };
+/* Runde 179 (phone test: steps in rain and snow sounded wrong - one soft noise puff for puddle, snow and ice alike, wet ground silent):
+   pre-computed steps from schritte.js (snow = granular crunch, puddle = slap + splash + bubbles, wet ground = soft slap, ice = hard
+   cracks), six variants each, played with a little random pitch and level */
+const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18 };
+function stepSnd(kind, k = 1) { if (!ac || ac.state !== 'running') return; const L = STEPB[kind]; if (!L || !L.length) return;
+  const s = ac.createBufferSource(), g = ac.createGain(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
+  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(g); g.connect(ac.destination); s.start(); }
 const sWhoosh = v => burstSnd(.6, 'bandpass', 900, .8, Math.min(.35, .08 + v * .006), 300);
 function thunder(dist) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime + dist, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = 'lowpass'; fl.frequency.value = 160 + Math.random() * 120; g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.6 / (1 + dist * .4), t + .08); g.gain.exponentialRampToValueAtTime(.2 / (1 + dist * .4), t + .9);
@@ -191,7 +197,7 @@ let moodSig = '';
 window.WX = {
   grip: 1, walkV: 1, walkA: 1,
   get state() { return Object.assign({ kind: kindId, power }, W); },
-  puddleAt, get fxN() { return F.length; },
+  puddleAt, get fxN() { return F.length; }, get stepBanks() { return Object.keys(STEPB).map(k => k + ':' + STEPB[k].length); }, stepSnd,
   mood(scene, hemi, sun, pu) {
     const L = W.light, g = 1 - L; // L < 1: overcast
     hemi.intensity *= .75 + .25 * L; sun.intensity *= L * L; scene.fog.density *= W.fog;
@@ -245,8 +251,10 @@ WX.update = function (dt, time) {
   if (!DRV.on && P.ground && !P.swim && !P.wade && Math.abs(P.speed) > .6) {
     const s = Math.floor(P.phase / Math.PI);
     if (s !== stepN) { stepN = s; const side = s % 2 ? 1 : -1, hx = Math.cos(P.yaw) * .14 * side, hz = -Math.sin(P.yaw) * .14 * side, x = P.x + hx, z = P.z + hz, fast = Math.abs(P.speed) > 7;
-      if (puddleAt(x, z)) { const y = A.terrainH(x, z); spawn(x, y + .03, z, 0, 0, 0, 1, .3); burst(x, y, z, fast ? 9 : 5, fast ? 2.2 : 1.4, fast ? 3.2 : 2.2, 0, Math.sin(P.yaw) * P.speed * .25, Math.cos(P.yaw) * P.speed * .25); if (W.frost && W.ice > .5) sCrunch(); else sPlash(); }
-      else if (W.cover > .3) { decal(x, z, P.yaw, .2, .32); sCrunch(); if (fast) burst(x, A.terrainH(x, z), z, 3, .8, 1, 2); } } }
+      if (puddleAt(x, z)) { const y = A.terrainH(x, z); spawn(x, y + .03, z, 0, 0, 0, 1, .3); burst(x, y, z, fast ? 9 : 5, fast ? 2.2 : 1.4, fast ? 3.2 : 2.2, 0, Math.sin(P.yaw) * P.speed * .25, Math.cos(P.yaw) * P.speed * .25); stepSnd(W.frost && W.ice > .5 ? 'ice' : 'splash', fast ? 1.25 : 1); }
+      else if (W.cover > .3) { decal(x, z, P.yaw, .2, .32); stepSnd('snow', (fast ? 1.25 : 1) * Math.min(1, .4 + W.cover)); if (fast) burst(x, A.terrainH(x, z), z, 3, .8, 1, 2); }
+      else if (W.frost && W.ice > .5) stepSnd('ice', fast ? .9 : .7); // black ice
+      else if (W.wet > .3) stepSnd('wet', (fast ? 1.2 : 1) * Math.min(1, W.wet)); } } // wet ground: a soft wet slap (was silent)
   else if (DRV.on) stepN = -1;
 
   // driving: spray behind the wheels on a wet road, big splashes through puddles, tracks and white spray in snow
