@@ -28,10 +28,15 @@
     for (let v = 0; v < NV; v++) {
       const d = Object.assign({}, F.byId(POOL[v % POOL.length])); d.item = null; d.schrift = null;
       if (W === 'heute' || v >= POOL.length) { d.oben = tint(d.oben, 1); d.hose = tint(d.hose, .7); d.haar = pick(['#1a1410', '#3a2a1a', '#7a4a22', '#b07a3a', '#d9b05a', '#9a9a9a', d.haar]); d.haut = pick(['#f0c8a8', '#e2b08c', '#d8a27a', '#c98d66', '#8d5a3a', d.haut]); }
-      const g = new THREE.Group(), J = F.make(d, g), frames = [];
-      for (let f = 0; f < FR; f++) { F.pose(J, { walk: .85, run: 0, phase: (f + .5) / FR * Math.PI * 2, air: 0, tuck: 0, crouch: 0 }); frames.push(bake(g)); }
-      S.meshes.push(frames.map(geo => { const m = new THREE.InstancedMesh(geo, mat, MAXN); m.count = 0; m.visible = false; m.frustumCulled = false; X.scene.add(m); return m; }));
+      mkVar(d);
     }
+    S.nv = S.meshes.length; S.fig = {}; // Runde 171: police and emergency doctors for the gore scene (worlds with traffic)
+    if (W === 'heute' || W === 'cyber') for (const id of ['polizist', 'polizistin', 'notaerztin']) { const d0 = F.byId(id); if (!d0) continue; const d = Object.assign({}, d0); d.item = null; d.schrift = null; S.fig[id] = S.meshes.length; mkVar(d); }
+  }
+  function mkVar(d) {
+    const g = new THREE.Group(), J = F.make(d, g), frames = [];
+    for (let f = 0; f < FR; f++) { F.pose(J, { walk: .85, run: 0, phase: (f + .5) / FR * Math.PI * 2, air: 0, tuck: 0, crouch: 0 }); frames.push(bake(g)); }
+    S.meshes.push(frames.map(geo => { const m = new THREE.InstancedMesh(geo, mat, MAXN); m.count = 0; m.visible = false; m.frustumCulled = false; X.scene.add(m); return m; }));
   }
 
   // ---- where people walk: sidewalks beside streets (both sides) and footways
@@ -43,7 +48,7 @@
       const u = rnd(), side = r.k === 'p' ? (rnd() - .5) * .8 : (rnd() < .5 ? -1 : 1) * (r.w / 2 + 1.6), dx = (bx - ax) / L, dz = (bz - az) / L;
       const x = ax + (bx - ax) * u - dz * side, z = az + (bz - az) * u + dx * side, d = Math.hypot(x - px, z - pz);
       if (d < 35 || d > 160 || X.buildingAt(x, z)) continue;
-      S.list.push({ r, i, u: u * L, L, side, dir: rnd() < .5 ? 1 : -1, v: (r.k === 'p' ? 1.1 : 1.25) + rnd() * .5, x, z, y: X.terrainH(x, z), h: 0, var: (rnd() * S.meshes.length) | 0, step: rnd() * 4, wait: 0 });
+      S.list.push({ r, i, u: u * L, L, side, dir: rnd() < .5 ? 1 : -1, v: (r.k === 'p' ? 1.1 : 1.25) + rnd() * .5, x, z, y: X.terrainH(x, z), h: 0, var: (rnd() * (S.nv || S.meshes.length)) | 0, step: rnd() * 4, wait: 0 });
       return;
     }
   }
@@ -75,7 +80,7 @@
     const dt = Math.min(.1, (now - last) / 1000); last = now; requestAnimationFrame(loop);
     if (!S.built) { if (X.tiles.size) build(); return; }
     const P = X.P; if (!S.on || !P.placed || X.ISO !== null || X.PRUEF !== null) { if (S.list.length) { S.list = []; draw(); } return; }
-    const px = P.x, pz = P.z; S.list = S.list.filter(p => Math.hypot(p.x - px, p.z - pz) < 190 && !(p.free && (p.life = (p.life || 0) + dt) > 40));
+    const px = P.x, pz = P.z; S.list = S.list.filter(p => p.unit || (Math.hypot(p.x - px, p.z - pz) < 190 && !(p.free && (p.life = (p.life || 0) + dt) > 40)));
     if (S.list.length < MAXN && now > S.next) { spawn(px, pz); S.next = now + 120; }
     for (const p of S.list) advance(p, dt);
     draw();
@@ -85,7 +90,7 @@
   if (el) { el.checked = S.on; el.addEventListener('change', e => { S.on = e.target.checked; try { localStorage.setItem('hx.passanten', S.on); } catch (x) {} }); }
   /* Runde 170: a pedestrian placed by someone else (gore ambush): o = { x, z, h, v, stop } - v 0 = standing */
   S.add = o => { if (!S.on || !S.built || !S.meshes.length || X.buildingAt(o.x, o.z)) return null;
-    const p = Object.assign({ r: null, free: true, gore: true, dir: 1, side: 0, u: 0, L: 1, step: rnd() * 4, wait: 0, var: (rnd() * S.meshes.length) | 0, sx: o.x, sz: o.z, life: 0 }, o);
+    const p = Object.assign({ r: null, free: true, gore: true, dir: 1, side: 0, u: 0, L: 1, step: rnd() * 4, wait: 0, var: (rnd() * (S.nv || S.meshes.length)) | 0, sx: o.x, sz: o.z, life: 0 }, o);
     p.y = X.terrainH(o.x, o.z); if (!p.v) p.wait = 1e9; S.list.push(p); return p; };
   window.HXPASS = S;
 })();

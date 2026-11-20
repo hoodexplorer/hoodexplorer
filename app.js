@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=586' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=588' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1184,6 +1184,10 @@ const LAYERS = Object.assign({ sights: true, zellen: true, burgen: true }, store
 const MITTEL = (window.HX_WELT || 'heute') === 'mittel';
 document.querySelectorAll('.lyMittel').forEach(el => { el.hidden = !MITTEL; }); document.querySelectorAll('.lyHeute').forEach(el => { el.hidden = MITTEL; });
 function burgList() { const out = []; if (!MITTEL || !window.HXW || !HXW.TILES) return out; for (const a of HXW.TILES.values()) for (const it of a) if (it.v === 'm_burg' || it.v === 'm_schloss' || (it.v === 'm_gutshof' && it.t)) out.push(it); return out; } // Runde 166: palaces and named manors too
+function einsatzIcon(g, x, y, r) { // Runde 171: blue and red flashing disc with a white cross-bar - where police and ambulance are
+  const on = ((performance.now() / 350) | 0) % 2; g.fillStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.arc(x, y, r * 1.3, 0, 7); g.fill();
+  g.fillStyle = on ? '#2f6bff' : '#e8262f'; g.strokeStyle = '#1a1206'; g.lineWidth = Math.max(1.5, r * .18); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.stroke();
+  g.fillStyle = '#fff'; g.fillRect(x - r * .55, y - r * .16, r * 1.1, r * .32); g.fillRect(x - r * .16, y - r * .55, r * .32, r * 1.1); }
 function burgIcon(g, x, y, r) { g.fillStyle = '#c9bca2'; g.strokeStyle = '#1a1206'; g.lineWidth = Math.max(1.5, r * .28);
   g.beginPath(); g.moveTo(x - r, y + r * .8); g.lineTo(x - r, y - r * .9); g.lineTo(x - r * .55, y - r * .9); g.lineTo(x - r * .55, y - r * .45); g.lineTo(x - r * .2, y - r * .45); g.lineTo(x - r * .2, y - r * .9);
   g.lineTo(x + r * .2, y - r * .9); g.lineTo(x + r * .2, y - r * .45); g.lineTo(x + r * .55, y - r * .45); g.lineTo(x + r * .55, y - r * .9); g.lineTo(x + r, y - r * .9); g.lineTo(x + r, y + r * .8); g.closePath(); g.fill(); g.stroke();
@@ -1582,6 +1586,7 @@ function drawMini(viewYaw) {
   mctx.filter = T.f; for (const t of tiles.values()) if (t.map) mctx.drawImage(t.map.cv, t.map.x0 * MS, t.map.z0 * MS); mctx.filter = 'none';
   drawRouteMini(mctx, MS);
   if (window.HXZ) HXZ.drawMini(mctx, MS); // Runde 144: telephone booths (layer)
+  if (window.HXGORE && HXGORE.scene) einsatzIcon(mctx, HXGORE.scene.x * MS, HXGORE.scene.z * MS, 15); // Runde 171: the current emergency scene
   if (LAYERS.burgen) for (const b of burgList()) { mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(b.x * MS, b.z * MS, 19, 0, 7); mctx.fill(); burgIcon(mctx, b.x * MS, b.z * MS, 14); } // Runde 154/163: larger, on a light disc
   if (LAYERS.sights) for (const list of SIGHTS.values()) for (const s of list) { if (s.quiet) continue; mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 12, 0, 7); mctx.fill(); mctx.fillStyle = seen.has(s.name) ? T.ss : T.s; mctx.strokeStyle = '#1a1206'; mctx.lineWidth = 2.5; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 9, 0, 7); mctx.fill(); mctx.stroke(); } // Runde 163: larger, light halo, dark rim
   mctx.restore();
@@ -1638,6 +1643,7 @@ function drawBig() {
   g.filter = 'none';
   const mark = (x, z, col, r) => { const [sx, sy] = toScr(x, z); g.fillStyle = col; g.strokeStyle = '#1a1206'; g.lineWidth = 2; g.beginPath(); g.arc(sx, sy, r, 0, 7); g.fill(); g.stroke(); };
   if (window.HXZ) HXZ.drawBig(g, toScr, W / bigCv.clientWidth, bm.s); // Runde 144
+  if (window.HXGORE && HXGORE.scene) { const d = W / bigCv.clientWidth, [sx, sy] = toScr(HXGORE.scene.x, HXGORE.scene.z); einsatzIcon(g, sx, sy, 11 * d); g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText('Einsatz', sx, sy + 24 * d); g.fillText('Einsatz', sx, sy + 24 * d); g.textAlign = 'start'; } // Runde 171
   if (LAYERS.burgen) { const d = W / bigCv.clientWidth; for (const b of burgList()) { const [sx, sy] = toScr(b.x, b.z); burgIcon(g, sx, sy, 9 * d); // Runde 154: castles with their names
       if (bm.s >= .08 && b.t) { g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(b.t, sx, sy + 22 * d); g.fillText(b.t, sx, sy + 22 * d); g.textAlign = 'start'; } } }
   if (bm.s >= .05 && LAYERS.sights) { const r = 6 * Math.max(.5, Math.min(1, bm.s / .25)); for (const list of SIGHTS.values()) for (const s of list) if (!s.quiet) mark(s.x, s.z, seen.has(s.name) ? '#9ea6b8' : '#7fd3ff', r); } // Runde 162: visible far out too, smaller dots

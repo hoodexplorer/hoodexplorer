@@ -45,8 +45,26 @@ function trRebuild() {
   TR.cell = new Map(); for (let n = 0; n < G.xs.length; n++) { const k = Math.floor(G.xs[n] / 4) * 100003 + Math.floor(G.zs[n] / 4); let l = TR.cell.get(k); if (!l) TR.cell.set(k, l = []); l.push(n); }
   TR.G = G; TR.ver = X.TILEVER;
   // cars keep their place: find their nodes in the new graph, or leave
-  TR.cars = TR.cars.filter(c => { const a = trNode(G, c.ax, c.az), b = trNode(G, c.bx, c.bz); if (a < 0 || b < 0 || trEdge(G, a, b) < 0) return false; c.a = a; c.b = b; c.n = trNext(c); return true; });
+  TR.cars = TR.cars.filter(c => { const a = trNode(G, c.ax, c.az), b = trNode(G, c.bx, c.bz); if (a < 0 || b < 0 || trEdge(G, a, b) < 0) return !!c.park; c.a = a; c.b = b;
+    if (c.dest && !c.park) { const t = trNear(G, c.tx, c.tz), p = t >= 0 && window.HXD ? HXD.aStar(G, b, t) : null; if (p) { c.path = [a].concat(p); c.pi = 1; c.n = p.length > 1 ? p[1] : -1; return true; } c.dest = 0; c.path = null; } // Runde 171: the run goes on in the new graph
+    if (!c.park) c.n = trNext(c); return true; });
 }
+function trNear(G, x, z) { let t = -1, td = 60 * 60; for (let n = 0; n < G.xs.length; n++) { if (!G.adj[n].length) continue; const d = (G.xs[n] - x) ** 2 + (G.zs[n] - z) ** 2; if (d < td) { td = d; t = n; } } return t; }
+/* Runde 171: an emergency run (gore scene) - a police car or ambulance starts out of the picture 90-230 m away, drives with blue light
+   along the shortest way (aStar of the autopilot) to the place, parks at the kerb with the blue light still on; release() lets it drive
+   off without it. Parked/dispatched cars are not removed by distance. */
+TR.dispatch = (x, z, id) => {
+  const G = TR.G, A = window.HXD && HXD.aStar; if (!G || !A || !TR.on || !TR_V.length) return null; const type = TR_V.findIndex(v => v.id === id); if (type < 0) return null;
+  const t = trNear(G, x, z); if (t < 0) return null; const cam = X.camera, P = new THREE.Vector3();
+  for (let tr = 0, tries = 0; tr < 150 && tries < 4; tr++) { const a = (Math.random() * G.xs.length) | 0, d = Math.hypot(G.xs[a] - x, G.zs[a] - z); if (d < 90 || d > 230 || !G.adj[a].length) continue;
+    P.set(G.xs[a], X.terrainH(G.xs[a], G.zs[a]) + 1, G.zs[a]).project(cam); if (tr < 120 && P.z < 1 && Math.abs(P.x) < 1.1 && Math.abs(P.y) < 1.1) continue; // comes from out of the picture
+    tries++; const path = A(G, a, t); if (!path || path.length < 2) continue;
+    const V = TR_V[type], c = { a: path[0], b: path[1], path, pi: 1, dest: 1, tx: x, tz: z, t: 0, seed: Math.random(), type, len: V.len, siren: true, v: 0, x: G.xs[a], z: G.zs[a], y: 0, h: 0, col: null };
+    trSetEdge(c); c.v = c.vmax * .6; c.h = Math.atan2(c.bx - c.ax, c.bz - c.az); c.x -= Math.cos(c.h) * c.off; c.z += Math.sin(c.h) * c.off; c.y = X.terrainH(c.x, c.z); c.n = path.length > 2 ? path[2] : -1;
+    TR.cars.push(c); return c; }
+  return null;
+};
+TR.release = c => { if (!c || TR.cars.indexOf(c) < 0) return; c.dest = 0; c.path = null; c.park = 0; c.siren = false; c.n = trNext(c); };
 function trNext(c) { // the next node after b: random, straight on preferred, never back unless it is a dead end
   const G = TR.G, l = G.adj[c.b], dx = G.xs[c.b] - G.xs[c.a], dz = G.zs[c.b] - G.zs[c.a], dl = Math.hypot(dx, dz) || 1, opts = [];
   let sum = 0;
@@ -92,7 +110,7 @@ function updateTraffic(dt) {
   if (!TR.G) return;
   if (TR.lx !== undefined && dt > 0 && Math.hypot(px - TR.lx, pz - TR.lz) < 50) { const k = 1 - Math.exp(-dt * 2); TR.vx += ((px - TR.lx) / dt - TR.vx) * k; TR.vz += ((pz - TR.lz) / dt - TR.vz) * k; } TR.lx = px; TR.lz = pz; // player's velocity, smoothed
   const kill = TR_KILL + Math.min(140, Math.hypot(TR.vx, TR.vz) * 3);
-  TR.cars = TR.cars.filter(c => Math.hypot(c.x - px, c.z - pz) < kill);
+  TR.cars = TR.cars.filter(c => c.dest || Math.hypot(c.x - px, c.z - pz) < kill);
   if (window.OEPNV && !(OEPNV.on && OEPNV.bus)) TR.cars = TR.cars.filter(c => !TR_V[c.type].bus); // buses switched off (Runde 91)
   for (let k = 0; k < 2 && TR.cars.length < TR.max; k++) trSpawn(px, pz);
   const G = TR.G, cs = TR.cars, ks = 1 - Math.exp(-dt * 6);
@@ -102,13 +120,15 @@ function updateTraffic(dt) {
     let gap = 99; const look = (ox, oz, lat, j, half) => { const rx = ox - c.x, rz = oz - c.z, al = rx * fx + rz * fz; if (al <= 0 || al > 40) return; if (Math.abs(rx * fz - rz * fx) > lat) return; if (j >= 0) { const o = cs[j], co = Math.sin(o.h) * fx + Math.cos(o.h) * fz; if (co < -.5) return; if (Math.abs(co) < .5 && j > i) return; } const free = al - c.len / 2 - half; if (free < gap) gap = free; };
     for (let j = 0; j < cs.length; j++) if (j !== i) look(cs[j].x, cs[j].z, 1.6, j, cs[j].len / 2);
     look(px, pz, 2.2, -1, .5);
-    let vt = Math.min(c.vmax, Math.max(0, (gap - 2.5) * 1.1));
+    let vt = Math.min(c.vmax, Math.max(0, (gap - 2.5) * 1.1)); if (c.park) vt = 0; else if (c.dest && c.n < 0) vt = Math.min(vt, 2 + (c.L - c.t) * .6); // parked at the scene / slowing down to it
     if (c.n >= 0) { const nx = G.xs[c.n] - c.bx, nz = G.zs[c.n] - c.bz, co = (nx * (c.bx - c.ax) + nz * (c.bz - c.az)) / ((Math.hypot(nx, nz) || 1) * c.L); if (co < .75) vt = Math.min(vt, 4.5 + (c.L - c.t) * .55); } // slow down before turning
     c.brk = vt < c.v - .4 || (c.v < .6 && vt < 1); // Runde 95: brake lights when slowing down or standing in the queue
     c.sig = 0; if (c.n >= 0 && c.L - c.t < 30) { const nx = G.xs[c.n] - c.bx, nz = G.zs[c.n] - c.bz; let dh = Math.atan2(nx, nz) - Math.atan2(c.bx - c.ax, c.bz - c.az); dh = Math.atan2(Math.sin(dh), Math.cos(dh)); if (Math.abs(dh) > .5) c.sig = dh > 0 ? 1 : 2; } // indicator before a turn (heading grows towards the car's left)
     c.v += Math.max(-10 * dt, Math.min(3 * dt, vt - c.v)); if (c.v < 0) c.v = 0;
+    if (c.dest && !c.park) { const dd = Math.hypot(c.x - c.tx, c.z - c.tz); c.stk = c.v < .4 ? (c.stk || 0) + dt : 0; if ((dd < 16 && c.v < 1.5) || (dd < 45 && c.stk > 4)) { c.park = 1; c.v = 0; c.off = Math.max(c.off, 0) + 1.3; } } // Runde 171: near the place and held up (the player, a queue): park here
     c.t += c.v * dt;
-    while (c.t >= c.L) { if (c.n < 0) { c.dead = 1; break; } c.t -= c.L; c.a = c.b; c.b = c.n; trSetEdge(c); c.n = trNext(c); }
+    while (c.t >= c.L) { if (c.n < 0) { if (c.dest) { c.t = c.L; if (!c.park) { c.park = 1; c.v = 0; c.off = Math.max(c.off, 0) + 1.3; } break; } c.dead = 1; break; } // Runde 171: at the scene: park at the kerb
+      c.t -= c.L; c.a = c.b; c.b = c.n; trSetEdge(c); c.n = c.path ? (++c.pi + 1 < c.path.length ? c.path[c.pi + 1] : -1) : trNext(c); }
     if (c.dead) continue;
     const ux = (c.bx - c.ax) / c.L, uz = (c.bz - c.az) / c.L, tx = c.ax + ux * c.t - uz * c.off, tz = c.az + uz * c.t + ux * c.off; // right of travel = (-uz, ux)
     const ox = c.x, oz = c.z; c.x += (tx - c.x) * ks; c.z += (tz - c.z) * ks;
