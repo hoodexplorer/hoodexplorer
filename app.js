@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=622' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=623' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -915,11 +915,24 @@ function itemTex(id) { // pixel art, 16 px (the rifle 32 px wide)
     og.putImageData(im, 0, 0); const t = new THREE.CanvasTexture(o); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; return { t, w: (W + 2) / 18 }; }
 }
 const HAND = { id: store.get('hx.item') || 'nichts', spr: null };
+/* Runde 195 (phone: the rifle points sideways): held items are sprites - always facing the camera, drawn pointing right. The rifle now
+   follows where the figure looks on screen: turned to the figure's facing direction projected into the picture, mirrored when that
+   points left (grip stays in the hand), and shortened when the figure looks towards or away from the camera. */
+const _ha = new THREE.Vector3(), _hb = new THREE.Vector3(), _hc = new THREE.Vector3(), _hr = new THREE.Vector3();
+function aimHand(cam) { const s = HAND.spr; if (!s || HAND.id !== 'gewehr' || !s.visible) return;
+  s.getWorldPosition(_ha); const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+  _hb.set(_ha.x + fx * .5, _ha.y, _ha.z + fz * .5); _hr.setFromMatrixColumn(cam.matrixWorld, 0); _hc.copy(_ha).addScaledVector(_hr, .5);
+  _ha.project(cam); _hb.project(cam); _hc.project(cam);
+  const W = innerWidth, H = innerHeight, sx = (_hb.x - _ha.x) * W, sy = (_hb.y - _ha.y) * H, L = Math.hypot(sx, sy), L0 = Math.hypot((_hc.x - _ha.x) * W, (_hc.y - _ha.y) * H) || 1;
+  const left = sx < 0, k = Math.max(.4, Math.min(1, L / L0)), m = s.material.map, w = s.userData.w;
+  if (s.userData.left !== left) { s.userData.left = left; m.wrapS = THREE.RepeatWrapping; m.repeat.x = left ? -1 : 1; m.offset.x = left ? 1 : 0; m.needsUpdate = true; s.center.x = left ? .75 : .25; }
+  let ang = L < 1e-6 ? 0 : left ? Math.atan2(-sy, -sx) : Math.atan2(sy, sx); ang = Math.max(-1.1, Math.min(1.1, ang)); // never straight up or down
+  s.material.rotation = ang; s.scale.set(1.05 * w * k, 1.05, 1); }
 function setItem(id) {
   if (!(id in ITEMS)) id = 'nichts'; HAND.id = id; store.set('hx.item', id);
   if (HAND.spr) { HAND.spr.parent.remove(HAND.spr); HAND.spr.material.map.dispose(); HAND.spr.material.dispose(); HAND.spr = null; }
   if (id !== 'nichts') { const { t, w } = itemTex(id), s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, alphaTest: .5 }));
-    const sz = id === 'gewehr' ? 1.05 : .72; s.scale.set(sz * w, sz, 1); s.position.set(0, -.04, .08); s.center.set(id === 'gewehr' ? .25 : .5, .38); /* Runde 107: held items oversized, like in pixel games */ player.userData.hand[0].add(s); HAND.spr = s; }
+    const sz = id === 'gewehr' ? 1.05 : .72; s.scale.set(sz * w, sz, 1); s.position.set(0, -.04, .08); s.center.set(id === 'gewehr' ? .25 : .5, .38); s.userData.w = w; /* Runde 107: held items oversized, like in pixel games */ player.userData.hand[0].add(s); HAND.spr = s; }
   for (const b of document.querySelectorAll('#itemSeg button')) b.setAttribute('aria-pressed', b.dataset.item === id ? 'true' : 'false'); }
 for (const id in ITEMS) { const b = document.createElement('button'); b.type = 'button'; b.dataset.item = id; b.textContent = ITEMS[id] || 'Nichts'; b.addEventListener('click', () => { store.set('hx.itemSet', true); setItem(id); }); $('itemSeg').appendChild(b); }
 setItem(HAND.id);
@@ -2055,6 +2068,7 @@ function step(now) {
     for (const k in to) { const a = from[k], b = to[k]; if (Array.isArray(b)) { for (let i = 0; i < b.length; i++) cur[k][i] = a[i] + (b[i] - a[i]) * e; } else cur[k] = a + (b - a) * e; }
     applyMood(cur); }
 
+  aimHand(cam); /* Runde 195 */
   updateSprites(cam, time, cam === iso, player.position, PRUEF === null && ISO === null); updateCarInstances(P.x, P.z); if (window.updateTiere) try { window.updateTiere(dt, time); } catch (e) { if (!window.TIERERR) { window.TIERERR = 1; console.error('Tiere', e); } } // Runde 82
   if (window.updateTraffic) try { window.updateTraffic(dt); } catch (e) { if (!window.TRERR) { window.TRERR = 1; console.error('Verkehr', e); } } // a traffic bug never stops the game loop /* Runde 81 */ if (frame % 30 === 0) updateFar(); if (frame % 20 === 0 && P.placed && PRUEF === null && ISO === null) checkSights();
   if (window.WX) try { WX.update(dt, time); } catch (e) { if (!window.WXERR) { window.WXERR = 1; console.error('Wetter', e); } } // Runde 141
