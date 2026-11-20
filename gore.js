@@ -10,6 +10,9 @@
 const X = window.HXTR; if (!X || !window.THREE) return;
 const G = { on: false, hunt: false };
 try { G.on = localStorage.getItem('hx.gore') === 'true'; G.hunt = localStorage.getItem('hx.goreAuto') === 'true'; } catch (e) { }
+/* Runde 194: how long blood stays (spur, s), emergency from the n-th victim (eins, 0 = never) */
+G.spur = 30; G.eins = 3; G.vict = 0;
+try { const o = JSON.parse(localStorage.getItem('hx.goreOpt') || 'null'); if (o) { if (o.spur) G.spur = +o.spur; if (o.eins !== undefined) G.eins = +o.eins; } } catch (e) { }
 const R = Math.random, rr = (a, b) => a + (b - a) * R();
 
 // ------------------------------------------------------------------ splats: camera-facing discs (blood drops and a short red burst), hard pixel edge, dithered fade
@@ -48,7 +51,7 @@ dMesh.count = 0; dMesh.frustumCulled = false; X.scene.add(dMesh); let dI = 0;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
 const dInfo = new Array(MAXD); let curSc = null; // Runde 171: every stain knows when it goes (or which scene clears it away)
 function stain(x, z, size, stretch, ang, dark) {
-  const y = X.terrainH(x, z) + .03 + (dI % 7) * .002; dInfo[dI] = { x, y, z, size, stretch, ang, born: performance.now() / 1000, life: rr(60, 120), sc: curSc }; _e.set(0, ang, 0); _q.setFromEuler(_e); _p.set(x, y, z); _s.set(size, 1, size * stretch); _m.compose(_p, _q, _s);
+  const y = X.terrainH(x, z) + .03 + (dI % 7) * .002; dInfo[dI] = { x, y, z, size, stretch, ang, born: performance.now() / 1000, life: G.spur * rr(.75, 1.25), sc: curSc }; _e.set(0, ang, 0); _q.setFromEuler(_e); _p.set(x, y, z); _s.set(size, 1, size * stretch); _m.compose(_p, _q, _s);
   dMesh.setMatrixAt(dI, _m); const k = dark ? rr(.28, .4) : rr(.42, .62); dMesh.instanceColor.setXYZ(dI, k, k * rr(.02, .08), k * rr(.03, .07));
   dCell.setXY(dI, (R() * 2 | 0) * .5, (R() * 2 | 0) * .5);
   dI = (dI + 1) % MAXD; dMesh.count = Math.min(MAXD, dMesh.count + 1); dMesh.instanceMatrix.needsUpdate = true; dMesh.instanceColor.needsUpdate = true; dCell.needsUpdate = true;
@@ -85,7 +88,7 @@ function burst(p, vx, vz, sp) {
   for (let i = 0; i < nC; i++) { if (SP.length >= MAXS) SP.shift();
     const flesh = R() < .4, c = flesh ? [rr(.45, .7), rr(.03, .1), rr(.04, .1)] : cols[(R() * cols.length) | 0], spread = rr(1.5, 5) * k, a = R() * 6.283;
     SP.push({ x: p.x + rr(-.2, .2), y: y0 + rr(.3, 1.6), z: p.z + rr(-.2, .2), vx: vx * rr(.45, 1.15) + Math.cos(a) * spread, vy: rr(1.5, 6.5) * k, vz: vz * rr(.45, 1.15) + Math.sin(a) * spread,
-      s: i < big ? rr(.26, .36) : rr(.1, .22), grow: 0, r: c[0], g: c[1], b: c[2], life: 0, max: curSc ? 1e9 : rr(22, 34), mist: false, piece: true, rest: false, stain: true, sc: curSc }); } // with a scene the pieces lie until it is cleared
+      s: i < big ? rr(.26, .36) : rr(.1, .22), grow: 0, r: c[0], g: c[1], b: c[2], life: 0, max: curSc ? 1e9 : Math.min(rr(22, 34), G.spur * rr(.6, .9)), mist: false, piece: true, rest: false, stain: true, sc: curSc }); } // with a scene the pieces lie until it is cleared
   const nS = Math.round(70 + 110 * k * rr(.7, 1.2));
   for (let i = 0; i < nS; i++) { if (SP.length >= MAXS) SP.shift(); const a = R() * 6.283, spread = rr(.5, 6) * k, dk = rr(.55, 1);
     SP.push({ x: p.x + rr(-.25, .25), y: y0 + rr(.4, 1.5), z: p.z + rr(-.25, .25), vx: vx * rr(.3, 1.1) + Math.cos(a) * spread, vy: rr(.5, 7) * k, vz: vz * rr(.3, 1.1) + Math.sin(a) * spread,
@@ -101,10 +104,10 @@ function burst(p, vx, vz, sp) {
 function hits() {
   const S = window.HXPASS, D = X.DRV, V = X.DV; if (!S || !D.on || !D.car || !S.list.length) return;
   const sp = Math.hypot(V.vx, V.vz); if (sp < 3.5) return;
-  const fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h), L = D.car.len / 2 + .35, W = 1.25;
+  const fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h), L = D.car.len / 2 + .7, W = 1.25; /* Runde 194: a little more in front - someone between the bumper and a wall is hit too */
   for (let i = S.list.length - 1; i >= 0; i--) { const p = S.list[i], dx = p.x - V.x, dz = p.z - V.z; if (dx * dx + dz * dz > 40) continue;
     if (p.unit) continue;
-    if (Math.abs(dx * fx + dz * fz) < L && Math.abs(dx * rx + dz * rz) < W && Math.abs(p.y - V.y) < 2) { S.list.splice(i, 1); curSc = maybeScene(p.x, p.z); burst(p, V.vx, V.vz, sp); curSc = null; if (hunted === p) hunted = null; G.count = (G.count || 0) + 1; } }
+    if (Math.abs(dx * fx + dz * fz) < L && Math.abs(dx * rx + dz * rz) < W && Math.abs(p.y - V.y) < 2) { S.list.splice(i, 1); G.vict++; curSc = G.eins > 0 && G.vict >= G.eins ? maybeScene(p.x, p.z) : null; if (curSc) G.vict = 0; burst(p, V.vx, V.vz, sp); curSc = null; if (hunted === p) hunted = null; G.count = (G.count || 0) + 1; } }
 }
 
 // ------------------------------------------------------------------ autopilot: a pedestrian ahead near the route becomes the target
@@ -157,7 +160,7 @@ function stainsFade(t) { // stains shrink away after 1-2 min, or with the end of
    doctors walk about. About half a minute after the last one arrived the remains go, the tape comes down, everyone walks back and the
    cars drive off without blue light. The place is marked on the minimap and the big map while it lasts (G.scene). */
 let SC = null; G.scene = null;
-function maybeScene(x, z) { const T = window.TR, PS = window.HXPASS; if (SC || !T || !T.on || !T.G || !T.dispatch || !PS || !PS.fig || PS.fig.polizist === undefined || R() > .65) return null;
+function maybeScene(x, z) { const T = window.TR, PS = window.HXPASS; if (SC || !T || !T.on || !T.G || !T.dispatch || !PS || !PS.fig || PS.fig.polizist === undefined) return null; /* Runde 194: no dice any more - it comes with the n-th victim */
   SC = { x, z, t: 0, cars: [], figs: [], tape: null, clean: 0, arr: 0, nef: R() < .35, next: 0, want: ['pol', 'rtw'] }; if (SC.nef) SC.want.push('nef'); G.scene = SC; return SC; }
 const TAPE_TEX = (() => { const c = document.createElement('canvas'); c.width = 16; c.height = 4; const g = c.getContext('2d'); for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#f4f4f0' : '#d8202a'; g.fillRect(i * 4, 0, 4, 4); }
   const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; return t; })();
@@ -260,6 +263,10 @@ function ui() { if (tG) tG.checked = G.on; if (tA) { tA.checked = G.hunt; tA.dis
 if (tG) tG.addEventListener('change', () => { G.on = tG.checked; if (!G.on) hunted = null; try { localStorage.setItem('hx.gore', G.on); } catch (e) { } ui(); });
 if (tA) tA.addEventListener('change', () => { G.hunt = tA.checked; hunted = null; try { localStorage.setItem('hx.goreAuto', G.hunt); } catch (e) { } });
 if (bC) bC.addEventListener('click', () => { SP.length = 0; dMesh.count = 0; dI = 0; tireBlood = 0; });
+{ const saveO = () => { try { localStorage.setItem('hx.goreOpt', JSON.stringify({ spur: G.spur, eins: G.eins })); } catch (e) { } };
+  const sl = (id, k, fmt) => { const r = document.getElementById(id), l = document.getElementById(id + 'L'); if (!r) return; r.value = G[k]; const show = () => { l.textContent = fmt(+r.value); }; show();
+    r.addEventListener('input', () => { G[k] = +r.value; show(); saveO(); }); };
+  sl('rGoreSpur', 'spur', v => v + ' s'); sl('rGoreEins', 'eins', v => v === 0 ? 'nie' : v === 1 ? 'dem 1.' : 'dem ' + v + '.'); }
 ui();
 G.burst = burst; G.aheadHint = aheadHint; G.testScene = (x, z) => { for (let i = 0; i < 30 && !SC; i++) maybeScene(x, z); curSc = SC; burst({ x, y: X.terrainH(x, z), z, var: 0 }, 6, 0, 12); curSc = null; return SC; }; /* console test of the scene */ G.stats = () => ({ pieces: SP.filter(s => s.piece).length, splats: SP.length, stains: dMesh.count, hits: G.count || 0 });
 window.HXGORE = G;

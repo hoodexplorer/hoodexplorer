@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=621' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=622' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2441,7 +2441,7 @@ function knock(arr, i, vF, src) { /* Runde 193: src = what hit it (a flying wrec
   const sp = Math.abs(vF), dvx = S.vx, dvz = S.vz, dl = Math.hypot(dvx, dvz) || 1;
   let nx = cx - S.x, nz = cz - S.z; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
   // the knocked car: mostly along our motion, partly away from our centre; faster the harder the hit (we are heavier)
-  const kx = (dvx / dl) * .75 + nx * .45, kz = (dvz / dl) * .75 + nz * .45, kl = Math.hypot(kx, kz) || 1, ks = sp * 1.15 + 2;
+  const kx = (dvx / dl) * .75 + nx * .45, kz = (dvz / dl) * .75 + nz * .45, kl = Math.hypot(kx, kz) || 1, ks = (sp * 1.15 + 2) * BOOMCFG.fling;
   const geo = carMeshes[type].geometry.clone(), pos = geo.attributes.position, sev = Math.min(1, sp / 25);
   // damage: the side facing the impact pushed in, roof squashed, a little crumple everywhere (super low poly: just move the corners)
   const ix = -(kx / kl), iz = -(kz / kl), lx = ix * Math.cos(h) - iz * Math.sin(h), lz = ix * Math.sin(h) + iz * Math.cos(h); // impact direction in the car's frame
@@ -2452,10 +2452,10 @@ function knock(arr, i, vF, src) { /* Runde 193: src = what hit it (a flying wrec
   const c = CAR_COLOURS[colour] || CAR_COLOURS[0]; geo.attributes.iCol.setXYZ(0, c.r * .72, c.g * .72, c.b * .72);
   const m = new THREE.InstancedMesh(geo, carMat, 1); m.frustumCulled = false; scene.add(m);
   if (WRECKS.length >= WRECK_MAX) killWreck(WRECKS.shift());
-  WRECKS.push({ m, x: cx, y: terrainH(cx, cz), z: cz, h, vx: kx / kl * ks, vz: kz / kl * ks, vy: 2.5 + sp * .22, wy: (Math.random() - .5) * sp * .35, rx: 0, rz: 0, wx: (Math.random() - .5) * sp * .12, wz: (Math.random() - .5) * sp * .18, t: 0, boom: Math.random() < BOOMCFG.share, burn: 0 });
+  WRECKS.push({ m, x: cx, y: terrainH(cx, cz), z: cz, h, vx: kx / kl * ks, vz: kz / kl * ks, vy: (2.5 + sp * .22) * Math.sqrt(BOOMCFG.fling), wy: (Math.random() - .5) * sp * .35, rx: 0, rz: 0, wx: (Math.random() - .5) * sp * .12, wz: (Math.random() - .5) * sp * .18, t: 0, boom: Math.random() < BOOMCFG.share, burn: 0 });
   // impact on us: stronger car, but it costs speed; hit-stop, shake, debris, sparks, sound
   /* Runde 193 (phone: ramming made the drive stutter): no hit-stop any more and hardly any speed lost - we just plough on; a jolt and the shake stay */
-  if (!src) { DV.vx *= .97; DV.vz *= .97; DV.yawRate += (Math.random() - .5) * .25; DV.shake = Math.min(1, DV.shake + .25 + sp / 50); }
+  if (!src) { const r = BOOMCFG.recoil, f = 1 - .03 * r * r; DV.vx *= f; DV.vz *= f; DV.yawRate += (Math.random() - .5) * .25 * r * r; DV.shake = Math.min(1, DV.shake + (.25 + sp / 50) * r); } /* Runde 194: recoil 0-2 (1 = 3 % slower, 2 = 12 % and a twist) */
   const px = (cx + S.x) / 2, pz = (cz + S.z) / 2, py = terrainH(px, pz);
   debris(px, py, pz, kx / kl * ks, kz / kl * ks, [c.r, c.g, c.b], 10 + Math.min(14, sp | 0), false); debris(px, py, pz, dvx * .3, dvz * .3, null, 12, true);
   crunch(sp);
@@ -2467,10 +2467,25 @@ function killWreck(w) { w.dead = 1; scene.remove(w.m); w.m.geometry.dispose(); }
    glow and a ring. Every blast is different: power, palette (yellow-white, orange, red), number of puffs, 0-3 delayed after-blasts
    at random offsets, smoke tone, sparks, dark chunks, a flat shock ring on the ground. The wreck chars, jumps, burns on for a few seconds
    and pushes nearby cars away (they roll their own chance - a chain is possible, rarely). */
-const BOOMCFG = { share: .1 }; try { const v = localStorage.getItem('hx.boom'); if (v !== null && !isNaN(+v)) BOOMCFG.share = +v; } catch (e) { }
+/* Runde 194: the ramming can be tuned in Settings -> Fahren (saved as hx.ramm): share of exploding cars (0 = never), blast power,
+   how far rammed cars fly, how much a hit shakes and slows our own car, and whether a blast throws the cars around it (chain). */
+const RAMM_D = { share: .1, power: 1, fling: 1, recoil: 1, chain: true };
+const BOOMCFG = Object.assign({}, RAMM_D); try { const o = JSON.parse(localStorage.getItem('hx.ramm') || 'null'); if (o) Object.assign(BOOMCFG, o); else { const v = localStorage.getItem('hx.boom'); if (v !== null && !isNaN(+v)) BOOMCFG.share = +v; } } catch (e) { }
 window.HXBOOM = BOOMCFG;
-{ const r = document.getElementById('rBoom'), l = document.getElementById('rBoomL'); if (r) { r.value = BOOMCFG.share; const show = () => { l.textContent = +r.value === 0 ? 'nie' : Math.round(r.value * 100) + ' %'; }; show();
-  r.addEventListener('input', () => { BOOMCFG.share = +r.value; show(); try { localStorage.setItem('hx.boom', BOOMCFG.share); } catch (e) { } }); } }
+{ const box = document.querySelector('details.grp[data-g="fahren"] .grpb'); if (box) { const save = () => { try { localStorage.setItem('hx.ramm', JSON.stringify({ share: BOOMCFG.share, power: BOOMCFG.power, fling: BOOMCFG.fling, recoil: BOOMCFG.recoil, chain: BOOMCFG.chain })); } catch (e) { } }, inputs = [];
+  box.innerHTML = '<p class="small">Rammen von geparkten Autos.</p>';
+  const ROWS = [['share', 'Autos, die beim Aufprall explodieren', 0, 1, .05, v => v === 0 ? 'aus' : Math.round(v * 100) + ' %'],
+    ['power', 'Stärke der Explosionen', .4, 2, .1, v => Math.round(v * 100) + ' %'],
+    ['fling', 'Wie weit gerammte Autos fliegen', .4, 2.5, .1, v => Math.round(v * 100) + ' %'],
+    ['recoil', 'Rückstoß aufs eigene Auto (Bremsen, Wackeln)', 0, 2, .1, v => v === 0 ? 'keiner' : Math.round(v * 100) + ' %']];
+  for (const [k, name, a, b, st, fmt] of ROWS) { const row = document.createElement('div'); row.className = 'row';
+    row.innerHTML = '<span></span><span class="rv"><input type="range"> <span class="tv"></span></span>'; row.firstChild.textContent = name;
+    const r = row.querySelector('input'), l = row.querySelector('.tv'); r.min = a; r.max = b; r.step = st; r.value = BOOMCFG[k]; r.setAttribute('aria-label', name);
+    const show = () => { l.textContent = fmt(+r.value); }; show(); r.addEventListener('input', () => { BOOMCFG[k] = +r.value; show(); save(); }); inputs.push([k, r, show]); box.appendChild(row); }
+  const tg = document.createElement('label'); tg.className = 'tog'; tg.innerHTML = '<input type="checkbox"> Kettenreaktion (Explosion schleudert Autos daneben weg)'; const cb = tg.querySelector('input'); cb.checked = !!BOOMCFG.chain;
+  cb.addEventListener('change', () => { BOOMCFG.chain = cb.checked; save(); }); box.appendChild(tg);
+  const rs = document.createElement('div'); rs.className = 'row'; rs.innerHTML = '<button class="pl" type="button">Standard</button>';
+  rs.querySelector('button').addEventListener('click', () => { Object.assign(BOOMCFG, RAMM_D); for (const [k, r, show] of inputs) { r.value = BOOMCFG[k]; show(); } cb.checked = BOOMCFG.chain; save(); }); box.appendChild(rs); } }
 const FX = { fire: null, smoke: null, ring: null, P: [], Q: [], R: [], todo: [] }, FX_F = 220, FX_S = 140;
 function fxAtlas() { if (fxAtlas.t) return fxAtlas.t; const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d'), im = g.createImageData(256, 32);
   for (let k = 0; k < 8; k++) { const blobs = []; const nb = 4 + Math.floor(Math.random() * 4);
@@ -2506,7 +2521,7 @@ function blast(x, y, z, pw, pal, smokeC) {
     fxPart(true, { x, y: y + 1, z, vx: Math.cos(a) * s, vy: 4 + Math.random() * 9, vz: Math.sin(a) * s, s0: .25, s1: .12, L: .6 + Math.random() * .9, t: 0, rot: 0, wr: 0, tex: 6, pal: [[1, .95, .6], [1, .6, .2], [.8, .2, .05]], g: -18, drag: .4, a0: 1 }); }
   debris(x, y, z, 0, 0, null, Math.round(10 * pw), true); debris(x, y, z, 0, 0, [.08, .07, .07], Math.round(8 * pw), false);
 }
-function explode(x, y, z, pw) {
+function explode(x, y, z, pw) { pw *= BOOMCFG.power;
   if (!FX.fire) { FX.fire = fxMesh(FX_F, true); FX.smoke = fxMesh(FX_S, false); }
   const pal = FIREPAL[Math.floor(Math.random() * FIREPAL.length)], sm = Math.random() < .5 ? [.16, .15, .15] : Math.random() < .5 ? [.22, .19, .16] : [.11, .11, .12];
   blast(x, y, z, pw, pal, sm);
@@ -2518,10 +2533,10 @@ function explode(x, y, z, pw) {
   if (DRV.on && dP < 40) DV.shake = Math.min(1, DV.shake + (1 - dP / 40) * .8);
   snd.boom(pw, dP);
   // the blast pushes parked cars close by away (they roll their own chance to blow up too)
-  ramGrid(); const ix = Math.floor(x / 8), iz = Math.floor(z / 8);
+  if (!BOOMCFG.chain) return; const BR = 5.5 * Math.sqrt(BOOMCFG.power); ramGrid(); const ix = Math.floor(x / 8), iz = Math.floor(z / 8);
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const l = RAMG.g.get((ix + a) * 100003 + iz + b); if (!l) continue;
-    for (let q = 0; q < l.length; q += 2) { const arr = l[q], i = l[q + 1]; if (arr[i + 3] < 0) continue; const d = Math.hypot(arr[i] - x, arr[i + 1] - z); if (d > 5.5 || d < .01) continue;
-      knock(arr, i, 9 + (5.5 - d) * 2, { x, z, vx: (arr[i] - x) / d * 6, vz: (arr[i + 1] - z) / d * 6 }); } }
+    for (let q = 0; q < l.length; q += 2) { const arr = l[q], i = l[q + 1]; if (arr[i + 3] < 0) continue; const d = Math.hypot(arr[i] - x, arr[i + 1] - z); if (d > BR || d < .01) continue;
+      knock(arr, i, 9 + (BR - d) * 2, { x, z, vx: (arr[i] - x) / d * 6, vz: (arr[i + 1] - z) / d * 6 }); } }
 }
 function wreckHit(w, s, why) { if (!w.boom || w.burn || s < 3.5) return; w.why = why; w.burn = 3.5 + Math.random() * 3; w.t = 0;
   const c = w.m.geometry.attributes.iCol; c.setXYZ(0, .1, .09, .085); c.needsUpdate = true; // charred
