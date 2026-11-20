@@ -100,11 +100,29 @@ function trSpawn(px, pz) {
     trSetEdge(c); c.v = c.vmax * .6; c.h = Math.atan2(c.bx - c.ax, c.bz - c.az); c.x -= Math.cos(c.h) * c.off; c.z += Math.sin(c.h) * c.off; c.y = X.terrainH(c.x, c.z); c.n = trNext(c);
     TR.cars.push(c); return; }
 }
+/* Runde 174: siren - the German two-tone horn (a1 440 Hz / d2 587 Hz, 0.65 s each) for the nearest emergency vehicle on a run within
+   160 m; silent while it stands or is parked. Volume by distance, left/right by the camera, the pitch drops as it passes (Doppler).
+   One voice for all (only the nearest sounds); the audio context starts with the first touch or key (browser rule). */
+const TR_S = { ac: null };
+function trSirenAudio() { if (TR_S.ac) return TR_S.ac; try { const ac = new (window.AudioContext || window.webkitAudioContext)(), o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain(), p = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  o.type = 'sawtooth'; o.frequency.value = 440; f.type = 'lowpass'; f.frequency.value = 1900; f.Q.value = .7; g.gain.value = 0; o.connect(f); f.connect(g); if (p) { g.connect(p); p.connect(ac.destination); } else g.connect(ac.destination); o.start();
+  Object.assign(TR_S, { ac, o, g, p }); return ac; } catch (e) { return null; } }
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { const ac = trSirenAudio(); if (ac && ac.state !== 'running') ac.resume(); }, { passive: true }));
+function trSiren(px, pz) {
+  const ac = TR_S.ac; if (!ac || ac.state !== 'running') return; const t = ac.currentTime; let best = null, bd = 160;
+  if (TR.on) for (const c of TR.cars) if (c.siren && !c.park && c.v > .8) { const d = Math.hypot(c.x - px, c.z - pz); if (d < bd) { bd = d; best = c; } }
+  if (!best) { TR_S.g.gain.setTargetAtTime(0, t, .12); return; }
+  const dx = best.x - px, dz = best.z - pz, d = Math.hypot(dx, dz) || 1, away = (Math.sin(best.h) * dx + Math.cos(best.h) * dz) / d * best.v; // > 0: moving away
+  const f0 = Math.floor(performance.now() / 650 + best.seed * 2) % 2 ? 587 : 440;
+  TR_S.o.frequency.setTargetAtTime(f0 * 343 / (343 + away), t, .012);
+  TR_S.g.gain.setTargetAtTime(Math.pow(1 - bd / 160, 2) * .14, t, .12);
+  if (TR_S.p && X.camera) { const e = X.camera.matrixWorld.elements, rl = Math.hypot(e[0], e[2]) || 1; TR_S.p.pan.setTargetAtTime(Math.max(-.85, Math.min(.85, (dx * e[0] + dz * e[2]) / (d * rl))), t, .05); }
+}
 function updateTraffic(dt) {
   if (!TR.meshes.length) trInit();
-  if (!X.P.placed || X.PRUEF !== null || X.ISO !== null) { if (TR.cars.length) { TR.cars = []; trDraw(); } return; }
+  if (!X.P.placed || X.PRUEF !== null || X.ISO !== null) { if (TR.cars.length) { TR.cars = []; trDraw(); } if (TR_S.ac) trSiren(0, 0); return; }
   if (!TR.on) { // Runde 91: no cars, but buses and trains can still run
-    if (TR.cars.length) TR.cars = [];
+    if (TR.cars.length) TR.cars = []; if (TR_S.ac) trSiren(0, 0); // silent when traffic is switched off
     const ox = X.DRV.on ? X.DV.x : X.P.x, oz = X.DRV.on ? X.DV.z : X.P.z;
     if (window.updateOepnv) try { window.updateOepnv(ox, oz, 0, 0, Math.min(dt, .1)); } catch (e) { console.warn('oepnv', e); }
     trDraw(); return; }
@@ -142,7 +160,7 @@ function updateTraffic(dt) {
       c.hF = X.terrainH(c.x + fx * hl, c.z + fz * hl, c.y + 1); c.hB = X.terrainH(c.x - fx * hl, c.z - fz * hl, c.y + 1); c.hl = hl; } }
   TR.cars = cs.filter(c => !c.dead);
   if (window.updateOepnv) try { window.updateOepnv(px, pz, TR.vx, TR.vz, dt); } catch (e) { console.warn('oepnv', e); }
-  trDraw();
+  trDraw(); trSiren(px, pz);
   TR.ms += performance.now() - t0; if (++TR.msN >= 60) { TR.msAvg = TR.ms / TR.msN; TR.ms = 0; TR.msN = 0; }
 }
 const _tq0 = new THREE.Quaternion(), _tsP = new THREE.Vector3(), _tc = new THREE.Color(), TR_GLOW = 600, _lv = new THREE.Vector3(), _tm2 = new THREE.Matrix4(), _tp2 = new THREE.Vector3(), _tq2 = new THREE.Quaternion(), _ts2 = new THREE.Vector3();
@@ -203,4 +221,4 @@ function trDraw() {
   TR.glow.geometry.setDrawRange(0, ng); TR.glow.visible = ng > 0; gp.needsUpdate = true; gc.needsUpdate = true;
   TR.meshes.forEach((m, t) => { for (const q of [m].concat(TR_V[t].pm || [])) { q.count = cnt[t]; q.visible = cnt[t] > 0; q.instanceMatrix.needsUpdate = true; q.geometry.attributes.iCol.needsUpdate = true; q.geometry.attributes.iVar.needsUpdate = true; } });
 }
-window.updateTraffic = updateTraffic; window.TR = TR;
+window.updateTraffic = updateTraffic; window.TR = TR; TR.S = TR_S;
