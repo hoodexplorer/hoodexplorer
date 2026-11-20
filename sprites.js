@@ -155,9 +155,9 @@ function makeSpriteAtlas() {
   g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   // pixel-art cells rendered in Blender replace the hand-coded ones once loaded (the game runs with the coded ones meanwhile)
-  fetch('daten/sprites.json?v=3').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
+  fetch('daten/sprites.json?v=4').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
     const im = new Image(); im.onload = () => { for (const n of meta.cells) { const x = (n % SPRITE_COLS) * SPRITE_PX, y = Math.floor(n / SPRITE_COLS) * SPRITE_PX; g.clearRect(x, y, SPRITE_PX, SPRITE_PX); g.drawImage(im, x, y, SPRITE_PX, SPRITE_PX, x, y, SPRITE_PX, SPRITE_PX); } tex.needsUpdate = true; };
-    im.src = 'daten/sprites.png?v=3'; }).catch(() => {});
+    im.src = 'daten/sprites.png?v=4'; }).catch(() => {});
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
@@ -173,8 +173,8 @@ const spriteUniforms = {
    playground, parasols, roof props. Row = asset (dirs16.json "slots": type -> row), column = view (every 22.5 deg). The shader picks the
    view from the angle between camera and object (+ a fixed random turn per object) and blends into the next view with a pixel pattern
    just around the switch, so crowns don't jump when the camera turns. Same cost as before: one quad per object, one more texture. */
-fetch('daten/dirs16.json?v=2').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
-  new THREE.TextureLoader().load('daten/dirs16.png?v=2', t => { t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+fetch('daten/dirs16.json?v=3').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
+  new THREE.TextureLoader().load('daten/dirs16.png?v=3', t => { t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     const sl = new Array(48).fill(-1); for (const k in meta.slots) sl[+k] = meta.slots[k];
     spriteUniforms.uSlot.value = sl; spriteUniforms.uDirRows.value = meta.rows; spriteUniforms.uTrees.value = t; spriteUniforms.uTreesOn.value = 1; window.HX_DIRS = true; }); }).catch(() => {});
 const spriteMat = new THREE.ShaderMaterial({
