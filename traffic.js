@@ -118,7 +118,7 @@ function trSpawn(px, pz) {
    One voice for all (only the nearest sounds); the audio context starts with the first touch or key (browser rule). */
 const TR_S = { ac: null };
 function trSirenAudio() { if (TR_S.ac) return TR_S.ac; try { const ac = new (window.AudioContext || window.webkitAudioContext)(), o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain(), p = ac.createStereoPanner ? ac.createStereoPanner() : null;
-  o.type = 'sawtooth'; o.frequency.value = 440; f.type = 'lowpass'; f.frequency.value = 1900; f.Q.value = .7; g.gain.value = 0; o.connect(f); f.connect(g); if (p) { g.connect(p); p.connect(ac.destination); } else g.connect(ac.destination); o.start();
+  o.type = 'sawtooth'; o.frequency.value = 440; f.type = 'lowpass'; f.frequency.value = 1900; f.Q.value = .7; g.gain.value = 0; o.connect(f); f.connect(g); if (p) { g.connect(p); p.connect((window.HXSND ? HXSND.node(ac, 'sirene') : ac.destination)); } else g.connect((window.HXSND ? HXSND.node(ac, 'sirene') : ac.destination)); o.start();
   Object.assign(TR_S, { ac, o, g, p }); return ac; } catch (e) { return null; } }
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { const ac = trSirenAudio(); if (ac && ac.state !== 'running') ac.resume(); }, { passive: true }));
 function trSiren(px, pz) {

@@ -165,7 +165,7 @@ function audio() {
   if (ac) return ac;
   try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
   const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  const loop = (type, f, q) => { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = ac.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(); return [g, fl]; };
+  const loop = (type, f, q) => { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = ac.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'wetter') : ac.destination)); s.start(); return [g, fl]; };
   [rainG, rainF] = loop('lowpass', 2400, .4); [hissG] = loop('highpass', 2600, .3);
   if (window.HXSTEP) for (const k of HXSTEP.kinds) STEPB[k] = HXSTEP.bank(k, ac.sampleRate, /^(brook|rainwater|shore)$/.test(k) ? 1 : 6).map(a => { const b = ac.createBuffer(1, a.length, ac.sampleRate); b.getChannelData(0).set(a); return b; }); // Runde 179: footsteps (schritte.js)
   return ac;
@@ -173,19 +173,19 @@ function audio() {
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { audio(); if (ac && ac.state !== 'running') ac.resume(); }, { passive: true })); // Runde 181: always - water sounds also in fine weather
 function burstSnd(dur, type, f, q, vol, f2) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur); fl.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
-  s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(t, Math.random()); s.stop(t + dur + .05); }
+  s.connect(fl); fl.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'wetter') : ac.destination)); s.start(t, Math.random()); s.stop(t + dur + .05); }
 /* Runde 179 (phone test: steps in rain and snow sounded wrong - one soft noise puff for puddle, snow and ice alike, wet ground silent):
    pre-computed steps from schritte.js (snow = granular crunch, puddle = slap + splash + bubbles, wet ground = soft slap, ice = hard
    cracks), six variants each, played with a little random pitch and level */
-const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18, swim: .3, lap: .4, slap: .34, plip: .22, plop: .4 };
+const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18, swim: .3, lap: .2, slap: .17, plip: .14, plop: .24 }; // Runde 187: water quieter (was obtrusive)
 function stepSnd(kind, k = 1) { if (!ac || ac.state !== 'running') return; const L = STEPB[kind]; if (!L || !L.length) return;
   const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
   lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5; // Runde 180: steps never bright - they get on one's nerves in the long run
-  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(lp); lp.connect(g); g.connect(ac.destination); s.start(); }
+  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(lp); lp.connect(g); g.connect((window.HXSND ? HXSND.node(ac, '' + (/^(lap|slap|plip|plop)$/.test(kind) ? 'wasser' : 'schritte') + '') : ac.destination)); s.start(); }
 const sWhoosh = v => burstSnd(.6, 'bandpass', 900, .8, Math.min(.35, .08 + v * .006), 300);
 function thunder(dist) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime + dist, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = 'lowpass'; fl.frequency.value = 160 + Math.random() * 120; g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.6 / (1 + dist * .4), t + .08); g.gain.exponentialRampToValueAtTime(.2 / (1 + dist * .4), t + .9);
-  g.gain.exponentialRampToValueAtTime(.0005, t + 3.5); s.connect(fl); fl.connect(g); g.connect(ac.destination); s.loop = true; s.start(t); s.stop(t + 3.6); }
+  g.gain.exponentialRampToValueAtTime(.0005, t + 3.5); s.connect(fl); fl.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'wetter') : ac.destination)); s.loop = true; s.start(t); s.stop(t + 3.6); }
 
 // ------------------------------------------------------------------ lightning
 const flashEl = document.createElement('div'); flashEl.id = 'wxFlash'; flashEl.style.cssText = 'position:absolute;inset:0;background:#e8eeff;opacity:0;pointer-events:none;mix-blend-mode:screen';
@@ -215,7 +215,7 @@ window.WX = {
    rain on water: a quiet loop of small bubbles. All through the 3 kHz lowpass - dark like the steps. */
 const WAMB = { t: 0, brook: null, rain: null, shore: null, next: 0 };
 function ambLoop(kind) { const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = STEPB[kind][0]; s.loop = true; lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5;
-  g.gain.value = 0; s.connect(lp); lp.connect(g); g.connect(ac.destination); s.start(0, Math.random() * s.buffer.duration); return g; }
+  g.gain.value = 0; s.connect(lp); lp.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'wasser') : ac.destination)); s.start(0, Math.random() * s.buffer.duration); return g; }
 function waterAmb(dt, x, z, swimming) {
   if (!ac || ac.state !== 'running' || !STEPB.brook || !A.waterProbe) return; if ((WAMB.t -= dt) > 0) return; WAMB.t = .4;
   let flowD = 99, stillD = 99, hard = false;
@@ -223,10 +223,10 @@ function waterAmb(dt, x, z, swimming) {
     if (w.flow) flowD = Math.min(flowD, r); else if (r < stillD) { stillD = r; hard = w.hard; } }
   if (!WAMB.brook) { WAMB.brook = ambLoop('brook'); WAMB.rain = ambLoop('rainwater'); WAMB.shore = ambLoop('shore'); }
   const t = ac.currentTime, near = Math.min(flowD, stillD);
-  WAMB.brook.gain.setTargetAtTime(flowD < 32 ? .28 * Math.pow(1 - flowD / 34, 2) : 0, t, .5);
-  WAMB.shore.gain.setTargetAtTime(stillD < 16 && !hard ? .2 * Math.pow(1 - stillD / 18, 1.5) * (W.storm ? 1.5 : 1) : 0, t, .6); // Runde 185: steady lapping at natural banks
+  WAMB.brook.gain.setTargetAtTime(flowD < 32 ? .14 * Math.pow(1 - flowD / 34, 2) : 0, t, .5);
+  WAMB.shore.gain.setTargetAtTime(stillD < 16 && !hard ? .07 * Math.pow(1 - stillD / 18, 1.5) * (W.storm ? 1.5 : 1) : 0, t, .6); // Runde 185: steady lapping at natural banks
   WAMB.rain.gain.setTargetAtTime(W.rain > .08 && near < 26 ? .1 * W.rain * Math.pow(1 - near / 28, 1.5) : 0, t, .5);
-  if (stillD < 20 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 900 + Math.random() * 1800; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
+  if (stillD < 20 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 3000 + Math.random() * 5000; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
 }
 
 /* Runde 182-184: now and then a fish jumps out of the water - 6-22 m ahead in view, on rivers and lakes (not on ice, not at the bank).

@@ -60,13 +60,13 @@ function noise() { if (!NB) { NB = AC.createBuffer(1, AC.sampleRate, AC.sampleRa
 function squish(t, f0, f1, dur, q, vol) { // a band of noise sliding down: the wet part
   const n = noise(), f = AC.createBiquadFilter(), g = AC.createGain(); f.type = 'bandpass'; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
   g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-  n.connect(f).connect(g).connect(AC.destination); n.start(t, R() * .5, dur + .05); }
+  n.connect(f).connect(g).connect((window.HXSND ? HXSND.node(AC, 'gore') : AC.destination)); n.start(t, R() * .5, dur + .05); }
 function splat(k) { // Runde 153: a squelchy burst instead of a thump - a wet splash sliding down, a soft low body and a few drips
   try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); const t = AC.currentTime + .005, v = Math.min(1, .45 + .35 * k);
     squish(t, rr(2200, 3200), rr(250, 420), rr(.22, .32), rr(2.5, 4), .9 * v);
     squish(t + rr(.01, .03), rr(900, 1300), rr(120, 200), rr(.18, .26), rr(1.2, 2), .7 * v);
     const o = AC.createOscillator(), g = AC.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(rr(75, 95), t); o.frequency.exponentialRampToValueAtTime(38, t + .12);
-    g.gain.setValueAtTime(.35 * v, t); g.gain.exponentialRampToValueAtTime(.0001, t + .14); o.connect(g).connect(AC.destination); o.start(t); o.stop(t + .16);
+    g.gain.setValueAtTime(.35 * v, t); g.gain.exponentialRampToValueAtTime(.0001, t + .14); o.connect(g).connect((window.HXSND ? HXSND.node(AC, 'gore') : AC.destination)); o.start(t); o.stop(t + .16);
     for (let i = 0, nd = 3 + (R() * 5 | 0); i < nd; i++) squish(t + rr(.08, .55), rr(1400, 2600), rr(500, 900), rr(.03, .07), rr(5, 9), rr(.12, .3) * v); // drips and bits landing
   } catch (e) { } }
 

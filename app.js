@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=612' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=613' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2598,10 +2598,10 @@ const snd = (() => {
         ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume();
         eng = ac.createOscillator(); eng.type = 'sawtooth'; eng2 = ac.createOscillator(); eng2.type = 'sine'; /* deep sub tone instead of a buzzing square */
         lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300; lp.Q.value = .5; eg = ac.createGain(); eg.gain.value = 0;
-        eng.connect(lp); eng2.connect(lp); lp.connect(eg); eg.connect(ac.destination); eng.start(); eng2.start();
+        eng.connect(lp); eng2.connect(lp); lp.connect(eg); eg.connect((window.HXSND ? HXSND.node(ac, 'fahrzeug') : ac.destination)); eng.start(); eng2.start();
         const len = ac.sampleRate, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
         nz = ac.createBufferSource(); nz.buffer = buf; nz.loop = true; bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 2;
-        ng = ac.createGain(); ng.gain.value = 0; nz.connect(bp); bp.connect(ng); ng.connect(ac.destination); nz.start();
+        ng = ac.createGain(); ng.gain.value = 0; nz.connect(bp); bp.connect(ng); ng.connect((window.HXSND ? HXSND.node(ac, 'fahrzeug') : ac.destination)); nz.start();
       } catch (e) { ac = null; }
     },
     stop() { try { for (const n of [eng, eng2, nz]) if (n) n.stop(); } catch (e) { } eng = eng2 = nz = null; },
@@ -2620,17 +2620,17 @@ const snd = (() => {
       if (!ac) return; const t = ac.currentTime, len = Math.floor(ac.sampleRate * .45), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
       const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = buf; f.type = 'lowpass'; f.frequency.setValueAtTime(2600, t); f.frequency.exponentialRampToValueAtTime(400, t + .4);
-      g.gain.setValueAtTime(Math.min(.5, .15 + v * .012), t); s.connect(f); f.connect(g); g.connect(ac.destination); s.start(t); },
+      g.gain.setValueAtTime(Math.min(.5, .15 + v * .012), t); s.connect(f); f.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'fahrzeug') : ac.destination)); s.start(t); },
     chest() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) { return; }
       const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'square'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(520, t + .09);
-      g.gain.setValueAtTime(.08, t); g.gain.exponentialRampToValueAtTime(.001, t + .14); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + .15); },
+      g.gain.setValueAtTime(.08, t); g.gain.exponentialRampToValueAtTime(.001, t + .14); o.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'effekte') : ac.destination)); o.start(t); o.stop(t + .15); },
     coin(i) { if (!ac) return; const t = ac.currentTime, f = 1320 * Math.pow(1.06, (i || 0) % 6);
       for (const [d, ff] of [[0, f], [.055, f * 1.335]]) { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'square'; o.frequency.setValueAtTime(ff, t + d);
-        g.gain.setValueAtTime(.0001, t + d); g.gain.linearRampToValueAtTime(.05, t + d + .005); g.gain.exponentialRampToValueAtTime(.001, t + d + .09); o.connect(g); g.connect(ac.destination); o.start(t + d); o.stop(t + d + .1); } },
+        g.gain.setValueAtTime(.0001, t + d); g.gain.linearRampToValueAtTime(.05, t + d + .005); g.gain.exponentialRampToValueAtTime(.001, t + d + .09); o.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'effekte') : ac.destination)); o.start(t + d); o.stop(t + d + .1); } },
     bump(v) {
       if (!ac) return; const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
       o.type = 'triangle'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(35, t + .25);
-      g.gain.setValueAtTime(Math.min(.35, v * .02), t); g.gain.exponentialRampToValueAtTime(.001, t + .3); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + .32);
+      g.gain.setValueAtTime(Math.min(.35, v * .02), t); g.gain.exponentialRampToValueAtTime(.001, t + .3); o.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'fahrzeug') : ac.destination)); o.start(t); o.stop(t + .32);
     }
   };
 })();
