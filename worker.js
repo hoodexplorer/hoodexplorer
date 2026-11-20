@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=574'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=578'); // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -993,6 +993,7 @@ function readFeature(L, rng) {
 }
 /* geometry -> rings/lines of local coords; returns array of Float64Array [x,z,...] */
 function geomLines(ft, toL) {
+  if (ft._clip) return ft._clip; // Runde 165: medieval streets cut to the pieces that serve a settlement
   const g = ft.geom, out = []; let x = 0, y = 0, cur = null, i = 0;
   while (i < g.length) {
     const ci = g[i++], cmd = ci & 7, cnt = ci >> 3;
@@ -1268,7 +1269,7 @@ const W_DIM = { w_saloon: [12, 12, 10], w_bank: [11, 11, 10], w_sheriff: [9, 10,
    The castle sits on the highest point of the cell (hills, ridges); its town lies on the nearest plain (gentle slope, low in the cell's
    relief), never on the hill. On flat land the town hugs the castle. Houses stand only in towns (plus a few farmsteads), so the
    land between is open. Terrain for the whole cell is loaded first (burgPrep), so every tile computes the same sites. */
-const BURG_C = 3600, BURGS = new Map(); let BURG_CLR = []; // castles of the tile being built: no trees inside
+const BURG_C = 3600, BURGS = new Map(); let BURG_CLR = [], HAMLETS = []; // HAMLETS (Runde 165): small house groups on river banks, this tile // castles of the tile being built: no trees inside
 const BURG_A = ['Falken', 'Raben', 'Wolfs', 'Adler', 'Eber', 'Hirsch', 'Greifen', 'Löwen', 'Drachen', 'Eichen', 'Hohen', 'Schwarzen', 'Rot', 'Silber', 'Kron', 'Sturm', 'Bären', 'Habichts'],
   BURG_B = ['stein', 'fels', 'eck', 'berg', 'hagen', 'wart', 'horst', 'au', 'schild', 'stolz'];
 function burgSite(i, j) {
@@ -1289,10 +1290,44 @@ function burgSite(i, j) {
       if (!town) { const a = hashStr('bt' + key) * 6.283; town = { X: site.X + Math.cos(a) * 260 / O.c, Y: site.Y + Math.sin(a) * 260 / O.c }; } }
     const nm = 'Burg ' + BURG_A[Math.floor(hashStr('bn' + key) * BURG_A.length)] + BURG_B[Math.floor(hashStr('bm' + key) * BURG_B.length)];
     b = { X: site.X, Y: site.Y, tX: town.X, tY: town.Y, R: 300 + hashStr('br' + key) * 260, name: nm, key };
+    if (realNear(site.X, site.Y, 6000 / O.c)) b = null; // Runde 163: a real castle nearby - no invented one
   }
   BURGS.set(key, b); return b;
 }
-async function burgPrep(X0, Y0, X1, Y1) { // cells touching this box (plus a town radius): load their terrain, then fix their sites
+/* Runde 163: real castles and castle ruins from OSM (daten/burgen/<lat>_<lon>.json, werkzeuge/burgen.py; Germany): a castle stands
+   where one stands or stood (Sparrenburg above Bielefeld); invented castles only where no real one lies within 6 km. The list is
+   fixed, so every tile knows the same castles. Near-duplicates (several OSM objects of one castle) within 400 m count once. */
+const REAL_CELLS = new Map(), REAL = [];
+async function realLoad(lat, lon) {
+  const k = Math.floor(lat) + '_' + Math.floor(lon); if (REAL_CELLS.has(k)) return REAL_CELLS.get(k);
+  const pr = (async () => { let L = []; try { const r = await fetch('daten/burgen/' + k + '.json?v=2'); if (r.ok) L = await r.json(); } catch (e) { }
+    L.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const c of L) { const m = merc(c[0], c[1]); if (REAL.some(o => Math.hypot(o.X - m.X, o.Y - m.Y) * O.c < 400)) continue; REAL.push({ X: m.X, Y: m.Y, name: c[2], ruin: c[3], key: 'R' + c[0] + ',' + c[1] }); } })();
+  REAL_CELLS.set(k, pr); return pr;
+}
+const realNear = (X, Y, r) => REAL.some(o => Math.hypot(o.X - X, o.Y - Y) < r);
+function townFor(sX, sY, key, span) { // the nearest plain to a castle site: gentle slope, low in the local relief, never on the hill
+  const hs = TERRAIN_ON ? rawH(lx(sX), lz(sY)) : 0; let lo = Infinity;
+  if (TERRAIN_ON) for (let a = -4; a <= 4; a++) for (let c = -4; c <= 4; c++) { const h = rawH(lx(sX + a * span / 4), lz(sY + c * span / 4)); if (h !== null && h < lo) lo = h; }
+  const relief = (hs === null ? 0 : hs) - lo; let town = null;
+  if (!TERRAIN_ON || !(relief >= 30)) { const a = hashStr('bt' + key) * 6.283; return { X: sX + Math.cos(a) * 170 / O.c, Y: sY + Math.sin(a) * 170 / O.c }; }
+  let bd = Infinity;
+  for (let a = -12; a <= 12; a++) for (let c = -12; c <= 12; c++) { const X = sX + a * span / 11, Y = sY + c * span / 11, x = lx(X), z = lz(Y), h = rawH(x, z); if (h === null || h > lo + .4 * relief) continue;
+    const hx1 = rawH(x + 25, z), hx0 = rawH(x - 25, z), hz1 = rawH(x, z + 25), hz0 = rawH(x, z - 25); if ([hx1, hx0, hz1, hz0].some(v => v === null)) continue;
+    if (Math.max(Math.abs(hx1 - hx0), Math.abs(hz1 - hz0)) / 50 > .07) continue;
+    const d = Math.hypot(X - sX, Y - sY); if (d < bd) { bd = d; town = { X, Y }; } }
+  if (!town) { const a = hashStr('bt' + key) * 6.283; town = { X: sX + Math.cos(a) * 260 / O.c, Y: sY + Math.sin(a) * 260 / O.c }; }
+  return town;
+}
+async function burgPrep(X0, Y0, X1, Y1) { // castles touching this box (plus a town radius): load the real list and the terrain, then fix their sites
+  { const pad = 9000 / O.c, a = Math.atan(Math.sinh((Y0 - pad) / 6378137)) * 180 / Math.PI, b = Math.atan(Math.sinh((Y1 + pad) / 6378137)) * 180 / Math.PI,
+      c = (X0 - pad) / 6378137 * 180 / Math.PI, d = (X1 + pad) / 6378137 * 180 / Math.PI;
+    for (let la = Math.floor(a); la <= Math.floor(b); la++) for (let lo = Math.floor(c); lo <= Math.floor(d); lo++) await realLoad(la + .5, lo + .5);
+    const near = 1200 / O.c;
+    for (const o of REAL) { if (BURGS.has(o.key) || o.X < X0 - near || o.X > X1 + near || o.Y < Y0 - near || o.Y > Y1 + near) continue;
+      const span = 1500 / O.c; if (TERRAIN_ON) await ensureTerrain(lx(o.X - span * 1.1), lz(o.Y + span * 1.1), lx(o.X + span * 1.1), lz(o.Y - span * 1.1));
+      const t = townFor(o.X, o.Y, o.key, span);
+      BURGS.set(o.key, { X: o.X, Y: o.Y, tX: t.X, tY: t.Y, R: 300 + hashStr('br' + o.key) * 260, name: o.name || (o.ruin ? 'Burg' : 'Burg'), key: o.key, real: 1 }); } }
   const m = 900 / O.c, i0 = Math.floor((X0 - m) / BURG_C), i1 = Math.floor((X1 + m) / BURG_C), j0 = Math.floor((Y0 - m) / BURG_C), j1 = Math.floor((Y1 + m) / BURG_C);
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { if (BURGS.has(i + ',' + j)) continue;
     if (TERRAIN_ON) await ensureTerrain(lx((i - .15) * BURG_C), lz((j + 1.15) * BURG_C), lx((i + 1.15) * BURG_C), lz((j - .15) * BURG_C));
@@ -1380,6 +1415,9 @@ function weltBauten(items, roads, collide, map, plazas, box, wet) {
         put('m_bauernhaus', f.x, f.z, f.ry, '', 1, 1, 1, 12); const sd = hashStr('fs' + c.it.hs) < .5 ? -1 : 1, rx = Math.cos(f.ry), rz = -Math.sin(f.ry);
         const bx = f.x + rx * sd * 11 - f.dx * 5, bz = f.z + rz * sd * 11 - f.dz * 5; if (!forest(f.x, f.z) && free(bx, bz, 12) && !wet(bx, bz) && offRoad(bx, bz, 7)) { put('m_scheune', bx, bz, f.ry + sd * Math.PI / 2, '', 1, 1, 1, 12); BURG_CLR.push((f.x + bx) / 2, (f.z + bz) / 2); } continue; } // in a wood: just the house (forester), no barn
       const f = front(c.it, v, 22); if (!f || !free(f.x, f.z, sp)) continue; if (n) used[n] = (used[n] || 0) + 1; put(v, f.x, f.z, f.ry, n || '', 1, 1, 1, sp); }
+    for (const h of HAMLETS) { const n = h.n; // Runde 165: a hamlet - houses in a loose ring, fronts to its little green
+      for (let i = 0; i < n; i++) { const a = Math.atan2(h.fz, h.fx) + Math.PI + (i - (n - 1) / 2) * .9, r = 16 + hashStr('hr' + i + Math.round(h.x)) * 6, x = h.x + Math.cos(a) * r, z = h.z + Math.sin(a) * r;
+        const v = ['m_haus_a', 'm_haus_b', 'm_haus_c', 'm_haus_d'][Math.floor(hashStr('hv' + i + Math.round(h.z)) * 4)]; if (!free(x, z, 12) || wet(x, z)) continue; put(v, x, z, Math.atan2(h.x - x, h.z - z), '', 1, 1, 1, 12); } }
     // the town is a town even where today there are few buildings: houses along its streets, dense in the core, thinning out
     for (const t of TW) { for (const r of R) { if (r.k !== 'm' || r.b || r.a || r.t) continue;
       sampleLineDir(r.p, 15, (x, z, dx, dz) => { const d = Math.hypot(x - t.tx, z - t.tz) / t.R; if (d > .8) return;
@@ -1407,7 +1445,7 @@ function weltBauten(items, roads, collide, map, plazas, box, wet) {
   }
 }
 function buildMVT(layers, tx, ty, l2tiles, osm) {
-  WOUT = WELT === 'heute' ? null : []; BURG_CLR = [];
+  WOUT = WELT === 'heute' ? null : []; BURG_CLR = []; HAMLETS = [];
   osm = osm || { blds: [], pts: [] };
   const synthLamps = osm.pts.filter(p => p.t === 6).length < 5; // invent street lamps only where OSM has none
   const strIdx = new Map(), STS = { lines: 0, wset: 0, swset: 0, dw: 0 }; // OSM street pieces by 16 m cell (each segment in every cell it passes, +8 m)
@@ -1429,6 +1467,17 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const mk = ext => (x, y) => { const X = (tx + x / ext) / n * WORLD - HALF, Y = HALF - (ty + y / ext) / n * WORLD; return [lx(X), lz(Y)]; };
   const ground = new Geo(), bridgeG = new Geo(), waterG = new Geo(), glow = new Geo(), buckets = new Map(), collide = [], names = [], nameIdx = new Map(), samples = [], spawn = [], start = [], sqNames = [], pedNames = new Set();
   const map = { areas: [], roads: [], blds: [] };
+  /* Runde 165: medieval countryside - streets only where people live (towns, farmsteads, hamlets) plus the through roads that join
+     the settlements; the land between becomes forest with clearings, real brooks and lakes stay */
+  let MED = null;
+  if (WELT === 'mittel') { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), bx = [Math.min(c0[0], c1[0]), Math.min(c0[1], c1[1]), Math.max(c0[0], c1[0]), Math.max(c0[1], c1[1])];
+    const TW = burgsNear(bx[0], bx[1], bx[2], bx[3]), farms = [], fseen = new Set();
+    const townD = (x, z) => { let b = 9; for (const t of TW) { const d = Math.hypot(x - t.tx, z - t.tz) / t.R; if (d < b) b = d; } return b; };
+    const BL = layers.building; if (BL) { const toB = mk(BL.extent || ext0);
+      for (const rng of BL.feats) { const f = readFeature(BL, rng); if (f.type !== 3) continue; const ln = geomLines(f, toB)[0]; if (!ln || ln.length < 6) continue;
+        let x = 0, z = 0; for (let i = 0; i < ln.length; i += 2) { x += ln[i]; z += ln[i + 1]; } x /= ln.length / 2; z /= ln.length / 2;
+        const k = Math.floor(x / 250) + ',' + Math.floor(z / 250); if (fseen.has(k) || hashStr('fh' + k) > .25 || townD(x, z) < 1) continue; fseen.add(k); farms.push(x, z); } }
+    MED = { box: bx, TW, townD, farms, near: (x, z, r) => { for (let i = 0; i < farms.length; i += 2) if ((farms[i] - x) ** 2 + (farms[i + 1] - z) ** 2 < r * r) return true; for (const h of HAMLETS) if ((h.x - x) ** 2 + (h.z - z) ** 2 < r * r) return true; return false; } }; }
   ground.spr = []; // trees and bushes as sprites
   if (false) { // (meadow is now built at the end, cut out over water)
     const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), x0 = Math.min(c0[0], c1[0]), x1 = Math.max(c0[0], c1[0]), z0 = Math.min(c0[1], c1[1]), z1 = Math.max(c0[1], c1[1]), G = hex('#8fa067'), n = 8;
@@ -1454,7 +1503,8 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           // a lake cut by the tile edge only shows a piece here: its size is unknown, so it counts as a mid-size lake in every tile it touches
           // (the area of the piece gave the two halves of one lake different colours with a straight seam - phone test, Schwangau)
           col = cut ? hex('#56808a') : ar < 400000 ? hex('#5e8068') : ar < 3e6 ? hex('#56808a') : WCOL.lake; } } // small lakes murky green, big lakes blue
-      else { const a = AREA[f.props.class] || AREA[f.props.subclass]; if (!a) continue; col = hex(weltArea(a[0], a[2])); y = a[1]; dens = a[2]; kind = dens > 1 / 300 ? 'f' : 'g'; }
+      else { const a = AREA[f.props.class] || AREA[f.props.subclass]; if (!a) continue; col = hex(weltArea(a[0], a[2])); y = a[1]; dens = a[2]; kind = dens > 1 / 300 ? 'f' : 'g';
+        if (MED && /^(residential|commercial|industrial|retail|railway|construction|garages|brownfield|landfill|military|parking|cemetery|school|university|hospital)$/.test(f.props.class)) { const g0 = geomLines(f, toL)[0]; if (g0) { let x = 0, z = 0; for (let i = 0; i < g0.length; i += 2) { x += g0[i]; z += g0[i + 1]; } if (MED.townD(x / (g0.length / 2), z / (g0.length / 2)) > 1.05) continue; } } }
       const G0 = ln === 'water' ? waterG : ground;
       for (const poly of polygons(geomLines(f, toL))) {
         const t = G0.flat(poly, y, col);
@@ -1500,9 +1550,22 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       }
     } } }
   // roads
+  if (MED) { // Runde 165: hamlets - every ~400 m along rivers and streams, now and then a group of 3-5 houses on the dry bank
+    for (let k = 0; k < waterLines.length; k += 2) { const line = waterLines[k], w = waterLines[k + 1]; if (w < 2.5) continue;
+      sampleLineDir(line, 400, (x, z, dx, dz) => { if (hashStr('hm' + Math.round(x / 50) + ',' + Math.round(z / 50)) > .22) return;
+        for (const sd of [-1, 1]) { const hx = x - dz * (w / 2 + 34) * sd, hz = z + dx * (w / 2 + 34) * sd; if (MED.townD(hx, hz) < 1.4 || waterRings.some(q => inPoly(hx, hz, q))) continue;
+          if (HAMLETS.some(h => Math.hypot(h.x - hx, h.z - hz) < 300)) return; HAMLETS.push({ x: hx, z: hz, fx: dz * sd, fz: -dx * sd, n: 3 + Math.floor(hashStr('hn' + Math.round(hx)) * 3) }); return; } }); } }
   { const L = layers.transportation; if (L) { const toL = mk(L.extent || ext0);
     for (const rng of L.feats) {
       const f = readFeature(L, rng), cls = f.props.class, sub = f.props.subclass;
+      if (MED && f.type === 2 && !/^(primary|secondary|tertiary)$/.test(cls)) { // only streets that serve a settlement; the through roads join them all
+        const ok = (x, z) => MED.townD(x, z) < 1.15 || MED.near(x, z, 110), clip = [];
+        for (const line of geomLines(f, toL)) { // densify to ~10 m, keep the runs that lie in a settlement or lead to a farm / hamlet
+          const pts = []; for (let i = 0; i + 3 < line.length; i += 2) { const n = Math.max(1, Math.ceil(Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]) / 10)); for (let q = 0; q < n; q++) pts.push(line[i] + (line[i + 2] - line[i]) * q / n, line[i + 1] + (line[i + 3] - line[i + 1]) * q / n); }
+          pts.push(line[line.length - 2], line[line.length - 1]); let run = [];
+          for (let i = 0; i < pts.length; i += 2) { if (ok(pts[i], pts[i + 1])) run.push(pts[i], pts[i + 1]); else { if (run.length >= 4) clip.push(run); run = []; } }
+          if (run.length >= 4) clip.push(run); }
+        if (!clip.length) continue; f._clip = clip; }
       if (f.props.brunnel !== 'tunnel' && (f.props.layer || 0) < 0 && f.type === 2 && /^(rail|transit|motorway|trunk|primary|secondary)$/.test(cls)) for (const line of geomLines(f, toL)) lowLines.push(line); /* railways and through roads in a cutting (not underground footways) */ // lowered (cutting): bridges over them stay at street level
       if (f.props.brunnel === 'tunnel' && f.type === 2 && ROAD[cls] && !/^(path|track|bridleway|pier)$/.test(cls)) for (const line of geomLines(f, toL)) map.roads.push({ w: ROAD[cls][0], k: 't', p: Float32Array.from(line), a: cls === 'motorway' ? 1 : 0, rail: cls === 'rail' || cls === 'transit' ? 1 : 0, o: +f.props.oneway || 0 }); // tunnels: known to the game (portals), not drawn or driven (Runde 79)
       if (f.props.brunnel === 'tunnel' || (f.props.layer || 0) < 0) continue;
@@ -2146,6 +2209,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
     const inPark = (x, z) => parkRings.some(q => inPoly(x, z, q)); // woods inside city parks are planted broadleaf
     for (let x = Math.floor(x0 / 20) * 20 + 10; x < x1; x += 20) for (let z = Math.floor(z0 / 20) * 20 + 10; z < z1; z += 20) if (inPoly(x, z, ring)) forestCells.set(fk(x, z), inPark(x, z) ? 0.1 : Math.max(share, forestCells.get(fk(x, z)) || 0));
   }
+  if (MED) { // Runde 165: the land between the settlements is wood, with clearings (smooth noise on a 160 m grid)
+    const vn = (x, z) => { const S = 160, i = Math.floor(x / S), j = Math.floor(z / S), u = x / S - i, v = z / S - j, h = (a, b) => hashStr('fw' + a + ',' + b), su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+      return (h(i, j) * (1 - su) + h(i + 1, j) * su) * (1 - sv) + (h(i, j + 1) * (1 - su) + h(i + 1, j + 1) * su) * sv; };
+    const [bx0, bz0, bx1, bz1] = MED.box;
+    for (let x = bx0 + 4; x < bx1; x += 9) for (let z = bz0 + 4; z < bz1; z += 9) { const jx = x + (rnd() - .5) * 7, jz = z + (rnd() - .5) * 7;
+      if (vn(jx, jz) < .42 || MED.townD(jx, jz) < 1.2 || MED.near(jx, jz, 55)) continue;
+      treeCand.push(jx, jz, 1.2 + rnd() * .8); }
+    for (const h of HAMLETS) BURG_CLR.push(h.x, h.z); }
   // keep phones fast: at most ~18000 sprite trees per tile; thinned trees get larger crowns to keep the canopy closed
   const step = Math.max(1, Math.ceil(treeCand.length / 3 / 18000)), grow = Math.sqrt(step); // sprites: 4 vertices per tree
   for (let i = 0; i < treeCand.length; i += 3 * step) {
@@ -3351,16 +3422,21 @@ async function mapTile(z, x, y) {
   let buf = await cget(url); if (!buf) { buf = await (await fetchOk(url)).arrayBuffer(); cput(url, buf); }
   const layers = decodeMVT(buf), n = 1 << z, md = { areas: [], roads: [], blds: [] };
   const mk = ext => (px, py) => { const X = (x + px / ext) / n * WORLD - HALF, Y = HALF - (y + py / ext) / n * WORLD; return [lx(X), lz(Y)]; };
+  // Runde 165: the big map of the medieval world shows the same countryside - through roads, towns of the castles known so far
+  const MT = WELT === 'mittel' ? [...BURGS.values()].filter(Boolean).map(b => ({ x: lx(b.tX), z: lz(b.tY), R: b.R })) : null;
+  const inTownM = (pts) => { if (!MT) return true; for (let i = 0; i < pts.length; i += 2) for (const t of MT) if (Math.hypot(pts[i] - t.x, pts[i + 1] - t.z) < t.R * 1.1) return true; return false; };
   for (const ln of ['landcover', 'landuse', 'park', 'water']) { const L = layers[ln]; if (!L) continue; const toL = mk(L.extent || 4096);
     for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 3) continue;
+      if (MT && ln === 'landuse' && /^(residential|commercial|industrial|retail|railway|construction|garages|brownfield|landfill|military|parking|cemetery|school|university|hospital)$/.test(f.props.class) && !inTownM(geomLines(f, toL)[0] || [])) continue;
       let k; if (ln === 'water') k = 'w'; else { const a = AREA[f.props.class] || AREA[f.props.subclass]; if (!a) continue; k = a[2] > 1 / 300 ? 'f' : 'g'; }
       for (const poly of polygons(geomLines(f, toL))) md.areas.push({ k, rings: poly.map(r => Float32Array.from(r)) }); } }
   { const L = layers.transportation; if (L) { const toL = mk(L.extent || 4096);
     for (const rng of L.feats) { const f = readFeature(L, rng), cls = f.props.class; if (f.type !== 2 || f.props.brunnel === 'tunnel') continue;
+      if (MT && (/^(motorway|trunk|rail|transit|busway|raceway)$/.test(cls) || (!/^(primary|secondary|tertiary)$/.test(cls) && !inTownM(geomLines(f, toL)[0] || [])))) continue;
       const spec = ROAD[cls]; const w = spec ? spec[0] : 3;
       for (const line of geomLines(f, toL)) md.roads.push({ w, k: cls === 'rail' || cls === 'transit' ? 'r' : (cls === 'path' || cls === 'track' ? 'p' : 'm'), p: Float32Array.from(line), o: +f.props.oneway || 0, a: cls === 'motorway' ? 1 : 0, b: f.props.brunnel ? 1 : 0 }); } } }
   if (z >= 14) { const L = layers.building; if (L) { const toL = mk(L.extent || 4096);
-    for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 3) continue; for (const poly of polygons(geomLines(f, toL))) md.blds.push(Float32Array.from(poly[0])); } } }
+    for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 3) continue; for (const poly of polygons(geomLines(f, toL))) if (!MT || inTownM(poly[0])) md.blds.push(Float32Array.from(poly[0])); } } }
   post({ type: 'maptile', key: z + '/' + x + '/' + y, z, map: md });
 }
 /* Runde 135: "where am I" for the big map - house numbers and place names (neighbourhood, district, town) from the same vector map

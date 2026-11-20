@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=574' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=578' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1582,8 +1582,8 @@ function drawMini(viewYaw) {
   mctx.filter = T.f; for (const t of tiles.values()) if (t.map) mctx.drawImage(t.map.cv, t.map.x0 * MS, t.map.z0 * MS); mctx.filter = 'none';
   drawRouteMini(mctx, MS);
   if (window.HXZ) HXZ.drawMini(mctx, MS); // Runde 144: telephone booths (layer)
-  if (LAYERS.burgen) for (const b of burgList()) burgIcon(mctx, b.x * MS, b.z * MS, 9); // Runde 154
-  if (LAYERS.sights) for (const list of SIGHTS.values()) for (const s of list) { if (s.quiet) continue; mctx.fillStyle = seen.has(s.name) ? T.ss : T.s; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 7, 0, 7); mctx.fill(); }
+  if (LAYERS.burgen) for (const b of burgList()) { mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(b.x * MS, b.z * MS, 19, 0, 7); mctx.fill(); burgIcon(mctx, b.x * MS, b.z * MS, 14); } // Runde 154/163: larger, on a light disc
+  if (LAYERS.sights) for (const list of SIGHTS.values()) for (const s of list) { if (s.quiet) continue; mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 12, 0, 7); mctx.fill(); mctx.fillStyle = seen.has(s.name) ? T.ss : T.s; mctx.strokeStyle = '#1a1206'; mctx.lineWidth = 2.5; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 9, 0, 7); mctx.fill(); mctx.stroke(); } // Runde 163: larger, light halo, dark rim
   mctx.restore();
   const pa = Math.atan2(Math.cos(P.yaw), Math.sin(P.yaw)) + rot + Math.PI / 2;
   { const ph = (performance.now() / 1200) % 1; mctx.strokeStyle = 'rgba(' + T.ring + ',' + (1 - ph).toFixed(2) + ')'; mctx.lineWidth = 3; mctx.beginPath(); mctx.arc(c, c, 12 + ph * 18, 0, 7); mctx.stroke();
@@ -1959,6 +1959,10 @@ function step(now) {
     camera.position.set(P.x - fx * ch * armD, py + Math.sin(armPitch) * armD, P.z - fz * ch * armD);
     { const gh = terrainH(camera.position.x, camera.position.z) + .6; if (camera.position.y < gh) camera.position.y = gh; } // never below the slope
     { const ahead = 8 * (1 - Math.max(0, -look) * 0.85); camera.lookAt(P.x + fx * ahead, P.y + 2.2 + Math.max(0, look) * 9, P.z + fz * ahead); } // looking down: aim at the figure
+    /* Runde 164 (phone test: inside a telephone booth only its roof showed above the menu): snap in front of the door, 14 m out,
+       aimed a little below the booth - the whole booth stands in the upper half, clear of the booth menu */
+    if (window.HXZ && HXZ.inside) { const bz = HXZ.inside, dx = Math.sin(bz.yaw), dz = Math.cos(bz.yaw);
+      camera.position.set(bz.x + dx * 14, bz.y + 2.5, bz.z + dz * 14); camera.lookAt(bz.x, bz.y + .2, bz.z); camYaw = bz.yaw + Math.PI; armD = 14; } // 46° view: the booth fills ~24-52 % of the height
   } else {
     dioYaw = lerpA(dioYaw, dioTarget, Math.min(1, dt * 8));
     if (keys.r || keys.pageup) tilt(dt * 1.2); if (keys.f || keys.pagedown) tilt(-dt * 1.2);

@@ -65,34 +65,36 @@
       for (let j = 0; j < n; j++) k.wall([a[0] + (c[0] - a[0]) * j / n, a[1] + (c[1] - a[1]) * j / n], [a[0] + (c[0] - a[0]) * (j + 1) / n, a[1] + (c[1] - a[1]) * (j + 1) / n], y, h,
         putz2 ? pick(r, ['fach2_x', 'fach2_leer']) : pick(r, FACH)); }
   }
-  function roof(k, w, d, h, y, tex, over = .5) { // Satteldach, First entlang x; Giebel, Windbretter mit hochgebogenen Enden
-    const L = w + over * 2, S = d / 2 + over, sl = Math.hypot(S, h);
-    for (const sd of [-1, 1]) k.poly([[-L / 2, y - .15, sd * S], [L / 2, y - .15, sd * S], [L / 2, y + h, 0], [-L / 2, y + h, 0]], [[0, 0], [L / 1.6, 0], [L / 1.6, sl / 1.6], [0, sl / 1.6]], tex);
-    for (const e of [-1, 1]) { const x = e * w / 2, hz = h * (d / 2) / S;
-      k.poly([[x, y, -d / 2], [x, y, d / 2], [x, y + hz, 0]], [[0, 0], [1, 0], [.5, 1]], 'c_putz');
+  /* Runde 164 (phone test: gaps between roof and wall): the roof planes run exactly through the top edge of the long walls and
+     the ridge - the eaves hang below the wall top - so the gable triangle (wall top → ridge) closes against the roof */
+  function roof(k, w, d, h, y, tex, over = .35) { // Satteldach, First entlang x; Giebel, Windbretter mit hochgebogenen Enden
+    const L = w + over * 2, S = d / 2 + over, ye = y - h * over / (d / 2), sl = Math.hypot(S, h + y - ye);
+    for (const sd of [-1, 1]) k.poly([[-L / 2, ye, sd * S], [L / 2, ye, sd * S], [L / 2, y + h, 0], [-L / 2, y + h, 0]], [[0, 0], [L / 1.6, 0], [L / 1.6, sl / 1.6], [0, sl / 1.6]], tex);
+    for (const e of [-1, 1]) { const x = e * w / 2;
+      k.poly([[x, y, -d / 2], [x, y, d / 2], [x, y + h, 0]], [[0, 0], [d / 1.6, 0], [d / 3.2, h / 1.6]], 'putz'); // textured plaster gable, apex = ridge
       const xb = e * (L / 2 + .02);
-      for (const sd of [-1, 1]) { const z0 = sd * (S + .05);
-        k.poly([[xb, y - .1, z0], [xb, y + h + .1, 0], [xb, y + h + .4, 0], [xb, y + .25, z0]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_balken');
-        k.poly([[xb, y - .1, z0], [xb, y + .35, z0 + sd * .4], [xb, y + .65, z0 + sd * .4], [xb, y + .25, z0]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_balken');
-        k.poly([[xb, y + h + .1, 0], [xb, y + h + .6, -sd * .45], [xb, y + h + .9, -sd * .45], [xb, y + h + .4, 0]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_balken'); } }
+      for (const sd of [-1, 1]) { const z0 = sd * (S + .02);
+        k.poly([[xb, ye - .02, z0], [xb, y + h, 0], [xb, y + h + .18, 0], [xb, ye + .16, z0]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_holz_d'); // slim brown boards
+        k.poly([[xb, ye - .02, z0], [xb, ye + .16, z0 + sd * .2], [xb, ye + .32, z0 + sd * .2], [xb, ye + .16, z0]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_holz_d');
+        k.poly([[xb, y + h, 0], [xb, y + h + .25, -sd * .22], [xb, y + h + .41, -sd * .22], [xb, y + h + .18, 0]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_holz_d'); } }
   }
   const ROOFS = ['dach_rot', 'dach_rot', 'dach_braun', 'dach_blau'], RED = ['dach_rot', 'dach_rot2', 'dach_rot3'];
   function house(k, o) { // o: {w, d, fl, seed, kind, roofs, sign}
     const r = rnd(o.seed), w = o.w, d = o.d, fl = o.fl, fh = 2.8, tex = pick(r, o.roofs || ROOFS), putz2 = r() < .35, glas = pick(r, GLAS), kind = o.kind || 'haus';
-    let y = 0, ww = w, dd = d;
+    const jet = kind === 'haus' ? .5 * (fl - 1) : 0; let y = 0, ww = w - jet, dd = d - jet; // Runde 164: the top floor ends at the collision edge (camera did not clip into overhangs)
     for (let f = 0; f < fl; f++) {
       const stone = f === 0 && (r() < .55 || kind === 'turm' || kind === 'rathaus' || kind === 'taverne');
       walls(k, ww, dd, y, fh, r, stone, putz2);
       const nb = Math.max(1, Math.round(ww / 1.6));
       for (let i = 0; i < nb; i++) { const u = -ww / 2 + ww * (i + .5) / nb;
         if (f === 0 && i === Math.floor(nb / 2)) { k.sticker(stone ? 'tuer' : 'tuer_holz', u, y, dd / 2, 0); continue; }
-        if (r() < .8) { const n = pick(r, [glas, glas, 'fenster_zu', 'fenster_blumen', 'fenster_licht']); k.sticker(n, u, y + .55, dd / 2, 0, 0, 0, .04, n === 'fenster_licht' ? 1 : 0); } }
+        if (r() < .8) { const n = pick(r, [glas, glas, 'fenster_zu', 'fenster_blumen', 'fenster_licht']); k.sticker(n, u, y + .7, dd / 2, 0, Math.min(1.5, ww / nb - .1), Math.min(1.5, ww / nb - .1) * 2 / 3, .04, n === 'fenster_licht' ? 1 : 0); } } // Runde 164: window incl. shutters fits its bay
       for (const [rot, px, pz, L] of [[Math.PI, 0, -dd / 2, ww], [-Math.PI / 2, -ww / 2, 0, dd], [Math.PI / 2, ww / 2, 0, dd]]) {
         const n = Math.max(1, Math.round(L / 1.6));
         for (let i = 0; i < n; i++) if (r() < .5) { const u = -L / 2 + L * (i + .5) / n, nm = pick(r, [glas, 'fenster_zu', 'fenster_licht']);
-          k.push(px, 0, pz, rot); k.sticker(nm, u, y + .55, 0, 0, 0, 0, .04, nm === 'fenster_licht' ? 1 : 0); k.pop(); } }
+          const sw = Math.min(1.5, L / n - .1); k.push(px, 0, pz, rot); k.sticker(nm, u, y + .7, 0, 0, sw, sw * 2 / 3, .04, nm === 'fenster_licht' ? 1 : 0); k.pop(); } }
       y += fh;
-      if (f < fl - 1 && kind === 'haus') { ww += .5; dd += .5; }
+      if (f < fl - 1 && kind === 'haus') { ww += .5; dd += .5; k.poly([[-ww / 2, y, dd / 2], [ww / 2, y, dd / 2], [ww / 2, y, -dd / 2], [-ww / 2, y, -dd / 2]], [[0, 0], [1, 0], [1, 1], [0, 1]], 'c_balken'); } // closed underside of the jetty
     }
     if (kind === 'turm') k.cone(ww * .78, ww * 1.3, 0, y, 0, 4, tex, Math.PI / 4);
     else { roof(k, ww, dd, Math.max(2.4, dd * .42), y, tex); const cx = ww * .25 * (r() < .5 ? -1 : 1); k.box(.9, .9, 2.4 + dd * .3, cx, y, -dd * .15, 'stein', [3.2, 3.2]); }

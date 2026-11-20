@@ -148,11 +148,11 @@ document.getElementById('zlLeave').addEventListener('click', leave);
 document.addEventListener('keydown', e => { if (inside && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); leave(); } });
 
 // ------------------------------------------------------------------ map layer
-const ICON = (g, x, y, r) => { g.fillStyle = '#2f62c8'; g.strokeStyle = '#1a1206'; g.lineWidth = Math.max(1.5, r * .3); g.beginPath(); g.rect(x - r, y - r * 1.25, r * 2, r * 2.5); g.fill(); g.stroke();
+const ICON = (g, x, y, r, halo) => { if (halo) { g.fillStyle = 'rgba(255,248,224,.95)'; g.fillRect(x - r * 1.45, y - r * 1.7, r * 2.9, r * 3.4); } g.fillStyle = '#2f62c8'; g.strokeStyle = '#1a1206'; g.lineWidth = Math.max(1.5, r * .3); g.beginPath(); g.rect(x - r, y - r * 1.25, r * 2, r * 2.5); g.fill(); g.stroke();
   g.fillStyle = '#fff1c8'; g.fillRect(x - r * .35, y - r * 1.75, r * .7, r * .5); g.fillStyle = '#cfe0ff'; g.fillRect(x - r * .6, y - r * .8, r * 1.2, r * .55); };
 window.HXZ = {
   get list() { return LIST; },
-  drawMini(g, MS) { if (!A.LAYERS.zellen) return; for (const b of LIST) ICON(g, b.x * MS, b.z * MS, 6); },
+  drawMini(g, MS) { if (!A.LAYERS.zellen) return; for (const b of LIST) ICON(g, b.x * MS, b.z * MS, 9, true); }, // Runde 163: larger, with a light halo
   drawBig(g, toScr, d, s) { if (!A.LAYERS.zellen || s < .03) return; const k = Math.max(.55, Math.min(1, s / .2)); for (const b of LIST) { const [x, y] = toScr(b.x, b.z); ICON(g, x, y, 5 * d * k); } }, // Runde 162: also far out (phone test: none on the zoomed-out map), smaller there
   enter: b => enter(b || LIST[0]), leave, get inside() { return inside; },
   scanAll() { for (let i = 0; i < 2000; i++) scan(); prune(); if (dirty) rebuild(); return LIST.length; }, // tests: the whole search at once (also without a running frame loop)
