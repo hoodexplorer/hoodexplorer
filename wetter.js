@@ -224,7 +224,7 @@ function waterAmb(dt, x, z, swimming) {
   if (wide > 12) flowD = 99; /* Runde 191: a brook only babbles where the water is narrow - not on a pond a stream runs through, a lake or a wide river */
   if (!WAMB.brook) { WAMB.brook = ambLoop('brook'); WAMB.rain = ambLoop('rainwater'); WAMB.shore = ambLoop('shore'); }
   const t = ac.currentTime, near = Math.min(flowD, stillD);
-  WAMB.brook.gain.setTargetAtTime(flowD < 32 ? .14 * Math.pow(1 - flowD / 34, 2) : 0, t, .5);
+  WAMB.brook.gain.setTargetAtTime(flowD < 16 ? .07 * Math.pow(1 - flowD / 18, 2) : 0, t, .5); /* Runde 192: half as loud, only within 16 m */
   WAMB.shore.gain.setTargetAtTime(0, t, .6); /* Runde 190: the steady lapping loop is off (overlapped with the gluggs) */
   WAMB.rain.gain.setTargetAtTime(W.rain > .08 && near < 26 ? .1 * W.rain * Math.pow(1 - near / 28, 1.5) : 0, t, .5);
   /* Runde 190 (phone test: still far too much - the steady lapping loop and the gluggs overlapped): no steady loop any more (gain 0),
