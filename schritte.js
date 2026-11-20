@@ -25,11 +25,27 @@
   function bubble(buf, sr, t0, r, amp) { // eine Luftblase (r in Metern)
     const f0 = 3 / r, d = .13 / r + .0072 * Math.pow(r, -1.5), sg = .1 * d, n0 = Math.floor(t0 * sr), n = Math.floor(6 / d * sr); let ph = 0;
     for (let i = 0; i < n && n0 + i < buf.length; i++) { const t = i / sr; ph += 2 * Math.PI * f0 * (1 + sg * t) / sr; buf[n0 + i] += amp * Math.sin(ph) * Math.exp(-d * t) * Math.min(1, t / .0004); } }
+  function bubbleW(buf, sr, t0, r, amp) { const L = buf.length, f0 = 3 / r, d = .13 / r + .0072 * Math.pow(r, -1.5), sg = .1 * d, n0 = Math.floor(t0 * sr), n = Math.floor(6 / d * sr); let ph = 0; // wraps round: for loops
+    for (let i = 0; i < n; i++) { const t = i / sr; ph += 2 * Math.PI * f0 * (1 + sg * t) / sr; buf[(n0 + i) % L] += amp * Math.sin(ph) * Math.exp(-d * t) * Math.min(1, t / .0004); } }
+  function loopNoise(buf, sr, type, f, q, amp) { const L = buf.length, X = Math.floor(.25 * sr), tmp = new Float32Array(L + X); noise(tmp, sr, 0, 1e3, type, f, q, amp, .0001); // steady filtered noise, crossfaded into a seamless loop
+    for (let i = 0; i < L; i++) buf[i] += i < X ? tmp[i] * (i / X) + tmp[L + i] * (1 - i / X) : tmp[i]; }
+  function population(buf, sr, rate, rLo, rHi, gam, amp) { const L = buf.length / sr; let t = 0; // bubbles of a size distribution 1/r^gam (van den Doel)
+    while ((t += -Math.log(1 - R() * .999) / rate) < L) { let r; do { r = rLo + R() * (rHi - rLo); } while (R() > Math.pow(rLo / r, gam));
+      bubbleW(buf, sr, t, r, amp * Math.pow(r / rHi, .6) * (.4 + .6 * R())); } }
   function grains(buf, sr, t0, t1, rate, amp, fLo, fHi, dur0, dur1) { // Knirsch-Körner: Poisson-Folge winziger Rauschimpulse
     let t = t0; while (true) { t += -Math.log(1 - R() * .999) / rate; if (t > t1) break; const fade = 1 - (t - t0) / (t1 - t0) * .6, a = amp * fade * (.15 + .85 * Math.pow(R(), 2.5));
       noise(buf, sr, t, dur0 + R() * (dur1 - dur0), 'bp', fLo + R() * (fHi - fLo), 1.4 + R() * 2.6, a, .0003); } }
   function norm(buf, peak = .9) { let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v)); if (m > 0) for (let i = 0; i < buf.length; i++) buf[i] *= peak / m; return buf; }
   const K = {
+    // Runde 181: water - swimming strokes, shore lapping, quay slaps; loops for brooks/rivers and rain on water. Dark like the steps.
+    swim(sr) { const b = new Float32Array(Math.floor(.5 * sr)); noise(b, sr, 0, .06, 'bp', 450 + R() * 150, .7, .8, .01); thump(b, sr, 0, 75, 20, .25);
+      noise(b, sr, .02, .14, 'bp', 1000 + R() * 300, .6, .2, .015); const n = 5 + Math.floor(R() * 4); for (let i = 0; i < n; i++) bubble(b, sr, .02 + R() * .3, (2.5 + R() * 4) / 1000, .25 + R() * .25); return norm(b, .8); },
+    lap(sr) { const b = new Float32Array(Math.floor(.7 * sr)); noise(b, sr, 0, .3, 'lp', 380, .7, .7, .06); const n = 2 + Math.floor(R() * 3);
+      for (let i = 0; i < n; i++) bubble(b, sr, .05 + R() * .3, (4 + R() * 5) / 1000, .35 + R() * .3); noise(b, sr, .35, .2, 'bp', 700, .7, .12, .03); return norm(b, .7); },
+    slap(sr) { const b = new Float32Array(Math.floor(.4 * sr)); noise(b, sr, 0, .05, 'bp', 380 + R() * 120, .8, 1, .006); thump(b, sr, 0, 65, 25, .3);
+      for (let i = 0; i < 2; i++) bubble(b, sr, .03 + R() * .15, (3 + R() * 4) / 1000, .2); return norm(b, .7); },
+    brook(sr) { const b = new Float32Array(Math.floor(2.4 * sr)); loopNoise(b, sr, 'lp', 700, .6, .5); population(b, sr, 140, 1.5 / 1000, 7 / 1000, 1.6, .5); return norm(b, .7); },
+    rainwater(sr) { const b = new Float32Array(Math.floor(2.0 * sr)); loopNoise(b, sr, 'bp', 1300, .5, .25); population(b, sr, 260, 1.2 / 1000, 3 / 1000, 1.0, .35); return norm(b, .6); },
     snow(sr) { const b = new Float32Array(Math.floor(.34 * sr)); // Ferse: dumpfer Druck + dichtes Knirschen, Ballen: leiser, kürzer
       noise(b, sr, 0, .06, 'lp', 300, .7, .28, .004); thump(b, sr, 0, 70, 50, .08);
       grains(b, sr, .004, .13, 320 + R() * 120, .8, 600, 2800, .002, .006);

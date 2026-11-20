@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=602' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=603' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -327,7 +327,7 @@ groundMat.extensions = { derivatives: true };
 /* Water: one material per map tile with the tile's shore field (distance to the shore, hard or natural shore; 2 m raster).
    Pixel-art water from it: depth bands with dithered edges, waves rolling towards natural banks, foam at the waterline,
    the dark shadow strip of quay walls, short glints on open water, a slow swell. All in this one shader pass. */
-const waterTime = { value: 0 };
+const waterTime = { value: 0 }, waterRain = { value: 0 }; // Runde 181: rain rings on the water
 const waterIce = { value: new THREE.Vector2() }; // Runde 143: x = frozen (0..1, from the shore outwards), y = snow lying on the ice (wetter.js)
 // caustics (video "pixel art water"): a small tiling cell texture instead of a formula - bright lines where two cells meet
 const causticTex = (() => { const S = 64, cv = document.createElement('canvas'); cv.width = cv.height = S; const g = cv.getContext('2d'), img = g.createImageData(S, S);
@@ -339,18 +339,25 @@ const causticTex = (() => { const S = 64, cv = document.createElement('canvas');
 function waterMat(f) {
   const tex = new THREE.DataTexture(f.data, f.w, f.h, THREE.LuminanceAlphaFormat, THREE.UnsignedByteType);
   tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
+  const ftex = new THREE.DataTexture(f.flow || new Uint8Array(f.w * f.h * 2).fill(128), f.w, f.h, THREE.LuminanceAlphaFormat, THREE.UnsignedByteType); // Runde 181: flow direction (x, z)
+  ftex.magFilter = ftex.minFilter = THREE.NearestFilter; ftex.generateMipmaps = false; ftex.needsUpdate = true;
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true }); mat.uniforms_tex = tex;
   mat.customProgramCacheKey = () => 'hxwater';
   mat.onBeforeCompile = sh => {
-    sh.uniforms.uField = { value: tex }; sh.uniforms.uB = { value: new THREE.Vector4(f.x0, f.z0, f.w * f.c, f.h * f.c) }; sh.uniforms.uTime = waterTime; sh.uniforms.uCaus = { value: causticTex }; sh.uniforms.uIce = waterIce;
+    sh.uniforms.uField = { value: tex }; sh.uniforms.uB = { value: new THREE.Vector4(f.x0, f.z0, f.w * f.c, f.h * f.c) }; sh.uniforms.uTime = waterTime; sh.uniforms.uCaus = { value: causticTex }; sh.uniforms.uIce = waterIce; sh.uniforms.uFlow = { value: ftex }; sh.uniforms.uRain = waterRain;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW; uniform sampler2D uField, uCaus; uniform vec4 uB; uniform float uTime; uniform vec2 uIce;').replace('#include <color_fragment>', `#include <color_fragment>
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW; uniform sampler2D uField, uCaus, uFlow; uniform vec4 uB; uniform float uTime, uRain; uniform vec2 uIce;' +
+      '\nfloat wvn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = fract(sin(dot(i, vec2(12.7, 71.3))) * 4375.5), b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(12.7, 71.3))) * 4375.5),' +
+      ' c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(12.7, 71.3))) * 4375.5), e = fract(sin(dot(i + vec2(1.0, 1.0), vec2(12.7, 71.3))) * 4375.5); return mix(mix(a, b, f.x), mix(c, e, f.x), f.y); }' +
+      '\nfloat flowCaus(vec2 q, vec2 fv, float t, float sc, float L) { float p1 = fract(t * .08), p2 = fract(t * .08 + .5), w1 = 1.0 - abs(2.0 * p1 - 1.0);' + // flow map: two phases crossfaded, so the drift never tears
+      ' return texture2D(uCaus, (q - fv * p1 * L) / sc).r * w1 + texture2D(uCaus, (q - fv * p2 * L + 13.0) / sc).r * (1.0 - w1); }').replace('#include <color_fragment>', `#include <color_fragment>
     { vec2 uv0 = (vGW.xz - uB.xy) / uB.zw;
       // each tile draws its water only inside its own shore field: the strip beyond (map-data buffer) read the clamped edge as 'shore',
       // lay foamy over the neighbour's water at the same height and flickered (phone test, Trave bridge)
       if (uv0.x < 0.0 || uv0.y < 0.0 || uv0.x > 1.0 || uv0.y > 1.0) discard;
       vec2 uv = uv0; vec2 fl = texture2D(uField, uv).ra;
       float d = fl.x * 63.75, hard = fl.y, t = uTime;
+      vec2 fv = texture2D(uFlow, uv).ra * 2.0 - 1.0; float fln = length(fv); if (fln < .25) { fv = vec2(0.0); fln = 0.0; } // Runde 181: flow of rivers and streams (0 on lakes)
       vec2 px = floor(vGW.xz * 2.0); float n = fract(sin(dot(px, vec2(12.9898, 78.233))) * 43758.5453);
       vec3 b = diffuseColor.rgb;                          // tone of this kind of water (river grey-green, lake blue, harbour dark)
       vec3 deep = b * .66, mid = b * .86, shal = b * 1.1 + vec3(.02, .07, .05), lite = b * 1.28 + vec3(.05, .11, .08), foam = vec3(.90, .96, .95);
@@ -369,9 +376,18 @@ function waterMat(f) {
       // 2 caustics: a thin, moving net of light on the shallow bottom (20-40 %)
       if (d < 8.0) {
         vec2 q = floor(vGW.xz * 3.0) / 3.0;                 // on the pixel grid (video: pixelate the distortion)
-        float cv = min(texture2D(uCaus, q / 7.0 + vec2(t * .021, t * .013)).r, texture2D(uCaus, q / 9.0 - vec2(t * .017, -t * .011)).r);
+        float cv = fln > 0.0 ? min(flowCaus(q + vec2(t * .15, t * .09), fv, t, 7.0, 9.0), flowCaus(q - vec2(t * .15, -t * .1), fv, t, 9.0, 12.0)) // drifting downstream
+                             : min(texture2D(uCaus, q / 7.0 + vec2(t * .021, t * .013)).r, texture2D(uCaus, q / 9.0 - vec2(t * .017, -t * .011)).r);
         if (cv > .3) c = mix(c, vec3(.88, 1.0, .96), cv * .62 * (1.0 - d / 8.0) * (1.0 - hard * .5));
       }
+      // Runde 181: current - short light streaks drifting downstream in lanes (rivers and streams), and on open water a large, slow
+      //   third Voronoi layer (soft light cell edges) so wide water is not one flat tone; it drifts with the current too
+      if (fln > 0.0 && d > 1.5) { vec2 fd = fv / fln, pd = vec2(-fd.y, fd.x), pp = floor(vGW.xz * 2.0) / 2.0;
+        float s = dot(pp, fd), a = dot(pp, pd), lane = floor(a * 1.2), hl = fract(sin(lane * 12.9898) * 43758.5);
+        float seg = s * .18 - t * (.2 + hl * .12) + hl * 7.0, sid = floor(seg), sh2 = fract(sin((lane * 31.7 + sid) * 3.1) * 4375.5);
+        if (sh2 > .62 && fract(seg) < .22) c = mix(c, lite * 1.06 + vec3(.04), .32); }
+      if (d > 7.0) { vec2 qq = floor(vGW.xz * 1.5) / 1.5; float big = fln > 0.0 ? flowCaus(qq + vec2(t * .25, -t * .2), fv, t, 38.0, 14.0) : texture2D(uCaus, qq / 38.0 + vec2(t * .004, -t * .003)).r;
+        if (big > .3) c = mix(c, lite, .07 + .05 * big); }
       // 3 reflection of the bank in broken pixel rows (vegetation at natural banks, the wall at quays)
       { float row = floor(vGW.z * 2.0), sh = sin(row * 1.7 + t * 1.3) * .35;
         if (hard < .5 && d + sh > 1.0 && d + sh < 3.2) c = mix(c, vec3(.17, .27, .16), .42);
@@ -381,9 +397,17 @@ function waterMat(f) {
         else if (d < 1.65 && fract(vGW.x * .7 + vGW.z * .7 + floor(t * 2.0) * .37) < .55) c = mix(c, foam, .55); // broken light line where water meets the wall
         else if (d < 2.0 && fract(t * .6 + n * .3) > .55) c = mix(c, foam, .45); // little slaps against the wall
       } else {
-        float w = fract(d / 2.6 - t * .32);                 // wave lines rolling towards the bank
-        if (d < 7.0 && w < .14 + .04 * n) c = mix(c, foam, .85 * (1.0 - d / 7.0));
-        if (d < .9 + .35 * sin(t * 1.7 + vGW.x * .3 + vGW.z * .2)) c = foam; // waterline foam, breathing
+        /* Runde 181: waves run in irregularly (speed, phase and reach vary along the shore), break into foam at the waterline and the
+           backwash slides out again; the waterline foam is broken into patches by the Voronoi cells */
+        float ns = wvn(vGW.xz * .09), ns2 = wvn(vGW.xz * .21 + 3.7);
+        float u = fract(t * (.13 + .05 * ns2) + ns * 2.0), reach = .6 + .9 * ns2;
+        float wd = u < .7 ? 6.5 * (1.0 - u / .7) * (1.0 - u / .7) + .4 : .4 + (u - .7) / .3 * 2.2; // running in, slowing down - then the backwash going out
+        if (d < 7.0 && abs(d - wd) < (u < .7 ? .35 + .15 * n : .22)) c = mix(c, foam, (u < .7 ? .8 : .4) * (1.0 - d / 7.0));
+        float u2 = fract(t * .11 + ns2 * 3.0 + .5), wd2 = 6.5 * (1.0 - u2) * (1.0 - u2) + .4; // a second, weaker set, out of step
+        if (d < 7.0 && u2 < .9 && abs(d - wd2) < .25 + .1 * n) c = mix(c, foam, .5 * (1.0 - d / 7.0));
+        float br = u > .62 && u < .85 ? 1.0 - abs(u - .72) / .13 : 0.0;   // the moment a wave breaks: the foam reaches up the bank
+        float cell = texture2D(uCaus, floor(vGW.xz * 2.0) / 10.0 + vec2(t * .01, 0.0)).r;
+        if (d < .7 + reach * max(br, 0.0) * 1.3 + .25 * sin(t * 1.7 + vGW.x * .3 + vGW.z * .2) && (cell < .5 || d < .55)) c = foam; // waterline foam in patches
       }
       // sky in the water at low viewing angles (street view); nearly nothing from the isometric camera above
       { vec3 vv = normalize(cameraPosition - vGW); float fr = isOrthographic ? 0.0 : pow(1.0 - clamp(vv.y, 0.0, 1.0), 6.0);
@@ -398,6 +422,9 @@ function waterMat(f) {
       float g = fract(sin(dot(sp, vec2(7.13, 157.1)) + ph * 3.1) * 43758.5);
       if (d > 4.0 && g > .9985) c = mix(c, vec3(.82, .93, .98), .4);
       c *= .965 + .035 * sin(vGW.x * .08 + vGW.z * .05 + t * .6); // slow swell
+      if (uRain > .02) { vec2 rq = floor(vGW.xz * 3.0) / 3.0 / 1.1, rid = floor(rq), rf = fract(rq) - .5; // Runde 181: rain rings on the water
+        float h = fract(sin(dot(rid, vec2(7.7, 3.1))) * 4375.5), tt = fract(t * (.9 + h * .6) + h), rr = length(rf + (vec2(fract(h * 13.0), fract(h * 29.0)) - .5) * .5);
+        if (h < uRain * .8 + .1 && abs(rr - tt * .45) < .05 * (1.0 - tt) + .025) c = mix(c, lite * 1.1 + vec3(.06), .5 * (1.0 - tt)); }
       // Runde 143: black ice - the water freezes from the shore outwards: pale blue ice tinted by the water, a still net of white
       // cracks, darker clear patches further out, rare glints, snow dusting from the weather
       if (uIce.x > 0.0 && uIce.x * 1.25 > n * .2 + .8 * min(d, 16.0) / 16.0) {
@@ -1475,6 +1502,12 @@ function buildingAt(x, z) {
 function inPoly(x, z, p) { let ins = false; for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) { const xi = p[i], zi = p[i + 1], xj = p[j], zj = p[j + 1]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ins = !ins; } return ins; }
 const WFIELDS = new Map(); // shore fields per tile (also on the CPU): where is open water
 // water under the player: distance to the shore (m) or null; bridges and piers count as dry
+function waterProbe(x, z) { // Runde 181 (water sounds): {d: distance to the shore, hard: quay, flow: 0..1} or null
+  for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue;
+    const i = cz * f.w + cx, v = f.data[i * 2]; if (!(v > 0)) return null; const fx = f.flow ? f.flow[i * 2] - 128 : 0, fz = f.flow ? f.flow[i * 2 + 1] - 128 : 0;
+    return { d: v / 4, hard: f.data[i * 2 + 1] > 127, flow: Math.hypot(fx, fz) > 40 ? 1 : 0 }; }
+  return null;
+}
 function waterInfo(x, z) {
   for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue;
     const i = cz * f.w + cx; if (f.dry && f.dry[i]) return null; const v = f.data[i * 2]; if (!(v > 0)) return null; waterInfo.hard = f.data[i * 2 + 1] > 127; return v / 4; }
@@ -1897,7 +1930,7 @@ let CAP30 = !!store.get('hx.cap30');
 function step(now) {
   requestAnimationFrame(step);
   if (CAP30 && now - last < 1000 / 30 - 4) return;
-  let dt = Math.min(.05, (now - last) / 1000); last = now; if (HITSTOP > 0) { HITSTOP -= dt; dt *= .15; } /* impact: a short hit-stop */ time += dt; frame++; waterTime.value = time;
+  let dt = Math.min(.05, (now - last) / 1000); last = now; if (HITSTOP > 0) { HITSTOP -= dt; dt *= .15; } /* impact: a short hit-stop */ time += dt; frame++; waterTime.value = time; waterRain.value = window.WX && WX.state ? WX.state.rain || 0 : 0;
   updateWrecks(dt);
   if (!rt) makeRT();
   if (started && P.placed && $('profile').hidden) {
@@ -2920,7 +2953,7 @@ window.HXZ_API = { scene, P, DRV, tiles, LAYERS, get started() { return started;
   night: () => Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)) };
 /* Runde 141: what the weather module (wetter.js) needs */
 window.HXWX_API = { scene, groundMat, bldMat, P, DV, DRV, store, get cam() { return cam; }, get iso() { return cam === iso; }, get isoZoom() { return isoZoom; }, get started() { return started; },
-  terrainH: (x, z, y) => terrainH(x, z, y), underground: (x, z, y) => !!(TUN.segs.length && underground(x, z, y)), water: (x, z) => !!waterFloor(x, z), remood: () => applyMood(cur), waterIce, get fogColor() { return scene.fog.color; } };
+  terrainH: (x, z, y) => terrainH(x, z, y), underground: (x, z, y) => !!(TUN.segs.length && underground(x, z, y)), water: (x, z) => !!waterFloor(x, z), waterProbe, remood: () => applyMood(cur), waterIce, get fogColor() { return scene.fog.color; } };
 window.HXTR = { player, isoCam: iso, setFigur, addEigenCard, get CARS() { let n = 0, g = 0; for (const a of carTiles.values()) for (let i = 0; i < a.length; i += 6) { n++; if (a[i + 3] < 0) g++; } return { n, weg: g }; }, get OCCDBG() { return { slots: occSlots.map(o => ({ a: +o.a.toFixed(2), cx: Math.round((o.b.minx + o.b.maxx) / 2 - P.x), cz: Math.round((o.b.minz + o.b.maxz) / 2 - P.z), h: Math.round(o.b.h - o.b.base), l2: o.b.l2 })), g: occG.map(o => o.g + ":" + o.a.toFixed(2)) }; }, HXL, withLamp, itemGhost, get BG() { return bgrid; }, get L2B() { return L2B; }, bldU: bldUniforms, beamTex: () => beamTex(), glowTex: () => glowTex(), get worker() { return worker; }, SPAN_APP, ELEV_APP, scene, terrainH, buildGraph, ONEW, P, DV, DRV, tiles, BINS, waterAt, waterSurf, buildingAt, inPoly, camera, streetAt, DIPS_APP, get ELEV() { return typeof ELEV_APP !== 'undefined' ? ELEV_APP : null; }, get camMode() { return camMode; }, get night() { return Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)); }, get TILEVER() { return TILEVER; }, get PRUEF() { return PRUEF; }, get ISO() { return ISO; } }; // Runde 81: traffic.js
 window.HXD = { toLocal: (lat, lon) => toLocal(lat, lon), terrainH2: (x, z, y) => terrainH(x, z, y), get tiles() { return tiles; }, get mw() { return DRV.mw; }, buildGraph2: () => buildGraph(), attach: (G, x, z, h, n) => attach(G, x, z, h, n), get ONEW() { return ONEW; }, get CRATES() { return CRATES; }, get INV() { return INV; }, lootBox: b => lootBox(b), get worker() { return worker; }, get worldReady() { return worldReady; }, bldUniforms, groundAround: r => groundAround(r), JOBQ, onData: e => onData(e), toLatLon: (x, z) => toLatLon(x, z), lod2Top, bridgeElev, ELEV_APP, jump, objTop, surfAhead, CORR_APP, DZ_APP, dzH, terrainRaw, wakePts, waterAt, WFIELDS, enterCar, leaveCar, driveTo, nearestParked, buildGraph, nearestNode, aStar, DRV, DV, P, keys, meshes, scene, dipInfo, DIPS_APP, RAILS, railAt, get camera() { return camera; }, get renderer() { return renderer; }, get iso() { return iso; } }; // debugging in the browser console
 // route on the mini and big map

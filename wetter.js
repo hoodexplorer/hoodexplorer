@@ -167,17 +167,17 @@ function audio() {
   const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
   const loop = (type, f, q) => { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = ac.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(); return [g, fl]; };
   [rainG, rainF] = loop('lowpass', 2400, .4); [hissG] = loop('highpass', 2600, .3);
-  if (window.HXSTEP) for (const k of HXSTEP.kinds) STEPB[k] = HXSTEP.bank(k, ac.sampleRate).map(a => { const b = ac.createBuffer(1, a.length, ac.sampleRate); b.getChannelData(0).set(a); return b; }); // Runde 179: footsteps (schritte.js)
+  if (window.HXSTEP) for (const k of HXSTEP.kinds) STEPB[k] = HXSTEP.bank(k, ac.sampleRate, /^(brook|rainwater)$/.test(k) ? 1 : 6).map(a => { const b = ac.createBuffer(1, a.length, ac.sampleRate); b.getChannelData(0).set(a); return b; }); // Runde 179: footsteps (schritte.js)
   return ac;
 }
-['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { if (W.rain + W.snow + W.wet + W.cover + W.ice > .02 || target.storm) { audio(); if (ac && ac.state !== 'running') ac.resume(); } }, { passive: true }));
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { audio(); if (ac && ac.state !== 'running') ac.resume(); }, { passive: true })); // Runde 181: always - water sounds also in fine weather
 function burstSnd(dur, type, f, q, vol, f2) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur); fl.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
   s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(t, Math.random()); s.stop(t + dur + .05); }
 /* Runde 179 (phone test: steps in rain and snow sounded wrong - one soft noise puff for puddle, snow and ice alike, wet ground silent):
    pre-computed steps from schritte.js (snow = granular crunch, puddle = slap + splash + bubbles, wet ground = soft slap, ice = hard
    cracks), six variants each, played with a little random pitch and level */
-const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18 };
+const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18, swim: .3, lap: .2, slap: .18 };
 function stepSnd(kind, k = 1) { if (!ac || ac.state !== 'running') return; const L = STEPB[kind]; if (!L || !L.length) return;
   const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
   lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5; // Runde 180: steps never bright - they get on one's nerves in the long run
@@ -210,8 +210,26 @@ window.WX = {
   setPower(v) { power = v; store.set('hx.wetterStaerke', v); }
 };
 
+/* Runde 181: water ambience around the figure (or the car), checked every 0.4 s on rings of 4-30 m: a running brook/river as a
+   seamless bubble loop (louder the nearer), still water at natural banks: single low gluggs now and then, quay walls: soft slaps,
+   rain on water: a quiet loop of small bubbles. All through the 3 kHz lowpass - dark like the steps. */
+const WAMB = { t: 0, brook: null, rain: null, next: 0 };
+function ambLoop(kind) { const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = STEPB[kind][0]; s.loop = true; lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5;
+  g.gain.value = 0; s.connect(lp); lp.connect(g); g.connect(ac.destination); s.start(0, Math.random() * s.buffer.duration); return g; }
+function waterAmb(dt, x, z, swimming) {
+  if (!ac || ac.state !== 'running' || !STEPB.brook || !A.waterProbe) return; if ((WAMB.t -= dt) > 0) return; WAMB.t = .4;
+  let flowD = 99, stillD = 99, hard = false;
+  for (const r of [0, 4, 9, 16, 24, 32]) for (let k = 0; k < (r ? 12 : 1); k++) { const a = k / 12 * 6.283, w = A.waterProbe(x + Math.cos(a) * r, z + Math.sin(a) * r); if (!w) continue;
+    if (w.flow) flowD = Math.min(flowD, r); else if (r < stillD) { stillD = r; hard = w.hard; } }
+  if (!WAMB.brook) { WAMB.brook = ambLoop('brook'); WAMB.rain = ambLoop('rainwater'); }
+  const t = ac.currentTime, near = Math.min(flowD, stillD);
+  WAMB.brook.gain.setTargetAtTime(flowD < 32 ? .16 * Math.pow(1 - flowD / 34, 2) : 0, t, .5);
+  WAMB.rain.gain.setTargetAtTime(W.rain > .08 && near < 26 ? .1 * W.rain * Math.pow(1 - near / 28, 1.5) : 0, t, .5);
+  if (stillD < 20 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 1200 + Math.random() * 2600; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
+}
+
 // ------------------------------------------------------------------ per frame
-let stepN = -1, lastSpray = 0, puddleCD = 0, trackD = 0, lastX = 0, lastZ = 0, rainSplashAcc = 0;
+let stepN = -1, swimN = -1, lastSpray = 0, puddleCD = 0, trackD = 0, lastX = 0, lastZ = 0, rainSplashAcc = 0;
 const approach = (k, v, rate, dt) => { W[k] += Math.max(-rate * dt, Math.min(rate * dt, v - W[k])); };
 WX.update = function (dt, time) {
   // targets and how fast the world follows (a shower wets quickly, drying takes longer, snow lies a while)
@@ -257,6 +275,8 @@ WX.update = function (dt, time) {
       else if (W.frost && W.ice > .5) stepSnd('ice', fast ? .9 : .7); // black ice
       else if (W.wet > .3) stepSnd('wet', (fast ? 1.2 : 1) * Math.min(1, W.wet)); } } // wet ground: a soft wet slap (was silent)
   else if (DRV.on) stepN = -1;
+  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { const s = Math.floor(P.phase / Math.PI); if (s !== swimN) { swimN = s; stepSnd(P.swim ? 'swim' : 'splash', P.swim ? 1 : .8); } } // Runde 181: strokes and wading
+  waterAmb(dt, DRV.on ? DV.x : P.x, DRV.on ? DV.z : P.z, P.swim);
 
   // driving: spray behind the wheels on a wet road, big splashes through puddles, tracks and white spray in snow
   const sp = DRV.on ? Math.hypot(DV.vx, DV.vz) : 0;

@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=602'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=603'); // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2826,9 +2826,18 @@ function waterField(polys, lines, toL, cls, G) {
     for (let i = 0; i + 3 < l.length; i += 2) { const L = Math.hypot(l[i + 2] - l[i], l[i + 3] - l[i + 1]), n = Math.ceil(L) + 1;
       for (let s2 = 0; s2 <= n; s2++) { const x = l[i] + (l[i + 2] - l[i]) * s2 / n, z = l[i + 1] + (l[i + 3] - l[i + 1]) * s2 / n, cx = Math.floor((x - x0) / C), cz = Math.floor((z - z0) / C);
         for (let u = -rc0; u <= rc0; u++) for (let v = -rc0; v <= rc0; v++) { const X = cx + u, Z = cz + v; if (X < 0 || Z < 0 || X >= W || Z >= H) continue; if ((u * C) ** 2 + (v * C) ** 2 <= r * r + 1) { dry[Z * W + X] = 1; nDry++; } } } } }
+  /* Runde 181: flow - the direction of the nearest river or stream line (OSM draws waterways downstream), spread over the water by a
+     breadth-first walk (up to 150 m); lakes and harbours without a waterway line stay still (128, 128 = no flow) */
+  const flow = new Uint8Array(N * 2).fill(128), fdep = new Uint8Array(N), fq = [];
+  for (let k = 0; k < lines.length; k += 2) { const l = lines[k];
+    for (let i = 0; i + 3 < l.length; i += 2) { const ex = l[i + 2] - l[i], ez = l[i + 3] - l[i + 1], L = Math.hypot(ex, ez); if (L < .1) continue; const ux = ex / L, uz = ez / L, n = Math.ceil(L / C) + 1;
+      for (let s = 0; s <= n; s++) { const cx = Math.floor((l[i] + ex * s / n - x0) / C), cz = Math.floor((l[i + 1] + ez * s / n - z0) / C); if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue;
+        const j = cz * W + cx; if (!wat(j) || fdep[j]) continue; fdep[j] = 1; flow[j * 2] = Math.round(128 + ux * 127); flow[j * 2 + 1] = Math.round(128 + uz * 127); fq.push(j); } } }
+  for (let h = 0; h < fq.length; h++) { const i = fq[h]; if (fdep[i] >= 75) continue; const x = i % W, z = (i - x) / W;
+    for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, z > 0 ? i - W : -1, z < H - 1 ? i + W : -1]) if (j >= 0 && !fdep[j] && wat(j)) { fdep[j] = fdep[i] + 1; flow[j * 2] = flow[i * 2]; flow[j * 2 + 1] = flow[i * 2 + 1]; fq.push(j); } }
   const data = new Uint8Array(N * 2);
   for (let i = 0; i < N; i++) { data[i * 2] = wat(i) && !(m[i] & 16) ? Math.max(1, Math.min(255, Math.round(d[i] * C * 4))) : 0; data[i * 2 + 1] = lab[i] === 2 ? 255 : 0; } // distance in 0.25 m (up to 63 m); 0 = land, pier or bridge
-  return { data, dry: nDry ? dry : null, w: W, h: H, x0, z0, c: C, m, loops };
+  return { data, flow, dry: nDry ? dry : null, w: W, h: H, x0, z0, c: C, m, loops };
 }
 // base ground of a tile with terrain: meadow quads per row run of land cells, so the lowered water is not covered
 function meadow(G, toL, f) {
@@ -3400,7 +3409,7 @@ async function loadMVT(rec, key) {
   const g = out.ground, gl = out.glow; chunkify(g, g.det); chunkify(gl, gl.det); quant8(g); quant8(gl);
   post({ type: 'ground', key: 'm:' + key, pos: g.pos, nor: g.nor, col: g.col, idx: g.idx || null, det: g.det, cidx: g.cidx, cinfo: g.cinfo, glow: gl, collide: out.collide, names: out.names, samples: out.samples, sqNames: out.sqNames, pedNames: out.pedNames, spawn: out.spawn, start: out.start, welt: out.welt, map: out.map, spr: out.spr, refl: out.refl, cars: out.cars, dips: out.dips, rails: out.rails, corr: out.corr, dz: out.dz, span: out.span, elev: out.elev }, [g.pos.buffer, g.nor.buffer, g.col.buffer, g.cidx.buffer, g.cinfo.buffer, gl.pos.buffer, gl.nor.buffer, gl.col.buffer, gl.cidx.buffer, gl.cinfo.buffer, out.spr.buffer, out.refl.buffer, out.cars.buffer]);
   if (out.water) { const w = out.water, f = w.field; if (f) f.S = out.waterS;
-    { const tr = [w.pos.buffer, w.nor.buffer, w.col.buffer]; if (f) { tr.push(f.data.buffer); if (f.dry) tr.push(f.dry.buffer); }
+    { const tr = [w.pos.buffer, w.nor.buffer, w.col.buffer]; if (f) { tr.push(f.data.buffer); if (f.flow) tr.push(f.flow.buffer); if (f.dry) tr.push(f.dry.buffer); }
     post({ type: 'water', key: 'm:' + key + ':water', pos: w.pos, nor: w.nor, col: w.col, field: f }, tr); } }
   if (out.parts) { const g2 = out.parts; post({ type: 'bld', key: 'm:' + key + ':parts', pos: g2.pos, nor: g2.nor, col: g2.col, fac: g2.fac, wal: g2.wal, base: g2.base }, [g2.pos.buffer, g2.nor.buffer, g2.col.buffer, g2.fac.buffer, g2.wal.buffer, g2.base.buffer]); }
   if (out.sights.length) post({ type: 'sights', key: 'm:' + key, sights: out.sights });
