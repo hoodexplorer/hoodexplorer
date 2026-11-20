@@ -476,8 +476,12 @@
           else { vec3 rel = vWp - uPlayer - vec3(0.0, 1.0, 0.0); float s = dot(rel, uToCam);
             if (s > 0.3 && s < uCamDist && dot(rel.xz, uToCam.xz) > 0.4) { float dl = length(rel - uToCam * s); if (dl < 4.5 && hxBayer(gl_FragCoord.xy) < 0.85 * (1.0 - smoothstep(2.5, 4.5, dl))) discard; } } }` : 'void main() {')
       .replace('#include <map_fragment>', `vec4 texelColor = texture2D(map, vCell.xy + fract(vUv) * vCell.zw);
-        vec2 hxTp = fwidth(vUv) * vCell.zw * uAtSz; // Runde 168: texels per screen pixel - where a texel gets smaller than a pixel (far away, Px 2 on phones)
-        if (vAvg.r >= 0.0) texelColor.rgb = mix(texelColor.rgb, vAvg, smoothstep(0.75, 1.5, sqrt(hxTp.x * hxTp.y))); // fine bricks and tiles fade to their mean colour instead of flickering
+        vec2 hxTp = fwidth(vUv) * vCell.zw * uAtSz; float hxT = sqrt(hxTp.x * hxTp.y); // texels per screen pixel (far away, Px 2 on phones)
+        if (vAvg.r >= 0.0 && hxT > 0.75) { // Runde 169: four samples across the pixel - thin mortar lines soften, timber beams stay readable from far away
+          vec2 hxA = dFdx(vUv) * 0.3, hxB = dFdy(vUv) * 0.3;
+          vec3 hxS = texture2D(map, vCell.xy + fract(vUv + hxA + hxB) * vCell.zw).rgb + texture2D(map, vCell.xy + fract(vUv - hxA + hxB) * vCell.zw).rgb
+                   + texture2D(map, vCell.xy + fract(vUv + hxA - hxB) * vCell.zw).rgb + texture2D(map, vCell.xy + fract(vUv - hxA - hxB) * vCell.zw).rgb;
+          texelColor.rgb = mix(hxS * 0.25, vAvg, smoothstep(2.5, 4.5, hxT)); } // only where even the beams get smaller than a pixel: the mean colour
         texelColor = mapTexelToLinear(texelColor); diffuseColor *= texelColor;`)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow * (.35 + uNight * 1.2);');
   }
