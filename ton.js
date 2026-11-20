@@ -3,8 +3,8 @@
    den Einstellungen unter „Ton“ (0 = aus) und bleiben im Gerät gespeichert (hx.ton). Gesamt wirkt auf alle Bereiche. */
 (() => {
   const CATS = [['gesamt', 'Gesamt'], ['schritte', 'Schritte'], ['wasser', 'Wasser (Ufer, Bach, Fische)'], ['wetter', 'Wetter (Regen, Donner)'],
-    ['fahrzeug', 'Fahrzeug (Motor, Reifen)'], ['aufprall', 'Aufprall (Auto)'], ['sirene', 'Sirene'], ['gore', 'Gore'], ['effekte', 'Effekte (Münzen, Kisten)']];
-  const D = { gesamt: .8, schritte: .7, wasser: .4, wetter: .7, fahrzeug: .7, aufprall: .7, sirene: .5, gore: .8, effekte: .7 }; // Runde 189: Aufprall separate
+    ['fahrzeug', 'Fahrzeug (Motor, Reifen)'], ['aufprall', 'Aufprall (Auto)'], ['explosion', 'Explosionen'], ['sirene', 'Sirene'], ['gore', 'Gore'], ['effekte', 'Effekte (Münzen, Kisten)']];
+  const D = { gesamt: .8, schritte: .7, wasser: .4, wetter: .7, fahrzeug: .7, aufprall: .7, explosion: .7, sirene: .5, gore: .8, effekte: .7 }; // Runde 189: Aufprall separate
   const v = Object.assign({}, D); try { Object.assign(v, JSON.parse(localStorage.getItem('hx.ton') || '{}')); } catch (e) { }
   const nodes = [], g = c => c === 'gesamt' ? v.gesamt : v.gesamt * (v[c] === undefined ? 1 : v[c]);
   function node(ac, cat) { for (const n of nodes) if (n[0] === ac && n[1] === cat) return n[2];

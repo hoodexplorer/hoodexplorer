@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=620' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=621' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2415,7 +2415,7 @@ function driveStep(dt, ix, iy) {
    The driven car is the stronger one: a parked car it hits is knocked away (impulse from the impact, spinning, bouncing),
    gets a super-low-poly damage model (body dented on the side that was hit, roof squashed, paint darker), flies for ~3 s and
    disappears (geometry freed). Impact: short hit-stop, camera shake, debris and sparks, a crunch; the driven car loses some speed. */
-const RAMG = { ver: -1, g: new Map() }, WRECKS = [], WRECK_MAX = 6;
+const RAMG = { ver: -1, g: new Map() }, WRECKS = [], WRECK_MAX = 9;
 let HITSTOP = 0;
 function ramGrid() { if (RAMG.ver === carVer) return; RAMG.ver = carVer; RAMG.g.clear();
   for (const a of carTiles.values()) for (let i = 0; i < a.length; i += 6) { if (a[i + 3] < 0 || a[i + 3] >= 8) continue; const k = Math.floor(a[i] / 8) * 100003 + Math.floor(a[i + 1] / 8); let l = RAMG.g.get(k); if (!l) RAMG.g.set(k, l = []); l.push(a, i); } }
@@ -2436,10 +2436,10 @@ function ramCheck(vF) {
       if (Math.hypot(cx - DV.x, cz - DV.z) > L + 3) continue;
       let hit = false; for (const [u, v] of probe) { const px = DV.x + fx * u + rx * v - cx, pz = DV.z + fz * u + rz * v - cz; if (Math.abs(px * sx + pz * sz) < 2.15 && Math.abs(px * sz - pz * sx) < .95) { hit = true; break; } }
       if (hit) knock(arr, i, vF); } } }
-function knock(arr, i, vF) {
-  const type = arr[i + 3] | 0, colour = arr[i + 4] | 0, cx = arr[i], cz = arr[i + 1], h = arr[i + 2]; arr[i + 3] = -1; carDirty = true; carVer++;
-  const sp = Math.abs(vF), dvx = DV.vx, dvz = DV.vz, dl = Math.hypot(dvx, dvz) || 1;
-  let nx = cx - DV.x, nz = cz - DV.z; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+function knock(arr, i, vF, src) { /* Runde 193: src = what hit it (a flying wreck, a blast); none = our car */
+  const S = src || DV, type = arr[i + 3] | 0, colour = arr[i + 4] | 0, cx = arr[i], cz = arr[i + 1], h = arr[i + 2]; arr[i + 3] = -1; carDirty = true; carVer++;
+  const sp = Math.abs(vF), dvx = S.vx, dvz = S.vz, dl = Math.hypot(dvx, dvz) || 1;
+  let nx = cx - S.x, nz = cz - S.z; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
   // the knocked car: mostly along our motion, partly away from our centre; faster the harder the hit (we are heavier)
   const kx = (dvx / dl) * .75 + nx * .45, kz = (dvz / dl) * .75 + nz * .45, kl = Math.hypot(kx, kz) || 1, ks = sp * 1.15 + 2;
   const geo = carMeshes[type].geometry.clone(), pos = geo.attributes.position, sev = Math.min(1, sp / 25);
@@ -2452,24 +2452,119 @@ function knock(arr, i, vF) {
   const c = CAR_COLOURS[colour] || CAR_COLOURS[0]; geo.attributes.iCol.setXYZ(0, c.r * .72, c.g * .72, c.b * .72);
   const m = new THREE.InstancedMesh(geo, carMat, 1); m.frustumCulled = false; scene.add(m);
   if (WRECKS.length >= WRECK_MAX) killWreck(WRECKS.shift());
-  WRECKS.push({ m, x: cx, y: terrainH(cx, cz), z: cz, h, vx: kx / kl * ks, vz: kz / kl * ks, vy: 2.5 + sp * .22, wy: (Math.random() - .5) * sp * .35, rx: 0, rz: 0, wx: (Math.random() - .5) * sp * .12, wz: (Math.random() - .5) * sp * .18, t: 0 });
+  WRECKS.push({ m, x: cx, y: terrainH(cx, cz), z: cz, h, vx: kx / kl * ks, vz: kz / kl * ks, vy: 2.5 + sp * .22, wy: (Math.random() - .5) * sp * .35, rx: 0, rz: 0, wx: (Math.random() - .5) * sp * .12, wz: (Math.random() - .5) * sp * .18, t: 0, boom: Math.random() < BOOMCFG.share, burn: 0 });
   // impact on us: stronger car, but it costs speed; hit-stop, shake, debris, sparks, sound
-  DV.vx *= .86; DV.vz *= .86; DV.yawRate += (Math.random() - .5) * .8; DV.shake = Math.min(1, DV.shake + .35 + sp / 40); HITSTOP = .07 + Math.min(.08, sp / 400);
-  const px = (cx + DV.x) / 2, pz = (cz + DV.z) / 2, py = terrainH(px, pz);
+  /* Runde 193 (phone: ramming made the drive stutter): no hit-stop any more and hardly any speed lost - we just plough on; a jolt and the shake stay */
+  if (!src) { DV.vx *= .97; DV.vz *= .97; DV.yawRate += (Math.random() - .5) * .25; DV.shake = Math.min(1, DV.shake + .25 + sp / 50); }
+  const px = (cx + S.x) / 2, pz = (cz + S.z) / 2, py = terrainH(px, pz);
   debris(px, py, pz, kx / kl * ks, kz / kl * ks, [c.r, c.g, c.b], 10 + Math.min(14, sp | 0), false); debris(px, py, pz, dvx * .3, dvz * .3, null, 12, true);
   crunch(sp);
 }
-function killWreck(w) { scene.remove(w.m); w.m.geometry.dispose(); }
+function killWreck(w) { w.dead = 1; scene.remove(w.m); w.m.geometry.dispose(); }
+/* Runde 193: wrecks that explode. Each knocked car rolls once (share in the settings, default 10 %) whether it explodes when it hits
+   something else - a house, another car, another wreck or the ground after a high flight. The explosion is made of sprites: camera-facing
+   quads in two instanced draws (fire additive, smoke normal), from a pixel atlas of 6 puff shapes drawn at random at start-up, plus a
+   glow and a ring. Every blast is different: power, palette (yellow-white, orange, red), number of puffs, 0-3 delayed after-blasts
+   at random offsets, smoke tone, sparks, dark chunks, a flat shock ring on the ground. The wreck chars, jumps, burns on for a few seconds
+   and pushes nearby cars away (they roll their own chance - a chain is possible, rarely). */
+const BOOMCFG = { share: .1 }; try { const v = localStorage.getItem('hx.boom'); if (v !== null && !isNaN(+v)) BOOMCFG.share = +v; } catch (e) { }
+window.HXBOOM = BOOMCFG;
+{ const r = document.getElementById('rBoom'), l = document.getElementById('rBoomL'); if (r) { r.value = BOOMCFG.share; const show = () => { l.textContent = +r.value === 0 ? 'nie' : Math.round(r.value * 100) + ' %'; }; show();
+  r.addEventListener('input', () => { BOOMCFG.share = +r.value; show(); try { localStorage.setItem('hx.boom', BOOMCFG.share); } catch (e) { } }); } }
+const FX = { fire: null, smoke: null, ring: null, P: [], Q: [], R: [], todo: [] }, FX_F = 220, FX_S = 140;
+function fxAtlas() { if (fxAtlas.t) return fxAtlas.t; const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d'), im = g.createImageData(256, 32);
+  for (let k = 0; k < 8; k++) { const blobs = []; const nb = 4 + Math.floor(Math.random() * 4);
+    for (let b = 0; b < nb; b++) { const a = Math.random() * 6.283, r = Math.random() * 6; blobs.push([16 + Math.cos(a) * r, 16 + Math.sin(a) * r, 5 + Math.random() * 6]); }
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) { let a = 0, sh = 0; const dx = x + .5 - 16, dy = y + .5 - 16, rr = Math.hypot(dx, dy);
+      if (k < 6) { for (const [bx, by, br] of blobs) { const d = Math.hypot(x + .5 - bx, y + .5 - by) / br; if (d < 1) { a = Math.max(a, 1 - d * d); sh = Math.max(sh, (by - y) / br); } }
+        a = a > .55 ? 1 : a > .3 ? .7 : a > .12 ? .38 : 0; sh = sh > .35 ? 1 : sh > -.2 ? .78 : .58; } // stepped alpha and two-tone shading: pixel puffs, lit from above
+      else if (k === 6) { a = Math.max(0, 1 - rr / 15.5); a = a * a; sh = 1; } // soft glow (flash, embers)
+      else { const d = Math.abs(rr - 13) / 2.5; a = d < 1 ? (d < .5 ? 1 : .5) : 0; sh = 1; } // ring
+      const o = (y * 256 + k * 32 + x) * 4; im.data[o] = Math.round(sh * 255); im.data[o + 1] = im.data[o + 2] = 255; im.data[o + 3] = Math.round(a * 255); } }
+  g.putImageData(im, 0, 0); const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; return fxAtlas.t = t; }
+function fxMesh(n, add) { const base = new THREE.PlaneGeometry(1, 1), geo = new THREE.InstancedBufferGeometry(); geo.index = base.index; geo.setAttribute('position', base.attributes.position); geo.setAttribute('uv', base.attributes.uv);
+  geo.setAttribute('iP', new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4)); geo.setAttribute('iC', new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4)); geo.setAttribute('iR', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2)); geo.instanceCount = 0;
+  const mat = new THREE.ShaderMaterial({ uniforms: { map: { value: fxAtlas() } }, transparent: true, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending,
+    vertexShader: 'attribute vec4 iP; attribute vec4 iC; attribute vec2 iR; varying vec2 vUv; varying vec4 vC; void main() { vec4 mv = modelViewMatrix * vec4(iP.xyz, 1.0); float c = cos(iR.x), s = sin(iR.x); vec2 q = position.xy * iP.w; mv.xy += vec2(c * q.x - s * q.y, s * q.x + c * q.y); gl_Position = projectionMatrix * mv; vUv = vec2((uv.x + iR.y) / 8.0, uv.y); vC = iC; }',
+    fragmentShader: add ? 'uniform sampler2D map; varying vec2 vUv; varying vec4 vC; void main() { vec4 t = texture2D(map, vUv); float a = t.a * vC.a; if (a < .01) discard; gl_FragColor = vec4(vC.rgb * (.75 + .25 * t.r), a); }'
+                        : 'uniform sampler2D map; varying vec2 vUv; varying vec4 vC; void main() { vec4 t = texture2D(map, vUv); float a = t.a * vC.a; if (a < .03) discard; gl_FragColor = vec4(vC.rgb * (.6 + .5 * t.r), a); }' });
+  const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.renderOrder = add ? 6 : 5; scene.add(m); return m; }
+const FIREPAL = [[[1, 1, .85], [1, .78, .25], [.9, .3, .05]], [[1, .92, .6], [1, .5, .1], [.75, .15, .04]], [[1, .85, .7], [.95, .38, .12], [.55, .08, .05]], [[1, 1, .95], [1, .68, .3], [.8, .25, .1]]];
+function fxPart(fire, o) { const L = fire ? FX.P : FX.Q, N = fire ? FX_F : FX_S; if (L.length >= N) L.shift(); L.push(o); }
+// one blast: power .5-1.5 scales size and count
+function blast(x, y, z, pw, pal, smokeC) {
+  const nF = Math.round((14 + Math.random() * 14) * pw), nS = Math.round((7 + Math.random() * 8) * pw), up = .6 + Math.random() * .9;
+  fxPart(true, { x, y: y + 1, z, vx: 0, vy: 0, vz: 0, s0: 3 * pw, s1: 7 * pw, L: .14 + Math.random() * .06, t: 0, rot: 0, wr: 0, tex: 6, pal: [[1, 1, 1], [1, .9, .6], [1, .7, .3]], g: 0, a0: .7 }); // flash
+  for (let i = 0; i < nF; i++) { const a = Math.random() * 6.283, e = Math.random() * 1.2 - .1, s = (3 + Math.random() * 9) * pw;
+    fxPart(true, { x: x + Math.cos(a) * .5, y: y + .6 + Math.random() * .8, z: z + Math.sin(a) * .5, vx: Math.cos(a) * Math.cos(e) * s, vy: Math.sin(e) * s * up + 2, vz: Math.sin(a) * Math.cos(e) * s,
+      s0: (.8 + Math.random() * 1.2) * pw, s1: (2 + Math.random() * 2.5) * pw, L: .45 + Math.random() * .7, t: -Math.random() * .08, rot: Math.random() * 6.283, wr: (Math.random() - .5) * 4, tex: Math.floor(Math.random() * 6), pal, g: -3, drag: 3.2, a0: .42 + Math.random() * .2 }); }
+  for (let i = 0; i < nS; i++) { const a = Math.random() * 6.283, s = (1 + Math.random() * 3) * pw, k = .7 + Math.random() * .5;
+    fxPart(false, { x: x + Math.cos(a) * .8, y: y + 1 + Math.random(), z: z + Math.sin(a) * .8, vx: Math.cos(a) * s, vy: 2.5 + Math.random() * 3.5 * up, vz: Math.sin(a) * s,
+      s0: (1.2 + Math.random()) * pw, s1: (4 + Math.random() * 4) * pw, L: 1.6 + Math.random() * 2.2, t: -.12 - Math.random() * .35, rot: Math.random() * 6.283, wr: (Math.random() - .5) * 1.2, tex: Math.floor(Math.random() * 6),
+      c: [smokeC[0] * k, smokeC[1] * k, smokeC[2] * k], g: 1.2, drag: 1.6, a0: .55 + Math.random() * .3 }); }
+  for (let i = 0; i < 8 * pw; i++) { const a = Math.random() * 6.283, s = 5 + Math.random() * 10; // embers: small glowing bits on arcs
+    fxPart(true, { x, y: y + 1, z, vx: Math.cos(a) * s, vy: 4 + Math.random() * 9, vz: Math.sin(a) * s, s0: .25, s1: .12, L: .6 + Math.random() * .9, t: 0, rot: 0, wr: 0, tex: 6, pal: [[1, .95, .6], [1, .6, .2], [.8, .2, .05]], g: -18, drag: .4, a0: 1 }); }
+  debris(x, y, z, 0, 0, null, Math.round(10 * pw), true); debris(x, y, z, 0, 0, [.08, .07, .07], Math.round(8 * pw), false);
+}
+function explode(x, y, z, pw) {
+  if (!FX.fire) { FX.fire = fxMesh(FX_F, true); FX.smoke = fxMesh(FX_S, false); }
+  const pal = FIREPAL[Math.floor(Math.random() * FIREPAL.length)], sm = Math.random() < .5 ? [.16, .15, .15] : Math.random() < .5 ? [.22, .19, .16] : [.11, .11, .12];
+  blast(x, y, z, pw, pal, sm);
+  const n = Math.random() < .25 ? 0 : 1 + Math.floor(Math.random() * 3); // after-blasts: tank, tyres, a second cloud
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, r = .8 + Math.random() * 2.2; FX.todo.push({ t: .08 + Math.random() * .5 + i * .12, x: x + Math.cos(a) * r, y: y + Math.random() * 1.2, z: z + Math.sin(a) * r, pw: pw * (.35 + Math.random() * .4), pal, sm }); }
+  { const geo = new THREE.RingGeometry(.86, 1, 20, 1), m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, terrainH(x, z) + .15, z); m.renderOrder = 6; scene.add(m); FX.R.push({ m, t: 0, L: .45 + Math.random() * .2, r: (7 + Math.random() * 5) * pw }); }
+  const dP = Math.hypot(x - (DRV.on ? DV.x : P.x), z - (DRV.on ? DV.z : P.z));
+  if (DRV.on && dP < 40) DV.shake = Math.min(1, DV.shake + (1 - dP / 40) * .8);
+  snd.boom(pw, dP);
+  // the blast pushes parked cars close by away (they roll their own chance to blow up too)
+  ramGrid(); const ix = Math.floor(x / 8), iz = Math.floor(z / 8);
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const l = RAMG.g.get((ix + a) * 100003 + iz + b); if (!l) continue;
+    for (let q = 0; q < l.length; q += 2) { const arr = l[q], i = l[q + 1]; if (arr[i + 3] < 0) continue; const d = Math.hypot(arr[i] - x, arr[i + 1] - z); if (d > 5.5 || d < .01) continue;
+      knock(arr, i, 9 + (5.5 - d) * 2, { x, z, vx: (arr[i] - x) / d * 6, vz: (arr[i + 1] - z) / d * 6 }); } }
+}
+function wreckHit(w, s, why) { if (!w.boom || w.burn || s < 3.5) return; w.why = why; w.burn = 3.5 + Math.random() * 3; w.t = 0;
+  const c = w.m.geometry.attributes.iCol; c.setXYZ(0, .1, .09, .085); c.needsUpdate = true; // charred
+  w.vy = Math.max(w.vy, 0) + 5 + Math.random() * 5; w.wx += (Math.random() - .5) * 5; w.wz += (Math.random() - .5) * 6; w.wy += (Math.random() - .5) * 4;
+  explode(w.x, w.y, w.z, .8 + Math.random() * .6); }
+BOOMCFG.explode = (x, z, pw) => explode(x, terrainH(x, z), z, pw || 1); /* test hooks */
+BOOMCFG.ram = (x, z, dx, dz, sp) => { ramGrid(); let best = null, bd = 1e9; for (const l of RAMG.g.values()) for (let q = 0; q < l.length; q += 2) { const arr = l[q], i = l[q + 1]; if (arr[i + 3] < 0) continue; const d = Math.hypot(arr[i] - x, arr[i + 1] - z); if (d < bd) { bd = d; best = [arr, i]; } }
+  if (!best) return null; const [arr, i] = best, cx = arr[i], cz = arr[i + 1]; knock(arr, i, sp || 20, { x: cx - dx, z: cz - dz, vx: dx * (sp || 20), vz: dz * (sp || 20) }); const w = WRECKS[WRECKS.length - 1]; w.boom = true; BOOMCFG.last = w; return [cx, cz, WRECKS.length]; };
+function updateFX(dt) {
+  for (let i = FX.todo.length - 1; i >= 0; i--) { const b = FX.todo[i]; if ((b.t -= dt) > 0) continue; FX.todo.splice(i, 1); blast(b.x, b.y, b.z, b.pw, b.pal, b.sm); snd.boom(b.pw * .6, Math.hypot(b.x - (DRV.on ? DV.x : P.x), b.z - (DRV.on ? DV.z : P.z))); }
+  for (let i = FX.R.length - 1; i >= 0; i--) { const r = FX.R[i]; r.t += dt; const u = r.t / r.L, k = 1 - Math.pow(1 - Math.min(1, u), 2); r.m.scale.set(.5 + k * r.r, .5 + k * r.r, 1); r.m.material.opacity = .55 * (1 - u);
+    if (u >= 1) { scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); FX.R.splice(i, 1); } }
+  if (!FX.fire) return;
+  for (const [L, mesh, fire] of [[FX.P, FX.fire, true], [FX.Q, FX.smoke, false]]) { const g = mesh.geometry, aP = g.attributes.iP.array, aC = g.attributes.iC.array, aR = g.attributes.iR.array; let n = 0;
+    for (let i = L.length - 1; i >= 0; i--) { const p = L[i]; p.t += dt; if (p.t < 0) continue; const u = p.t / p.L; if (u >= 1) { L.splice(i, 1); continue; }
+      const f = Math.exp(-(p.drag || 0) * dt); p.vx *= f; p.vz *= f; p.vy = p.vy * f + (p.g || 0) * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.rot += p.wr * dt;
+      const gr = terrainH(p.x, p.z) + .1; if (p.y < gr) { p.y = gr; p.vy = Math.abs(p.vy) * .2; }
+      let r, gg, bb, a; if (fire) { const P3 = p.pal, k = u < .35 ? u / .35 : (u - .35) / .65, A = u < .35 ? P3[0] : P3[1], B = u < .35 ? P3[1] : P3[2];
+        r = A[0] + (B[0] - A[0]) * k; gg = A[1] + (B[1] - A[1]) * k; bb = A[2] + (B[2] - A[2]) * k; a = p.a0 * (u < .6 ? 1 : 1 - (u - .6) / .4); }
+      else { r = p.c[0]; gg = p.c[1]; bb = p.c[2]; a = p.a0 * Math.min(1, u * 6) * (1 - u) * (1 - u); }
+      const s = p.s0 + (p.s1 - p.s0) * (1 - Math.pow(1 - u, 2.2));
+      aP[n * 4] = p.x; aP[n * 4 + 1] = p.y; aP[n * 4 + 2] = p.z; aP[n * 4 + 3] = s; aC[n * 4] = r; aC[n * 4 + 1] = gg; aC[n * 4 + 2] = bb; aC[n * 4 + 3] = a; aR[n * 2] = p.rot; aR[n * 2 + 1] = p.tex; n++; }
+    g.instanceCount = n; g.attributes.iP.needsUpdate = g.attributes.iC.needsUpdate = g.attributes.iR.needsUpdate = true; mesh.visible = n > 0; }
+}
+
 function updateWrecks(dt) {
+  updateFX(dt);
   if (!WRECKS.length && !DEB.length) { if (debMesh && debMesh.count) debMesh.count = 0; return; }
   const _w = new THREE.Euler(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _m = new THREE.Matrix4();
-  for (let k = WRECKS.length - 1; k >= 0; k--) { const w = WRECKS[k]; w.t += dt;
+  for (const w of WRECKS.slice()) { if (w.dead) continue; w.t += dt; /* a copy: a blast may add (and drop) wrecks while we go */
     w.vy -= 22 * dt; w.x += w.vx * dt; w.y += w.vy * dt; w.z += w.vz * dt; w.h += w.wy * dt; w.rx += w.wx * dt; w.rz += w.wz * dt;
-    const g = terrainH(w.x, w.z); if (w.y < g) { w.y = g; if (w.vy < -2) { w.vy *= -.3; w.wx *= .6; w.wz *= .6; } else { w.vy = 0; w.rx *= .85; w.rz *= .85; } const f = Math.exp(-dt * 2.5); w.vx *= f; w.vz *= f; w.wy *= f; }
-    if (buildingAt(w.x, w.z)) { w.vx *= -.3; w.vz *= -.3; w.x += w.vx * dt * 2; w.z += w.vz * dt * 2; }
-    const sc = w.t > 3 ? Math.max(0, 1 - (w.t - 3) / .4) : 1; // shrink away at the end
+    const g = terrainH(w.x, w.z); if (w.y < g) { w.y = g; if (w.vy < -13) wreckHit(w, -w.vy, 'fall'); /* only a real fall counts, a normal landing does not */ if (w.vy < -2) { w.vy *= -.3; w.wx *= .6; w.wz *= .6; } else { w.vy = 0; w.rx *= .85; w.rz *= .85; } const f = Math.exp(-dt * 2.5); w.vx *= f; w.vz *= f; w.wy *= f; }
+    if (buildingAt(w.x, w.z)) { wreckHit(w, Math.hypot(w.vx, w.vz), 'house'); w.vx *= -.3; w.vz *= -.3; w.x += w.vx * dt * 2; w.z += w.vz * dt * 2; }
+    { const hs = Math.hypot(w.vx, w.vz); if (hs > 4 && w.t > .15) { ramGrid(); // Runde 193: a flying wreck hits a parked car (knocks it on) or another wreck
+      const l = RAMG.g.get(Math.floor(w.x / 8) * 100003 + Math.floor(w.z / 8)); if (l) for (let q = 0; q < l.length; q += 2) { const arr = l[q], i = l[q + 1]; if (arr[i + 3] < 0) continue;
+        if (Math.hypot(arr[i] - w.x, arr[i + 1] - w.z) < 2.3 && w.y < terrainH(arr[i], arr[i + 1]) + 1.6) { knock(arr, i, hs * .8, w); wreckHit(w, hs, 'car'); w.vx *= .45; w.vz *= .45; break; } }
+      for (const o of WRECKS) if (o !== w && Math.hypot(o.x - w.x, o.z - w.z) < 2.2 && Math.abs(o.y - w.y) < 1.6 && Math.hypot(o.vx - w.vx, o.vz - w.vz) > 4) { wreckHit(w, hs, 'wreck'); wreckHit(o, hs, 'wreck'); } } }
+    if (w.burn) { w.fl = (w.fl || 0) - dt; if (w.fl <= 0 && w.t < w.burn && FX.fire) { w.fl = .06 + Math.random() * .08; const k = 1 - w.t / w.burn; // it burns on: small flames and a smoke trail
+      fxPart(true, { x: w.x + (Math.random() - .5) * 1.4, y: w.y + .5 + Math.random() * .6, z: w.z + (Math.random() - .5) * 1.4, vx: (Math.random() - .5), vy: 1.5 + Math.random() * 2, vz: (Math.random() - .5), s0: (.6 + Math.random() * .6) * (.4 + k * .6), s1: .2, L: .35 + Math.random() * .3, t: 0, rot: Math.random() * 6.283, wr: (Math.random() - .5) * 3, tex: Math.floor(Math.random() * 6), pal: FIREPAL[1], g: 1, drag: 1, a0: .9 });
+      if (Math.random() < .6) fxPart(false, { x: w.x, y: w.y + 1.2, z: w.z, vx: (Math.random() - .5) * .8 + .6, vy: 2 + Math.random() * 1.5, vz: (Math.random() - .5) * .8 + .3, s0: .8, s1: 3 + Math.random() * 2, L: 1.8 + Math.random() * 1.2, t: 0, rot: Math.random() * 6.283, wr: (Math.random() - .5), tex: Math.floor(Math.random() * 6), c: [.13, .12, .12], g: .6, drag: .8, a0: .5 * (.4 + k * .6) }); } }
+    const life = 3 + (w.burn || 0), sc = w.t > life ? Math.max(0, 1 - (w.t - life) / .4) : 1; // shrink away at the end (a burnt-out wreck later)
     _w.set(w.rx, w.h, w.rz, 'YXZ'); _q.setFromEuler(_w); _p.set(w.x, w.y, w.z); _s.set(sc, sc, sc); _m.compose(_p, _q, _s); w.m.setMatrixAt(0, _m); w.m.instanceMatrix.needsUpdate = true;
-    if (sc <= 0) { killWreck(w); WRECKS.splice(k, 1); } }
+    if (sc <= 0) { killWreck(w); const k = WRECKS.indexOf(w); if (k >= 0) WRECKS.splice(k, 1); } }
   if (debMesh) { const _q2 = new THREE.Quaternion(); let n = 0;
     for (let k = DEB.length - 1; k >= 0; k--) { const d = DEB[k]; d.life -= dt; if (d.life <= 0) { DEB.splice(k, 1); continue; }
       d.vy -= 22 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; const g = terrainH(d.x, d.z); if (d.y < g + d.size / 2) { d.y = g + d.size / 2; d.vy *= -.35; d.vx *= .7; d.vz *= .7; }
@@ -2627,6 +2722,13 @@ const snd = (() => {
     coin(i) { if (!ac) return; const t = ac.currentTime, f = 1320 * Math.pow(1.06, (i || 0) % 6);
       for (const [d, ff] of [[0, f], [.055, f * 1.335]]) { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'square'; o.frequency.setValueAtTime(ff, t + d);
         g.gain.setValueAtTime(.0001, t + d); g.gain.linearRampToValueAtTime(.05, t + d + .005); g.gain.exponentialRampToValueAtTime(.001, t + d + .09); o.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'effekte') : ac.destination)); o.start(t + d); o.stop(t + d + .1); } },
+    boom(pw, d) { /* Runde 193: explosion - a deep thump, a dark roar that closes down, then crackle as bits come down; quieter and duller with distance */
+      if (!ac || d > 160) return; const t = ac.currentTime, near = Math.max(0, 1 - d / 160), vol = Math.min(.9, (.25 + pw * .35) * near * near), sr = ac.sampleRate, len = Math.floor(sr * (1.4 + pw)), buf = ac.createBuffer(1, len, sr), dd = buf.getChannelData(0);
+      let b = 0; for (let i = 0; i < len; i++) { const u = i / len; b = b * .7 + (Math.random() * 2 - 1) * .3; dd[i] = (b * 1.6 + (Math.random() < .002 * (1 - u) && u > .15 ? (Math.random() - .5) * 3 : 0)) * Math.pow(1 - u, 1.6) * Math.min(1, i / (sr * .004)); }
+      const out = (window.HXSND ? HXSND.node(ac, 'explosion') : ac.destination), s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = buf; f.type = 'lowpass';
+      f.frequency.setValueAtTime(900 + 1400 * near, t); f.frequency.exponentialRampToValueAtTime(140, t + 1.2); g.gain.setValueAtTime(vol, t); s.connect(f); f.connect(g); g.connect(out); s.start(t);
+      const o = ac.createOscillator(), og = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(75 + Math.random() * 20, t); o.frequency.exponentialRampToValueAtTime(26, t + .7);
+      og.gain.setValueAtTime(vol * 1.1, t); og.gain.exponentialRampToValueAtTime(.001, t + .8); o.connect(og); og.connect(out); o.start(t); o.stop(t + .82); },
     bump(v) {
       if (!ac) return; const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
       o.type = 'triangle'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(35, t + .25);
