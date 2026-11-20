@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=598' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=599' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1586,10 +1586,17 @@ function drawMini(viewYaw) {
   mctx.filter = T.f; for (const t of tiles.values()) if (t.map) mctx.drawImage(t.map.cv, t.map.x0 * MS, t.map.z0 * MS); mctx.filter = 'none';
   drawRouteMini(mctx, MS);
   if (window.HXZ) HXZ.drawMini(mctx, MS); // Runde 144: telephone booths (layer)
-  if (window.HXGORE && HXGORE.scene) einsatzIcon(mctx, HXGORE.scene.x * MS, HXGORE.scene.z * MS, 15); // Runde 171: the current emergency scene
   if (LAYERS.burgen) for (const b of burgList()) { mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(b.x * MS, b.z * MS, 19, 0, 7); mctx.fill(); burgIcon(mctx, b.x * MS, b.z * MS, 14); } // Runde 154/163: larger, on a light disc
   if (LAYERS.sights) for (const list of SIGHTS.values()) for (const s of list) { if (s.quiet) continue; mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 12, 0, 7); mctx.fill(); mctx.fillStyle = seen.has(s.name) ? T.ss : T.s; mctx.strokeStyle = '#1a1206'; mctx.lineWidth = 2.5; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 9, 0, 7); mctx.fill(); mctx.stroke(); } // Runde 163: larger, light halo, dark rim
   mctx.restore();
+  if (window.HXGORE && HXGORE.scene) { /* Runde 171/178: the current emergency scene - from the moment the cars set off; outside the little map it sits
+      on its rim in the direction of the place, with the distance, so one can go there after missing them */
+    const S = HXGORE.scene, dx = (S.x - P.x) * MS * zoom, dz = (S.z - P.z) * MS * zoom, cr = Math.cos(rot), sr = Math.sin(rot); let sx = dx * cr - dz * sr, sy = dx * sr + dz * cr;
+    const L = Math.hypot(sx, sy), lim = c - 20, out = L > lim; if (out) { sx *= lim / L; sy *= lim / L; }
+    einsatzIcon(mctx, c + sx, c + sy, out ? 12 : 14);
+    if (out) { const m = Math.round(Math.hypot(S.x - P.x, S.z - P.z)), txt = m >= 1000 ? (m / 1000).toFixed(1).replace('.', ',') + ' km' : m + ' m';
+      mctx.font = '600 12px sans-serif'; mctx.textAlign = 'center'; mctx.textBaseline = 'middle'; mctx.lineWidth = 3; mctx.strokeStyle = '#1a1206'; mctx.fillStyle = '#fff';
+      const tx = c + sx * (lim - 26) / lim, ty = c + sy * (lim - 26) / lim; mctx.strokeText(txt, tx, ty); mctx.fillText(txt, tx, ty); } }
   const pa = Math.atan2(Math.cos(P.yaw), Math.sin(P.yaw)) + rot + Math.PI / 2;
   { const ph = (performance.now() / 1200) % 1; mctx.strokeStyle = 'rgba(' + T.ring + ',' + (1 - ph).toFixed(2) + ')'; mctx.lineWidth = 3; mctx.beginPath(); mctx.arc(c, c, 12 + ph * 18, 0, 7); mctx.stroke();
     mctx.fillStyle = 'rgba(' + T.ring + ',.4)'; mctx.beginPath(); mctx.arc(c, c, 13, 0, 7); mctx.fill(); } // own position: pulsing gold ring
