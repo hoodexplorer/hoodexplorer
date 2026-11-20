@@ -179,8 +179,9 @@ function burstSnd(dur, type, f, q, vol, f2) { if (!ac || ac.state !== 'running')
    cracks), six variants each, played with a little random pitch and level */
 const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18 };
 function stepSnd(kind, k = 1) { if (!ac || ac.state !== 'running') return; const L = STEPB[kind]; if (!L || !L.length) return;
-  const s = ac.createBufferSource(), g = ac.createGain(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
-  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(g); g.connect(ac.destination); s.start(); }
+  const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
+  lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5; // Runde 180: steps never bright - they get on one's nerves in the long run
+  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(lp); lp.connect(g); g.connect(ac.destination); s.start(); }
 const sWhoosh = v => burstSnd(.6, 'bandpass', 900, .8, Math.min(.35, .08 + v * .006), 300);
 function thunder(dist) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime + dist, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = 'lowpass'; fl.frequency.value = 160 + Math.random() * 120; g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.6 / (1 + dist * .4), t + .08); g.gain.exponentialRampToValueAtTime(.2 / (1 + dist * .4), t + .9);
