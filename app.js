@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=578' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=581' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1183,7 +1183,7 @@ const LAYERS = Object.assign({ sights: true, zellen: true, burgen: true }, store
 /* Runde 154: in the medieval world there are castles (layer "Burgen") and no sights; the switches show only where they apply */
 const MITTEL = (window.HX_WELT || 'heute') === 'mittel';
 document.querySelectorAll('.lyMittel').forEach(el => { el.hidden = !MITTEL; }); document.querySelectorAll('.lyHeute').forEach(el => { el.hidden = MITTEL; });
-function burgList() { const out = []; if (!MITTEL || !window.HXW || !HXW.TILES) return out; for (const a of HXW.TILES.values()) for (const it of a) if (it.v === 'm_burg') out.push(it); return out; }
+function burgList() { const out = []; if (!MITTEL || !window.HXW || !HXW.TILES) return out; for (const a of HXW.TILES.values()) for (const it of a) if (it.v === 'm_burg' || it.v === 'm_schloss' || (it.v === 'm_gutshof' && it.t)) out.push(it); return out; } // Runde 166: palaces and named manors too
 function burgIcon(g, x, y, r) { g.fillStyle = '#c9bca2'; g.strokeStyle = '#1a1206'; g.lineWidth = Math.max(1.5, r * .28);
   g.beginPath(); g.moveTo(x - r, y + r * .8); g.lineTo(x - r, y - r * .9); g.lineTo(x - r * .55, y - r * .9); g.lineTo(x - r * .55, y - r * .45); g.lineTo(x - r * .2, y - r * .45); g.lineTo(x - r * .2, y - r * .9);
   g.lineTo(x + r * .2, y - r * .9); g.lineTo(x + r * .2, y - r * .45); g.lineTo(x + r * .55, y - r * .45); g.lineTo(x + r * .55, y - r * .9); g.lineTo(x + r, y - r * .9); g.lineTo(x + r, y + r * .8); g.closePath(); g.fill(); g.stroke();

@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=578'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=581'); // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1264,7 +1264,7 @@ const W_POOL = ['NEXUS', 'SYNTH', 'OMNI', 'DATEN', 'ARCADE', 'NEON', 'KAIROS', '
 // model sizes (local x = width along the front, z = depth; front faces +z), height for collision
 const W_DIM = { w_saloon: [12, 12, 10], w_bank: [11, 11, 10], w_sheriff: [9, 10, 7], w_store: [14, 12, 7], w_hotel: [13, 12, 10], w_laden_a: [10, 10, 7], w_laden_b: [10, 11, 7], w_laden_c: [11, 10, 10],
   w_kapelle: [8, 14, 9], m_haus_a: [8.7, 10.7, 12], m_haus_b: [7.7, 11.7, 14], m_haus_c: [9.7, 10.7, 12], m_haus_d: [8.7, 12.7, 14], m_laden_a: [8.7, 10.7, 12], m_laden_b: [9.7, 11.7, 14],
-  m_taverne: [10.7, 12.7, 15], m_rathaus: [14.7, 12.7, 15], c_turm: [19, 19, 110], m_burg: [38, 38, 22], m_windmuehle: [7.4, 7.4, 14], m_wassermuehle: [8.4, 9.6, 12], m_scheune: [10, 14, 9], m_bauernhaus: [8.4, 9.6, 11] };
+  m_taverne: [10.7, 12.7, 15], m_rathaus: [14.7, 12.7, 15], c_turm: [19, 19, 110], m_burg: [38, 38, 22], m_windmuehle: [7.4, 7.4, 14], m_wassermuehle: [8.4, 9.6, 12], m_scheune: [10, 14, 9], m_bauernhaus: [8.4, 9.6, 11], m_schloss: [33, 42, 16], m_gutshof: [44, 40, 13] };
 /* Runde 154: Mittelalter - castles and their towns. One chance per cell of a global grid (3600 mercator metres, ~2.2 km in Germany).
    The castle sits on the highest point of the cell (hills, ridges); its town lies on the nearest plain (gentle slope, low in the cell's
    relief), never on the hill. On flat land the town hugs the castle. Houses stand only in towns (plus a few farmsteads), so the
@@ -1306,6 +1306,21 @@ async function realLoad(lat, lon) {
   REAL_CELLS.set(k, pr); return pr;
 }
 const realNear = (X, Y, r) => REAL.some(o => Math.hypot(o.X - X, o.Y - Y) < r);
+/* Runde 166: real palaces ("s"), moated palaces ("w") and manors ("g") from OSM (daten/schloesser/<lat>_<lon>.json). A palace that is
+   also in the castle list stays a castle (no double building); near-duplicates within 300 m count once. */
+const SCHL_CELLS = new Map(), SCHL = [];
+async function schlLoad(lat, lon) {
+  const k = Math.floor(lat) + '_' + Math.floor(lon); if (SCHL_CELLS.has(k)) return SCHL_CELLS.get(k);
+  const pr = (async () => { let L = []; try { const r = await fetch('daten/schloesser/' + k + '.json?v=1'); if (r.ok) L = await r.json(); } catch (e) { }
+    L.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const c of L) { const m = merc(c[0], c[1]); if (SCHL.some(o => Math.hypot(o.X - m.X, o.Y - m.Y) * O.c < 300)) continue; SCHL.push({ X: m.X, Y: m.Y, name: c[2], k: c[3], key: 'S' + c[0] + ',' + c[1] }); } })();
+  SCHL_CELLS.set(k, pr); return pr;
+}
+function schlNear(x0, z0, x1, z1) { // palaces and manors of a box, local coordinates (not where a real castle stands)
+  const out = []; for (const o of SCHL) { const x = lx(o.X), z = lz(o.Y); if (x < x0 - 60 || x > x1 + 60 || z < z0 - 60 || z > z1 + 60) continue;
+    if (/villa/i.test(o.name) || REAL.some(c => Math.hypot(c.X - o.X, c.Y - o.Y) * O.c < 300)) continue; out.push({ x, z, name: o.name, k: o.k, key: o.key }); }
+  return out;
+}
 function townFor(sX, sY, key, span) { // the nearest plain to a castle site: gentle slope, low in the local relief, never on the hill
   const hs = TERRAIN_ON ? rawH(lx(sX), lz(sY)) : 0; let lo = Infinity;
   if (TERRAIN_ON) for (let a = -4; a <= 4; a++) for (let c = -4; c <= 4; c++) { const h = rawH(lx(sX + a * span / 4), lz(sY + c * span / 4)); if (h !== null && h < lo) lo = h; }
@@ -1322,7 +1337,7 @@ function townFor(sX, sY, key, span) { // the nearest plain to a castle site: gen
 async function burgPrep(X0, Y0, X1, Y1) { // castles touching this box (plus a town radius): load the real list and the terrain, then fix their sites
   { const pad = 9000 / O.c, a = Math.atan(Math.sinh((Y0 - pad) / 6378137)) * 180 / Math.PI, b = Math.atan(Math.sinh((Y1 + pad) / 6378137)) * 180 / Math.PI,
       c = (X0 - pad) / 6378137 * 180 / Math.PI, d = (X1 + pad) / 6378137 * 180 / Math.PI;
-    for (let la = Math.floor(a); la <= Math.floor(b); la++) for (let lo = Math.floor(c); lo <= Math.floor(d); lo++) await realLoad(la + .5, lo + .5);
+    for (let la = Math.floor(a); la <= Math.floor(b); la++) for (let lo = Math.floor(c); lo <= Math.floor(d); lo++) { await realLoad(la + .5, lo + .5); await schlLoad(la + .5, lo + .5); }
     const near = 1200 / O.c;
     for (const o of REAL) { if (BURGS.has(o.key) || o.X < X0 - near || o.X > X1 + near || o.Y < Y0 - near || o.Y > Y1 + near) continue;
       const span = 1500 / O.c; if (TERRAIN_ON) await ensureTerrain(lx(o.X - span * 1.1), lz(o.Y + span * 1.1), lx(o.X + span * 1.1), lz(o.Y - span * 1.1));
@@ -1389,6 +1404,38 @@ function weltBauten(items, roads, collide, map, plazas, box, wet) {
     const inBox = (x, z) => box && x >= box[0] && x < box[2] && z >= box[1] && z < box[3];
     const offRoad = (x, z, r) => { const nr = near(x, z, r + 8); return !nr || nr.d > nr.w / 2 + r; };
     const forest = (x, z) => map.areas.some(a => a.k === 'f' && inPoly(x, z, a.rings[0])); // mills stand on open land
+    /* Runde 166: palaces and manors. The worker fixes the base form (wings or pavilions, with or without moat; manor mirrored, 4 or 5
+       bays) and passes it as it.f - the kit (mittel_bau.js) builds exactly that, so collision and look agree. Rects in the kit's
+       Blender frame (x right, y back, front -y): [x0, y0, x1, y1, height]; three.js local = (x, -y). */
+    const putGross = (v, x, z, ry, f, name) => {
+      const c = Math.cos(ry), s = Math.sin(ry), L = [];
+      if (v === 'm_schloss') { const FL = f[0] === 'f', wa = f[1] === 'w', W = FL ? 28.8 : 22.4, zi = wa ? .6 : 0, H = zi + 13;
+        if (wa) { const IX = W / 2 + (FL ? 3.8 : 4.7), IY0 = -(6.4 + (FL ? 13.4 : 8.7)), IY1 = 6.4 + (FL ? 1.5 : 4.7), M = 6;
+          L.push([-IX - M - 1, IY0 - M - 1, IX + M + 1, IY1 + M + 1, .02], [-IX, IY0, IX, IY1, zi], // ground, island
+            [-IX - M, IY0 - M, -1.9, IY0, 1], [1.9, IY0 - M, IX + M, IY0, 1], [-IX - M, IY1, IX + M, IY1 + M, 1], [-IX - M, IY0, -IX, IY1, 1], [IX, IY0, IX + M, IY1, 1]); // moat
+          for (let i = 0; i < 4; i++) { const y0 = IY0 - M - .3 + i * (M + .3) / 4; L.push([-1.9, y0, 1.9, y0 + (M + .3) / 4, .15 * (i + 1)]); } } // bridge in four low steps
+        else L.push(FL ? [-16.4, -25, 16.4, 8.4, .02] : [-16.4, -17.8, 16.4, 11.6, .02]);
+        if (FL) { L.push([-14.4, -6.4, 14.4, 6.4, H], [8, -16, 14.4, -6.4, H], [-14.4, -16, -8, -6.4, H]); if (wa) L.push([12.1, -18.3, 16.7, -13.7, H + 4], [-16.7, -18.3, -12.1, -13.7, H + 4]); }
+        else L.push([-14.4, -9.6, 14.4, 9.6, H + 3]);
+        L.push([-4.8, -7.2, 4.8, -6.4, H], [-1.8, -9.8, 1.8, -7.2, zi + 1.2]); }
+      else { const sx = f[0] === 'l' ? -1 : 1, hw = +f[1] * 3.2, left = sx > 0 ? -23.2 : -20, right = sx > 0 ? 20 : 23.2, ys = sx > 0 ? -9.2 : -7.6, ys2 = sx > 0 ? -7.6 : -9.2;
+        L.push([left - 1, -19.5, right + 1, 20.6, .02], [-hw / 2, 10, hw / 2, 19.6, 13], // ground, manor house
+          sx > 0 ? [-23.2, -9.2, -12, 10, 11.6] : [12, -9.2, 23.2, 10, 11.6], sx > 0 ? [12, -7.6, 20, 10, 7] : [-20, -7.6, -12, 10, 7], // barn, stable
+          [left, -12.25, -2.6, -11.75, 2.2], [2.6, -12.25, right, -11.75, 2.2], [left - .25, -12, left + .25, ys, 2.2], [right - .25, -12, right + .25, ys2, 2.2],
+          [-12, 10, -hw / 2, 10.5, 2.2], [hw / 2, 10, 12, 10.5, 2.2], [-3.1, -12.45, -2.2, -11.55, 3], [2.2, -12.45, 3.1, -11.55, 3]); }
+      const ring = (x0, y0, x1, y1) => { const R = []; for (const [u, w] of [[x0, -y1], [x1, -y1], [x1, -y0], [x0, -y0]]) R.push(x + u * c + w * s, z - u * s + w * c); return R; };
+      const G = L[0]; let y = -Infinity; for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) { const u = G[0] + (G[2] - G[0]) * i / 4, w = -(G[1] + (G[3] - G[1]) * j / 4); y = Math.max(y, weltBase(x + u * c + w * s, z - u * s + w * c)); } // the floor: the highest ground under it
+      out.push({ v, x, y, z, ry, sx: 1, sy: 1, sz: 1, t: name || '', f }); chosen.push({ x, z, r: v === 'm_schloss' ? 40 : 32 });
+      for (const q of L) { const R = ring(q[0], q[1], q[2], q[3]); collide.push(4, y + q[4], y - 30, ...R); if (q[4] > 2) map.blds.push(Float32Array.from(R)); }
+      for (let i = 0; i < 40; i++) { const v0 = -G[1] + i, T = .02 - (i + 1) * .4, wx = x + (v0 + .5) * s, wz = z + (v0 + .5) * c, g = weltBase(wx, wz) - y; if (T <= g + .05) break; // on a slope: a stone stair from the front down to the ground (like the castle)
+        collide.push(4, y + T, y - 30, ...ring(-2.6, -(v0 + 1), 2.6, -v0)); out.push({ v: 'm_stufe', x: wx, y: y + g, z: wz, ry, sx: 1, sy: T - g, sz: 1, t: '' }); }
+      for (const [u, w] of [[-14, -14], [14, -14], [14, 14], [-14, 14], [0, -18], [0, 18]]) BURG_CLR.push(x + u * c + w * s, z - u * s + w * c); // the estate stands in a clearing
+    };
+    for (const q of schlNear(box[0], box[1], box[2], box[3])) { if (!inBox(q.x, q.z) || wet(q.x, q.z) || !free(q.x, q.z, 36) || (q.k === 'g' && townD(q.x, q.z) < 1)) continue; // a manor is a country estate, never inside a town
+      const nr = near(q.x, q.z, 90), t = TW.length ? TW.reduce((a, b) => Math.hypot(a.tx - q.x, a.tz - q.z) < Math.hypot(b.tx - q.x, b.tz - q.z) ? a : b) : null;
+      const ry = nr ? Math.atan2(nr.x - q.x, nr.z - q.z) : t ? Math.atan2(t.tx - q.x, t.tz - q.z) : hashStr('sr' + q.key) * 6.283; // the front looks at the road (or the town)
+      if (q.k === 'g') putGross('m_gutshof', q.x, q.z, ry, (hashStr('gs' + q.key) < .5 ? 'l' : 'r') + (hashStr('gn' + q.key) < .5 ? 4 : 5), q.name);
+      else putGross('m_schloss', q.x, q.z, ry, (hashStr('sf' + q.key) < .5 ? 'f' : 'p') + (q.k === 'w' || hashStr('sw' + q.key) < .25 ? 'w' : '-'), q.name); }
     for (const t of TW) {
       let best = null, bh = -Infinity;
       for (let k = 0; k < 12; k++) { const a = hashStr('wm' + t.key) * 6.283 + k / 12 * 6.283, d = t.R * (1.05 + .25 * hashStr('wd' + t.key + k)), x = t.tx + Math.cos(a) * d, z = t.tz + Math.sin(a) * d;
@@ -1411,7 +1458,9 @@ function weltBauten(items, roads, collide, map, plazas, box, wet) {
     for (const it of items) dg.set(dk(it.cx, it.cz), (dg.get(dk(it.cx, it.cz)) || 0) + 1);
     for (const c of cand) { let n = c.n; const dense = (dg.get(dk(c.it.cx, c.it.cz)) || 0) >= 9, sp = n ? 13 : dense ? 15 : 60; if (n && (used[n] || 0) >= (n === 'TAVERNE' ? 3 : 1)) n = null;
       const v = n === 'RATHAUS' ? 'm_rathaus' : n === 'TAVERNE' ? 'm_taverne' : n ? (c.it.hs < .5 ? 'm_laden_a' : 'm_laden_b') : ['m_haus_a', 'm_haus_b', 'm_haus_c', 'm_haus_d'][Math.floor(c.it.hs * 4)];
-      if (c.it.farm) { const f = front(c.it, 'm_bauernhaus', 30); if (!f || !free(f.x, f.z, 20)) continue; // Runde 160: a farmstead - farmhouse to the road, barn beside it, set back
+      if (c.it.farm) { const f = front(c.it, 'm_bauernhaus', 30); if (!f || !free(f.x, f.z, 20) || !inBox(f.x, f.z)) continue; // Runde 166: a building on the tile edge is in both tiles - only the tile that holds the farm builds it // Runde 160: a farmstead - farmhouse to the road, barn beside it, set back
+        if (hashStr('gh' + c.it.hs) < .2 && !forest(f.x, f.z)) { const gx = f.x - f.dx * 14.7, gz = f.z - f.dz * 14.7; // Runde 166: every fifth farmstead on open land is a manor, its gate to the road
+          if (free(gx, gz, 34) && ![[0, 0], [20, 0], [-20, 0], [0, 20], [0, -20]].some(([a, b]) => wet(gx + a, gz + b))) { putGross('m_gutshof', gx, gz, f.ry, (hashStr('gs' + c.it.hs) < .5 ? 'l' : 'r') + (hashStr('gn' + c.it.hs) < .5 ? 4 : 5), ''); continue; } }
         put('m_bauernhaus', f.x, f.z, f.ry, '', 1, 1, 1, 12); const sd = hashStr('fs' + c.it.hs) < .5 ? -1 : 1, rx = Math.cos(f.ry), rz = -Math.sin(f.ry);
         const bx = f.x + rx * sd * 11 - f.dx * 5, bz = f.z + rz * sd * 11 - f.dz * 5; if (!forest(f.x, f.z) && free(bx, bz, 12) && !wet(bx, bz) && offRoad(bx, bz, 7)) { put('m_scheune', bx, bz, f.ry + sd * Math.PI / 2, '', 1, 1, 1, 12); BURG_CLR.push((f.x + bx) / 2, (f.z + bz) / 2); } continue; } // in a wood: just the house (forester), no barn
       const f = front(c.it, v, 22); if (!f || !free(f.x, f.z, sp)) continue; if (n) used[n] = (used[n] || 0) + 1; put(v, f.x, f.z, f.ry, n || '', 1, 1, 1, sp); }
@@ -1477,7 +1526,10 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       for (const rng of BL.feats) { const f = readFeature(BL, rng); if (f.type !== 3) continue; const ln = geomLines(f, toB)[0]; if (!ln || ln.length < 6) continue;
         let x = 0, z = 0; for (let i = 0; i < ln.length; i += 2) { x += ln[i]; z += ln[i + 1]; } x /= ln.length / 2; z /= ln.length / 2;
         const k = Math.floor(x / 250) + ',' + Math.floor(z / 250); if (fseen.has(k) || hashStr('fh' + k) > .25 || townD(x, z) < 1) continue; fseen.add(k); farms.push(x, z); } }
-    MED = { box: bx, TW, townD, farms, near: (x, z, r) => { for (let i = 0; i < farms.length; i += 2) if ((farms[i] - x) ** 2 + (farms[i + 1] - z) ** 2 < r * r) return true; for (const h of HAMLETS) if ((h.x - x) ** 2 + (h.z - z) ** 2 < r * r) return true; return false; } }; }
+    const SC = schlNear(bx[0], bx[1], bx[2], bx[3]), vn = (x, z) => { const S = 160, i = Math.floor(x / S), j = Math.floor(z / S), u = x / S - i, v = z / S - j, h = (a, b) => hashStr('fw' + a + ',' + b), su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+      return (h(i, j) * (1 - su) + h(i + 1, j) * su) * (1 - sv) + (h(i, j + 1) * (1 - su) + h(i + 1, j + 1) * su) * sv; };
+    MED = { box: bx, TW, townD, farms, vn, ponds: [], near: (x, z, r) => { for (let i = 0; i < farms.length; i += 2) if ((farms[i] - x) ** 2 + (farms[i + 1] - z) ** 2 < r * r) return true; for (const h of HAMLETS) if ((h.x - x) ** 2 + (h.z - z) ** 2 < r * r) return true;
+      for (const q of SC) if ((q.x - x) ** 2 + (q.z - z) ** 2 < (r + 30) ** 2) return true; return false; } }; }
   ground.spr = []; // trees and bushes as sprites
   if (false) { // (meadow is now built at the end, cut out over water)
     const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), x0 = Math.min(c0[0], c1[0]), x1 = Math.max(c0[0], c1[0]), z0 = Math.min(c0[1], c1[1]), z1 = Math.max(c0[1], c1[1]), G = hex('#8fa067'), n = 8;
@@ -1550,6 +1602,15 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       }
     } } }
   // roads
+  if (MED) { // Runde 166: ponds - now and then a small water in the middle of a clearing, on level ground, away from settlements
+    const [bx0, bz0, bx1, bz1] = MED.box, S = 160;
+    for (let i = Math.floor(bx0 / S); i <= Math.floor(bx1 / S); i++) for (let j = Math.floor(bz0 / S); j <= Math.floor(bz1 / S); j++) { const key = i + ',' + j;
+      if (hashStr('tp' + key) > .14) continue; const x = (i + .25 + .5 * hashStr('tx' + key)) * S, z = (j + .25 + .5 * hashStr('tz' + key)) * S;
+      if (x < bx0 + 32 || x > bx1 - 32 || z < bz0 + 32 || z > bz1 - 32 || MED.vn(x, z) > .32 || MED.townD(x, z) < 1.3 || MED.near(x, z, 90) || waterRings.some(q => inPoly(x, z, q))) continue;
+      const R = 7 + hashStr('tr' + key) * 9, ring = []; let h0 = Infinity, h1 = -Infinity;
+      for (let k = 0; k < 14; k++) { const a = k / 14 * 6.283, rr = R * (.8 + .4 * hashStr('tq' + key + ',' + k)), px = x + Math.cos(a) * rr * 1.25, pz = z + Math.sin(a) * rr; ring.push(px, pz); const h = weltBase(px, pz); h0 = Math.min(h0, h); h1 = Math.max(h1, h); }
+      if (h1 - h0 > 1.2) continue; // a pond needs level ground
+      waterG.flat([ring], .02 - WL(), hex('#5e8068')); map.areas.push({ k: 'w', rings: [Float32Array.from(ring)] }); waterRings.push(ring); waterPolys.push([ring]); MED.ponds.push(x, z, R * 1.5); BURG_CLR.push(x, z); } }
   if (MED) { // Runde 165: hamlets - every ~400 m along rivers and streams, now and then a group of 3-5 houses on the dry bank
     for (let k = 0; k < waterLines.length; k += 2) { const line = waterLines[k], w = waterLines[k + 1]; if (w < 2.5) continue;
       sampleLineDir(line, 400, (x, z, dx, dz) => { if (hashStr('hm' + Math.round(x / 50) + ',' + Math.round(z / 50)) > .22) return;
@@ -2210,11 +2271,9 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
     for (let x = Math.floor(x0 / 20) * 20 + 10; x < x1; x += 20) for (let z = Math.floor(z0 / 20) * 20 + 10; z < z1; z += 20) if (inPoly(x, z, ring)) forestCells.set(fk(x, z), inPark(x, z) ? 0.1 : Math.max(share, forestCells.get(fk(x, z)) || 0));
   }
   if (MED) { // Runde 165: the land between the settlements is wood, with clearings (smooth noise on a 160 m grid)
-    const vn = (x, z) => { const S = 160, i = Math.floor(x / S), j = Math.floor(z / S), u = x / S - i, v = z / S - j, h = (a, b) => hashStr('fw' + a + ',' + b), su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
-      return (h(i, j) * (1 - su) + h(i + 1, j) * su) * (1 - sv) + (h(i, j + 1) * (1 - su) + h(i + 1, j + 1) * su) * sv; };
-    const [bx0, bz0, bx1, bz1] = MED.box;
+    const vn = MED.vn, P = MED.ponds, [bx0, bz0, bx1, bz1] = MED.box;
     for (let x = bx0 + 4; x < bx1; x += 9) for (let z = bz0 + 4; z < bz1; z += 9) { const jx = x + (rnd() - .5) * 7, jz = z + (rnd() - .5) * 7;
-      if (vn(jx, jz) < .42 || MED.townD(jx, jz) < 1.2 || MED.near(jx, jz, 55)) continue;
+      if (vn(jx, jz) < .42 || MED.townD(jx, jz) < 1.2 || MED.near(jx, jz, 55)) continue; let wet = false; for (let k = 0; k < P.length; k += 3) if (Math.abs(P[k] - jx) < P[k + 2] && Math.abs(P[k + 1] - jz) < P[k + 2]) wet = true; if (wet) continue;
       treeCand.push(jx, jz, 1.2 + rnd() * .8); }
     for (const h of HAMLETS) BURG_CLR.push(h.x, h.z); }
   // keep phones fast: at most ~18000 sprite trees per tile; thinned trees get larger crowns to keep the canopy closed
