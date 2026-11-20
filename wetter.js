@@ -177,7 +177,7 @@ function burstSnd(dur, type, f, q, vol, f2) { if (!ac || ac.state !== 'running')
 /* Runde 179 (phone test: steps in rain and snow sounded wrong - one soft noise puff for puddle, snow and ice alike, wet ground silent):
    pre-computed steps from schritte.js (snow = granular crunch, puddle = slap + splash + bubbles, wet ground = soft slap, ice = hard
    cracks), six variants each, played with a little random pitch and level */
-const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18, swim: .3, lap: .2, slap: .17, plip: .14, plop: .24 }; // Runde 187: water quieter (was obtrusive)
+const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18, swim: .3, lap: .26, slap: .2, plip: .32, plop: .55 }; /* Runde 191: fish jumps audible (phone test: hardly heard), gluggs a little louder */ // Runde 187: water quieter (was obtrusive)
 function stepSnd(kind, k = 1) { if (!ac || ac.state !== 'running') return; const L = STEPB[kind]; if (!L || !L.length) return;
   const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
   lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5; // Runde 180: steps never bright - they get on one's nerves in the long run
@@ -218,9 +218,10 @@ function ambLoop(kind) { const s = ac.createBufferSource(), g = ac.createGain(),
   g.gain.value = 0; s.connect(lp); lp.connect(g); g.connect((window.HXSND ? HXSND.node(ac, 'wasser') : ac.destination)); s.start(0, Math.random() * s.buffer.duration); return g; }
 function waterAmb(dt, x, z, swimming) {
   if (!ac || ac.state !== 'running' || !STEPB.brook || !A.waterProbe) return; if ((WAMB.t -= dt) > 0) return; WAMB.t = .4;
-  let flowD = 99, stillD = 99, hard = false;
+  let flowD = 99, stillD = 99, hard = false, wide = 0;
   for (const r of [0, 4, 9, 16, 24, 32]) for (let k = 0; k < (r ? 12 : 1); k++) { const a = k / 12 * 6.283, w = A.waterProbe(x + Math.cos(a) * r, z + Math.sin(a) * r); if (!w) continue;
-    if (w.flow) flowD = Math.min(flowD, r); else if (r < stillD) { stillD = r; hard = w.hard; } }
+    wide = Math.max(wide, w.d); if (w.flow) flowD = Math.min(flowD, r); else if (r < stillD) { stillD = r; hard = w.hard; } }
+  if (wide > 12) flowD = 99; /* Runde 191: a brook only babbles where the water is narrow - not on a pond a stream runs through, a lake or a wide river */
   if (!WAMB.brook) { WAMB.brook = ambLoop('brook'); WAMB.rain = ambLoop('rainwater'); WAMB.shore = ambLoop('shore'); }
   const t = ac.currentTime, near = Math.min(flowD, stillD);
   WAMB.brook.gain.setTargetAtTime(flowD < 32 ? .14 * Math.pow(1 - flowD / 34, 2) : 0, t, .5);
@@ -228,7 +229,7 @@ function waterAmb(dt, x, z, swimming) {
   WAMB.rain.gain.setTargetAtTime(W.rain > .08 && near < 26 ? .1 * W.rain * Math.pow(1 - near / 28, 1.5) : 0, t, .5);
   /* Runde 190 (phone test: still far too much - the steady lapping loop and the gluggs overlapped): no steady loop any more (gain 0),
      single gluggs only within 12 m of the bank, every 8-18 s, never two at once (the next waits until the last has died away) */
-  if (stillD < 12 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 8000 + Math.random() * 10000; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
+  if (stillD < 15 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 5000 + Math.random() * 7000; /* Runde 191: every 5-12 s within 15 m (8-18 s was too quiet) */ stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
 }
 
 /* Runde 182-184: now and then a fish jumps out of the water - 6-22 m ahead in view, on rivers and lakes (not on ice, not at the bank).
@@ -236,7 +237,7 @@ function waterAmb(dt, x, z, swimming) {
    also the carp that jump on their own, splashes: a small ring, drops and a soft 'plip' as it leaves the water, a bigger splash with
    drops in its direction, a ring and a 'plop' with bubbles as it falls back in (WX.fishSplash). */
 const FISH = { t: 6 + Math.random() * 6 };
-function fishSound(kind, x, z) { const cam = A.cam, d = cam ? Math.hypot(cam.position.x - x, cam.position.z - z) : 10; if (d < 45) stepSnd(kind, Math.pow(1 - d / 48, 2)); }
+function fishSound(kind, x, z) { const cam = A.cam, d = cam ? Math.hypot(cam.position.x - x, cam.position.z - z) : 10; if (d < 55) stepSnd(kind, 1 - d / 60); } /* Runde 191: gentler fall-off with distance */
 WX.fishSplash = (x, z, kind, vx, vz) => { const y = A.waterSurf(x, z); if (y === null || y === undefined || isNaN(y)) return; const s = Math.hypot(vx || 0, vz || 0) || 1;
   spawn(x, y + .03, z, 0, 0, 0, 1, kind === 'plop' ? .35 : .3);
   if (kind === 'plop') burst(x, y, z, 7, 1.3, 2.4, 0, (vx || 0) / s * .6, (vz || 0) / s * .6); else burst(x, y, z, 4, .8, 1.6, 0, 0, 0);
