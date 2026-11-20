@@ -107,8 +107,28 @@ function hits() {
 
 // ------------------------------------------------------------------ autopilot: a pedestrian ahead near the route becomes the target
 let hunted = null, huntT = 0;
+/* Runde 170: ambush - now and then a pedestrian turns up on the route ahead, just outside the picture (beyond the edge of the view or
+   behind a house), standing or walking in the way, or crossing so that it is in the middle of the road when the car gets there */
+let ambT = 2; const PV = new THREE.Vector3();
+function hidden(cam, x, y, z) { for (let t = .15; t < .95; t += .1) if (X.buildingAt(cam.position.x + (x - cam.position.x) * t, cam.position.z + (z - cam.position.z) * t) && cam.position.y + (y - cam.position.y) * t < 12) return true; return false; }
+function ambush(Rt, idx, n) {
+  const S = window.HXPASS, V = X.DV, cam = X.camera; if (!S || !S.add || !cam) return;
+  if ((ambT -= 1 / 60) > 0) return; const sp = Math.hypot(V.vx, V.vz); if (sp < 4) return;
+  if (S.list.filter(p => p.gore).length >= 2) { ambT = 1; return; }
+  ambT = 2.5 + R() * 3.5; let acc = 0, px = V.x, pz = V.z;
+  for (let k = idx; k < n - 1; k++) { const x = Rt[k * 2], z = Rt[k * 2 + 1]; acc += Math.hypot(x - px, z - pz); px = x; pz = z;
+    if (acc < 18) continue; if (acc > 110) return;
+    const y = X.terrainH(x, z); PV.set(x, y + 1, z).project(cam);
+    if (!(PV.z > 1 || Math.abs(PV.x) > 1.06 || Math.abs(PV.y) > 1.06 || hidden(cam, x, y + 1, z))) continue; // still in the picture
+    const k2 = Math.min(n - 1, k + 1), ex = Rt[k2 * 2] - x, ez = Rt[k2 * 2 + 1] - z, L = Math.hypot(ex, ez) || 1, dx = ex / L, dz = ez / L;
+    if (R() < .5) { const off = (R() - .5) * 1.6, sg = R() < .5 ? 1 : -1; S.add({ x: x - dz * off, z: z + dx * off, h: Math.atan2(dx * sg, dz * sg), v: R() < .5 ? 0 : .7 + R() * .5, stop: 0 }); } // in the way
+    else { const sd = R() < .5 ? -1 : 1, off = 5 + R() * 2, v = Math.max(1, Math.min(3.2, off / Math.max(1, acc / sp))); // crossing: in the middle when the car arrives
+      S.add({ x: x - dz * off * sd, z: z + dx * off * sd, h: Math.atan2(dz * sd, -dx * sd), v, stop: off * 2 + 2 }); }
+    return; }
+}
 G.huntTarget = (Rt, idx, n) => {
   if (!G.on || !G.hunt) return null; const S = window.HXPASS, V = X.DV; if (!S) return null;
+  ambush(Rt, idx, n);
   const fx = Math.sin(V.h), fz = Math.cos(V.h), rx = Math.cos(V.h), rz = -Math.sin(V.h);
   if (hunted) { const dx = hunted.x - V.x, dz = hunted.z - V.z, al = dx * fx + dz * fz; if (S.list.indexOf(hunted) < 0 || al < -1 || al > 45 || (huntT += 1 / 60) > 8) hunted = null; else return hunted; }
   let best = null, bd = 1e9;

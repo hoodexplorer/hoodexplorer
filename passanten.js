@@ -49,6 +49,10 @@
   }
   function advance(p, dt) {
     if (p.wait > 0) { p.wait -= dt; return; }
+    if (p.free) { // Runde 170: a walker off the sidewalk net (gore ambush) - straight ahead, stops after p.stop metres
+      const nx = p.x + Math.sin(p.h) * p.v * dt, nz = p.z + Math.cos(p.h) * p.v * dt; if (X.buildingAt(nx, nz)) { p.v = 0; p.wait = 1e9; return; }
+      p.step += p.v * dt / .45; p.x = nx; p.z = nz; if (p.stop && Math.hypot(p.x - p.sx, p.z - p.sz) > p.stop) { p.v = 0; p.wait = 1e9; }
+      if (!p.hy || Math.abs(nx - p.hx) + Math.abs(nz - p.hz) > 1) { p.hx = nx; p.hz = nz; p.y = X.terrainH(nx, nz, p.y + 1); p.hy = 1; } return; }
     const r = p.r; let s = p.u + p.dir * p.v * dt;
     while (s > p.L || s < 0) { // next segment of the line, or turn round at its end
       const ni = p.i + (s > p.L ? 1 : -1); if (ni < 1 || ni >= r.p.length / 2) { p.dir = -p.dir; s = Math.max(0, Math.min(p.L, s)); if (Math.random() < .3) p.wait = 1 + Math.random() * 3; break; }
@@ -71,7 +75,7 @@
     const dt = Math.min(.1, (now - last) / 1000); last = now; requestAnimationFrame(loop);
     if (!S.built) { if (X.tiles.size) build(); return; }
     const P = X.P; if (!S.on || !P.placed || X.ISO !== null || X.PRUEF !== null) { if (S.list.length) { S.list = []; draw(); } return; }
-    const px = P.x, pz = P.z; S.list = S.list.filter(p => Math.hypot(p.x - px, p.z - pz) < 190);
+    const px = P.x, pz = P.z; S.list = S.list.filter(p => Math.hypot(p.x - px, p.z - pz) < 190 && !(p.free && (p.life = (p.life || 0) + dt) > 40));
     if (S.list.length < MAXN && now > S.next) { spawn(px, pz); S.next = now + 120; }
     for (const p of S.list) advance(p, dt);
     draw();
@@ -79,5 +83,9 @@
   requestAnimationFrame(loop);
   const el = document.getElementById('tPass');
   if (el) { el.checked = S.on; el.addEventListener('change', e => { S.on = e.target.checked; try { localStorage.setItem('hx.passanten', S.on); } catch (x) {} }); }
+  /* Runde 170: a pedestrian placed by someone else (gore ambush): o = { x, z, h, v, stop } - v 0 = standing */
+  S.add = o => { if (!S.on || !S.built || !S.meshes.length || X.buildingAt(o.x, o.z)) return null;
+    const p = Object.assign({ r: null, free: true, gore: true, dir: 1, side: 0, u: 0, L: 1, step: rnd() * 4, wait: 0, var: (rnd() * S.meshes.length) | 0, sx: o.x, sz: o.z, life: 0 }, o);
+    p.y = X.terrainH(o.x, o.z); if (!p.v) p.wait = 1e9; S.list.push(p); return p; };
   window.HXPASS = S;
 })();
