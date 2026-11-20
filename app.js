@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=624' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=625' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -924,9 +924,11 @@ function aimHand(cam) { const s = HAND.spr; if (!s || HAND.id !== 'gewehr' || !s
   _hb.set(_ha.x + fx * .5, _ha.y, _ha.z + fz * .5); _hr.setFromMatrixColumn(cam.matrixWorld, 0); _hc.copy(_ha).addScaledVector(_hr, .5);
   _ha.project(cam); _hb.project(cam); _hc.project(cam);
   const W = innerWidth, H = innerHeight, sx = (_hb.x - _ha.x) * W, sy = (_hb.y - _ha.y) * H, L = Math.hypot(sx, sy), L0 = Math.hypot((_hc.x - _ha.x) * W, (_hc.y - _ha.y) * H) || 1;
-  const left = sx < 0, k = Math.max(.4, Math.min(1, L / L0)), m = s.material.map, w = s.userData.w;
+  /* Runde 197 (phone: walking away from the camera, a slight turn flipped the rifle to the other side): mirrored only when the figure
+     clearly looks left (with hysteresis); otherwise it stays on the right, up-right when looking away, down-right when looking at us */
+  const k = Math.max(.4, Math.min(1, L / L0)), m = s.material.map, w = s.userData.w, left = s.userData.left ? sx < -.25 * L0 : sx < -.5 * L0;
   if (s.userData.left !== left) { s.userData.left = left; m.wrapS = THREE.RepeatWrapping; m.repeat.x = left ? -1 : 1; m.offset.x = left ? 1 : 0; m.needsUpdate = true; s.center.x = left ? .75 : .25; }
-  let ang = L < 1e-6 ? 0 : left ? Math.atan2(-sy, -sx) : Math.atan2(sy, sx); ang = Math.max(-1.1, Math.min(1.1, ang)); // never straight up or down
+  let ang = L < .25 * L0 ? 1.1 : left ? Math.atan2(-sy, -sx) : Math.atan2(sy, Math.max(sx, 0)); ang = Math.max(-1.1, Math.min(1.1, ang)); // never straight up or down; barely visible length: up-right
   s.material.rotation = ang; s.scale.set(1.05 * w * k, 1.05, 1); }
 function setItem(id) {
   if (!(id in ITEMS)) id = 'nichts'; HAND.id = id; store.set('hx.item', id);
