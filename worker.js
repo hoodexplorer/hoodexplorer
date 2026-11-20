@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=610'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=612'); // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -687,7 +687,7 @@ class Geo {
     };
     const DL = this.noDip ? [] : (this.dips || []);
     const area2 = p => { let a = 0; for (let k = 0; k < p.length; k++) { const q = p[(k + 1) % p.length]; a += p[k][0] * q[2] - q[0] * p[k][2]; } return Math.abs(a); };
-    const SHORE = this.shore, CORR = this.noDip ? null : this.corr;
+    const SHORE = this.shore, CORR = this.noDip ? null : this.corr, TB = this.tileBox;
     /* shared height raster: delta to this drape's terrain per 4 m node (W * (T - terrain)), cached */
     const DZ = this.noDip || this.noShade ? null : DZF, dzc = DZ ? new Float32Array(DZ.nx * DZ.nz).fill(NaN) : null;
     const dzN = o => { let v = dzc[o]; if (v !== v) { const w = DZ.W[o]; if (!w) v = 0; else { const i = o % DZ.nx, j = (o - i) / DZ.nx; v = w * (DZ.T[o] - tH((i + DZ.gx0) * DZC, (j + DZ.gz0) * DZC)); if (Math.abs(v) < .01) v = 0; } dzc[o] = v; } return v; };
@@ -736,6 +736,11 @@ class Geo {
       for (const i of l) { if (i === skip || CORR.segs[i + 5] < .02) continue; if (segD(i, x, z)[0] < CORR.segs[i + 4]) return i; } return -1; }; // round ends (clamped distance)
     const emit = (poly, col, k0 = 0, sh = 0, cr = 0, lv = -1, off = 0, dzd = 0) => {
       if (poly.length < 3) return;
+      /* Runde 186 (phone test, pond in Bethel: a lawn lay over the lake): the vector tile's buffer reaches beyond the tile, and an area
+         (park, lawn, forest) there was only cut where this tile's own water field knows water - the neighbour's lake was not in it.
+         Areas end at the tile edge; the neighbour draws its own (with its water). */
+      if (TB && !sh && poly[0][1] <= .02 && poly[0][1] > -.05) { let p = clip(poly, 1, 0, -TB[0]); if (p.length >= 3) p = clip(p, -1, 0, TB[2]); if (p.length >= 3) p = clip(p, 0, 1, -TB[1]); if (p.length >= 3) p = clip(p, 0, -1, TB[3]);
+        if (p.length < 3 || area2(p) < 1e-4) return; poly = p; }
       if (CORR && !cr && lv >= 0) { // a street surface: cut at the station lines (ends of the nearby levelled segments), so the height is linear in every piece
         let px0 = Infinity, px1 = -Infinity, pz0 = Infinity, pz1 = -Infinity; for (const v of poly) { px0 = Math.min(px0, v[0]); px1 = Math.max(px1, v[0]); pz0 = Math.min(pz0, v[2]); pz1 = Math.max(pz1, v[2]); }
         const ids = new Set(); for (let i = Math.floor(px0 / CORR.K); i <= Math.floor(px1 / CORR.K); i++) for (let j = Math.floor(pz0 / CORR.K); j <= Math.floor(pz1 / CORR.K); j++) { const l = CORR.grid.get(i * 100003 + j); if (l) for (const q of l) ids.add(q); }
@@ -1543,6 +1548,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const kerbFree = (x, z, nx, nz) => { if (self.KERBOFF) return [x, z]; for (let k = 0; k <= 16; k++) { const px = x + nx * k * .5, pz = z + nz * k * .5; if (!onRoad(px, pz)) return [px, pz]; } return null; };
   const mk = ext => (x, y) => { const X = (tx + x / ext) / n * WORLD - HALF, Y = HALF - (ty + y / ext) / n * WORLD; return [lx(X), lz(Y)]; };
   const ground = new Geo(), bridgeG = new Geo(), waterG = new Geo(), glow = new Geo(), buckets = new Map(), collide = [], names = [], nameIdx = new Map(), samples = [], spawn = [], start = [], sqNames = [], pedNames = new Set();
+  { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0); ground.tileBox = [Math.min(c0[0], c1[0]), Math.min(c0[1], c1[1]), Math.max(c0[0], c1[0]), Math.max(c0[1], c1[1])]; } // Runde 186: areas end at the tile edge
   const map = { areas: [], roads: [], blds: [] };
   /* Runde 165: medieval countryside - streets only where people live (towns, farmsteads, hamlets) plus the through roads that join
      the settlements; the land between becomes forest with clearings, real brooks and lakes stay */
