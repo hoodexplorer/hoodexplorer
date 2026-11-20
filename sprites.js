@@ -197,7 +197,12 @@ const spriteMat = new THREE.ShaderMaterial({
       float hs = 1.0; if (vPerson > 0.5) { float r = fract(sin(seed * 91.7) * 4375.85); hs = r > 0.9 ? 0.66 : 0.9 + 0.16 * fract(r * 13.7); } // people: own height, now and then a child
       vec3 p = vec3(iA.x, y0, iA.y) + uRight * ((position.x + sway) * iA.z * hs) + vec3(0.0, h * iA.w * hs, 0.0) + (uUp - vec3(0.0, 1.0, 0.0)) * (h * h * iA.w * hs);
       vMirror = 0.0;
-      if (abs(iB.x - 28.0) < 0.5) { p.x += sin(uTime * .13 + seed * 40.0) * 2.5; p.z += cos(uTime * .11 + seed * 31.0) * 2.5; p.y += sin(uTime * 2.0 + seed * 9.0) * .04; } // ducks drift about
+      if (abs(iB.x - 28.0) < 0.5) { p.x += sin(uTime * .13 + seed * 40.0) * 2.5; p.z += cos(uTime * .11 + seed * 31.0) * 2.5; p.y += sin(uTime * 2.0 + seed * 9.0) * .04; // ducks drift about
+        /* Runde 183: now and then a duck dives (every 26-48 s, each its own time): tips under in 0.45 s, stays down ~2.3 s and comes up
+           1-2 m further on - the move happens while it is under (the next dive cycle starts in the hidden middle), so it never jumps */
+        float dP = 26.0 + seed * 22.0, dT = uTime + seed * 97.0, ph = mod(dT, dP), cyc = floor((dT - 1.6) / dP);
+        p.x += sin(cyc * 7.1 + seed * 17.0) * 1.5; p.z += cos(cyc * 5.3 + seed * 23.0) * 1.5;
+        if (ph < 3.2) p.y -= (ph < .45 ? ph / .45 : ph > 2.8 ? (3.2 - ph) / .4 : 1.0) * .9; }
       if (abs(iB.x - 30.0) < 0.5 || abs(iB.x - 38.0) < 0.5) { float a = uTime * (.22 + seed * .2) + seed * 60.0, rr = 10.0 + seed * 16.0; p.x += cos(a) * rr; p.z += sin(a) * rr; p.y += sin(uTime * .7 + seed * 20.0) * 1.5; } // birds circle
       if (iA.w < 0.0) { // reflection lying flat on the water, pointing towards the camera; only where the water is on the camera side
         float k8 = floor(-iA.w / 100.0), H = -iA.w - 100.0 * k8; vec2 toW = vec2(cos(k8 * 0.7854), sin(k8 * 0.7854));
