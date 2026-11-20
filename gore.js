@@ -157,7 +157,7 @@ function stainsFade(t) { // stains shrink away after 1-2 min, or with the end of
    doctors walk about. About half a minute after the last one arrived the remains go, the tape comes down, everyone walks back and the
    cars drive off without blue light. The place is marked on the minimap and the big map while it lasts (G.scene). */
 let SC = null; G.scene = null;
-function maybeScene(x, z) { const T = window.TR, PS = window.HXPASS; if (SC || !T || !T.on || !T.G || !T.dispatch || !PS || !PS.fig || PS.fig.polizist === undefined || R() > .45) return null;
+function maybeScene(x, z) { const T = window.TR, PS = window.HXPASS; if (SC || !T || !T.on || !T.G || !T.dispatch || !PS || !PS.fig || PS.fig.polizist === undefined || R() > .65) return null;
   SC = { x, z, t: 0, cars: [], figs: [], tape: null, clean: 0, arr: 0, nef: R() < .35, next: 0, want: ['pol', 'rtw'] }; if (SC.nef) SC.want.push('nef'); G.scene = SC; return SC; }
 const TAPE_TEX = (() => { const c = document.createElement('canvas'); c.width = 16; c.height = 4; const g = c.getContext('2d'); for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#f4f4f0' : '#d8202a'; g.fillRect(i * 4, 0, 4, 4); }
   const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; return t; })();
@@ -175,12 +175,21 @@ function aheadHint(dist) { // a point dist metres ahead of the driver: on the au
   const D = X.DRV, V = X.DV, P = X.P, drv = D && D.on, ox = drv ? V.x : P.x, oz = drv ? V.z : P.z;
   if (drv && ROUTE && performance.now() - ROUTE.at < 1500) { const { Rt, idx, n } = ROUTE; let acc = 0, px = ox, pz = oz;
     for (let k = idx; k < n; k++) { const x = Rt[k * 2], z = Rt[k * 2 + 1]; acc += Math.hypot(x - px, z - pz); px = x; pz = z; if (acc >= dist) return { x, z }; } if (acc > 30) return { x: px, z: pz }; }
-  const h = drv ? V.h : P.yaw; return { x: ox + Math.sin(h) * dist, z: oz + Math.cos(h) * dist };
+  const h = drv ? V.h : P.yaw, T = window.TR, G = T && T.G;
+  if (G) { /* Runde 173 (phone test, driving by hand: nobody came): no autopilot route - follow the street the driver is on through the graph,
+       at every junction the way that keeps closest to his heading */
+    let a = -1, ad = 20 * 20; for (let k = 0; k < G.xs.length; k++) { const d = (G.xs[k] - ox) ** 2 + (G.zs[k] - oz) ** 2; if (d < ad && G.adj[k].length) { ad = d; a = k; } }
+    if (a >= 0) { let hx = Math.sin(h), hz = Math.cos(h), acc = 0, prev = -1;
+      for (let st = 0; st < 60; st++) { const l = G.adj[a]; let b = -1, bc = -.3, bl = 0;
+        for (let k = 0; k < l.length; k += 3) { const m = l[k]; if (m === prev) continue; const ex = G.xs[m] - G.xs[a], ez = G.zs[m] - G.zs[a], L = Math.hypot(ex, ez) || 1, co = (ex * hx + ez * hz) / L; if (co > bc) { bc = co; b = m; bl = L; } }
+        if (b < 0) break; acc += bl; hx = (G.xs[b] - G.xs[a]) / bl; hz = (G.zs[b] - G.zs[a]) / bl; prev = a; a = b; if (acc >= dist) break; }
+      const fw = (G.xs[a] - ox) * Math.sin(h) + (G.zs[a] - oz) * Math.cos(h); if (acc > 30 && fw > 25) return { x: G.xs[a], z: G.zs[a], fx: Math.sin(h), fz: Math.cos(h), ox, oz }; } } // only if it really lies ahead (one-way streets, dead ends)
+  return { x: ox + Math.sin(h) * dist, z: oz + Math.cos(h) * dist, fx: Math.sin(h), fz: Math.cos(h), ox, oz };
 }
 function walkTo(f, tx, tz) { const d = Math.hypot(tx - f.x, tz - f.z); f.sx = f.x; f.sz = f.z; f.h = Math.atan2(tx - f.x, tz - f.z); f.v = 1.25; f.stop = Math.max(.2, d); f.wait = 0; }
 function sceneStep(dt) {
   const S = SC; if (!S) return; const T = window.TR, PS = window.HXPASS, t = performance.now() / 1000; S.t += dt;
-  if (S.want.length && S.t > S.next) { const k = S.want[0], id = k === 'pol' ? (R() < .6 ? 'polKombi' : 'polSuv') : k; const c = T.dispatch(S.x, S.z, id, aheadHint(55 + S.cars.length * 25 + R() * 20)); // one car after the other, 3 s apart; ahead of the driver: oncoming
+  if (S.want.length && S.t > S.next) { const k = S.want[0], id = k === 'pol' ? (R() < .6 ? 'polKombi' : 'polSuv') : k; const sp = X.DRV && X.DRV.on ? Math.hypot(X.DV.vx, X.DV.vz) : 0, c = T.dispatch(S.x, S.z, id, aheadHint(Math.max(55, sp * 4.5) + S.cars.length * 25 + R() * 20)); // fast: farther ahead, so they still come towards him // one car after the other, 3 s apart; ahead of the driver: oncoming
     if (c) { c.kind = k; S.cars.push(c); S.want.shift(); S.next = S.t + 2.5; } else S.next = S.t + 1.5; if (S.t > 25) S.want = []; }
   for (const c of S.cars) if (c.park && !c.arrived) { c.arrived = 1; S.arr = t; // out they get, and to the place
     const ids = c.kind === 'pol' ? ['polizist', 'polizistin'] : c.kind === 'rtw' ? ['notaerztin', 'notaerztin'] : ['notaerztin'], rx = Math.cos(c.h), rz = -Math.sin(c.h);
@@ -235,6 +244,6 @@ if (tG) tG.addEventListener('change', () => { G.on = tG.checked; if (!G.on) hunt
 if (tA) tA.addEventListener('change', () => { G.hunt = tA.checked; hunted = null; try { localStorage.setItem('hx.goreAuto', G.hunt); } catch (e) { } });
 if (bC) bC.addEventListener('click', () => { SP.length = 0; dMesh.count = 0; dI = 0; tireBlood = 0; });
 ui();
-G.burst = burst; G.testScene = (x, z) => { for (let i = 0; i < 30 && !SC; i++) maybeScene(x, z); curSc = SC; burst({ x, y: X.terrainH(x, z), z, var: 0 }, 6, 0, 12); curSc = null; return SC; }; /* console test of the scene */ G.stats = () => ({ pieces: SP.filter(s => s.piece).length, splats: SP.length, stains: dMesh.count, hits: G.count || 0 });
+G.burst = burst; G.aheadHint = aheadHint; G.testScene = (x, z) => { for (let i = 0; i < 30 && !SC; i++) maybeScene(x, z); curSc = SC; burst({ x, y: X.terrainH(x, z), z, var: 0 }, 6, 0, 12); curSc = null; return SC; }; /* console test of the scene */ G.stats = () => ({ pieces: SP.filter(s => s.piece).length, splats: SP.length, stains: dMesh.count, hits: G.count || 0 });
 window.HXGORE = G;
 })();
