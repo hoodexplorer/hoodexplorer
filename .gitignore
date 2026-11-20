@@ -1,0 +1,10 @@
+# Alte Datenstaende und Einzelkacheln (im Spiel liegen sie in daten/*/pak/*.pak, erzeugt mit werkzeuge/pakete.py)
+daten/osm_alt/
+daten/osm_v2/
+daten/osm/*.bin
+daten/strassen/*.bin
+daten/baeume/*.bin
+daten/zensus/*.bin
+*.bak
+Thumbs.db
+.DS_Store

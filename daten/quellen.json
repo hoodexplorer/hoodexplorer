@@ -1,0 +1,213 @@
+{
+ "_hinweis": "Quellen-Verzeichnis. Weltweit gilt 'basis'. Regionale Eintraege verbessern einzelne Merkmale nur dort, wo ihre bbox [W, S, O, N] den Ort enthaelt; die erste passende Region gewinnt. Fehlt eine Quelle, nimmt das Spiel automatisch die naechste Stufe (Fallback). Luftbilder: Mehrere Regionen duerfen sich ueberlappen; an Landesgrenzen nimmt das Spiel pro Haus das erste Bild, das dort wirklich Daten hat.",
+ "basis": {
+  "karte": {
+   "url": "https://tiles.openfreemap.org/planet",
+   "lizenz": "OpenStreetMap-Mitwirkende, ODbL"
+  },
+  "baeume": {
+   "pfad": "daten/baeume/",
+   "raster": 0.025,
+   "lizenz": "ESA WorldCover 2021, CC BY 4.0",
+   "bbox": [
+    5.5,
+    47.0,
+    15.3,
+    55.2
+   ]
+  },
+  "material": {
+   "pfad": "daten/material.json",
+   "lizenz": "abgeleitet aus OpenStreetMap (ODbL)",
+   "hinweis": "Backstein-/Putz-Anteile je 0,5-Grad-Zelle, erzeugt mit werkzeuge/material_statistik.py aus jedem OSM-Auszug"
+  },
+  "gelaende": {
+   "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
+   "zoom": 13,
+   "lizenz": "Terrain Tiles (Mapzen, AWS Open Data): SRTM, EU-DEM, GMTED u. a.; Quellen siehe registry.opendata.aws/terrain-tiles",
+   "hinweis": "Hoehen im Terrarium-PNG (R*256+G+B/256-32768 m); abschaltbar im Spiel, ohne Quelle bleibt alles flach"
+  },
+  "strassen": {
+   "pfad": "daten/strassen/",
+   "lizenz": "abgeleitet aus OpenStreetMap (ODbL)",
+   "hinweis": "Breite, Spuren, Gehwege, Parken je Strassenstueck, erzeugt mit werkzeuge/strassen_kacheln.py; fehlt die Quelle, gilt die Klassenbreite"
+  }
+ },
+ "regionen": [
+  {
+   "name": "Nordrhein-Westfalen",
+   "bbox": [
+    5.85,
+    50.32,
+    9.47,
+    52.54
+   ],
+   "luftbild": {
+    "url": "https://www.wms.nrw.de/geobasis/wms_nw_dop",
+    "ebene": "nw_dop_rgb",
+    "lizenz": "dl-de/zero-2.0"
+   }
+  },
+  {
+   "name": "Berlin",
+   "bbox": [
+    13.08,
+    52.33,
+    13.77,
+    52.68
+   ],
+   "luftbild": {
+    "url": "https://gdi.berlin.de/services/wms/truedop_2024",
+    "ebene": "truedop_2024",
+    "lizenz": "Geoportal Berlin, dl-de/zero-2.0"
+   }
+  },
+  {
+   "name": "Niedersachsen",
+   "bbox": [
+    6.6,
+    51.29,
+    11.6,
+    53.9
+   ],
+   "luftbild": {
+    "url": "https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms",
+    "ebene": "ni_dop20",
+    "lizenz": "LGLN, CC BY 4.0"
+   }
+  },
+  {
+   "name": "Sachsen",
+   "bbox": [
+    11.87,
+    50.17,
+    15.04,
+    51.68
+   ],
+   "luftbild": {
+    "url": "https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest",
+    "ebene": "sn_dop_020",
+    "lizenz": "GeoSN, dl-de/by-2-0"
+   }
+  },
+  {
+   "name": "Bayern",
+   "bbox": [
+    8.97,
+    47.27,
+    13.84,
+    50.57
+   ],
+   "luftbild": {
+    "url": "https://geoservices.bayern.de/od/wms/dop/v1/dop20",
+    "ebene": "by_dop20c",
+    "lizenz": "Bayerische Vermessungsverwaltung, CC BY 4.0"
+   }
+  },
+  {
+   "name": "Brandenburg",
+   "bbox": [
+    11.26,
+    51.36,
+    14.77,
+    53.56
+   ],
+   "luftbild": {
+    "url": "https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms",
+    "ebene": "bebb_dop20c",
+    "lizenz": "GeoBasis-DE/LGB, dl-de/by-2-0"
+   }
+  },
+  {
+   "name": "Thüringen",
+   "bbox": [
+    9.87,
+    50.2,
+    12.65,
+    51.65
+   ],
+   "luftbild": {
+    "url": "https://www.geoproxy.geoportal-th.de/geoproxy/services/DOP",
+    "ebene": "th_dop",
+    "lizenz": "GDI-Th, CC BY 4.0"
+   }
+  },
+  {
+   "name": "Hessen",
+   "bbox": [
+    7.77,
+    49.39,
+    10.24,
+    51.66
+   ],
+   "luftbild": {
+    "url": "https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows",
+    "ebene": "he_dop20_rgb",
+    "lizenz": "HVBG, frei nutzbar"
+   }
+  },
+  {
+   "name": "Mecklenburg-Vorpommern",
+   "bbox": [
+    10.59,
+    53.11,
+    14.41,
+    54.69
+   ],
+   "luftbild": {
+    "url": "https://www.geodaten-mv.de/dienste/adv_dop",
+    "ebene": "mv_dop",
+    "lizenz": "GeoBasis-DE/M-V"
+   }
+  },
+  {
+   "name": "Rheinland-Pfalz",
+   "bbox": [
+    6.11,
+    48.97,
+    8.51,
+    50.94
+   ],
+   "luftbild": {
+    "url": "https://geo4.service24.rlp.de/wms/rp_dop20.fcgi",
+    "ebene": "rp_dop20",
+    "lizenz": "GeoBasis-DE/LVermGeoRP, dl-de/by-2-0"
+   }
+  },
+  {
+   "name": "Baden-Württemberg",
+   "bbox": [
+    7.51,
+    47.53,
+    10.5,
+    49.79
+   ],
+   "luftbild": {
+    "url": "https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C",
+    "ebene": "IMAGES_DOP_20_RGB",
+    "lizenz": "LGL BW, dl-de/by-2-0"
+   }
+  },
+  {
+   "name": "Deutschland",
+   "bbox": [
+    5.8,
+    47.2,
+    15.1,
+    55.1
+   ],
+   "gebaeude3d": {
+    "url": "https://sgx.geodatenzentrum.de/gdz_basemapde_3d_gebaeude/",
+    "lizenz": "basemap.de / BKG, dl-de/by-2-0"
+   },
+   "baujahr": {
+    "pfad": "daten/zensus/",
+    "lizenz": "Zensus 2022, Statistisches Bundesamt, dl-de/by-2-0"
+   },
+   "osm": {
+    "pfad": "daten/osm/",
+    "lizenz": "OpenStreetMap-Mitwirkende, ODbL (Geofabrik-Auszug)"
+   }
+  }
+ ]
+}

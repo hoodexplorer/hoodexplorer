@@ -1,0 +1,307 @@
+{
+ "w_saloon": {
+  "tris": 432,
+  "schild": {
+   "x": 0.0,
+   "y": 9.0,
+   "z": 6.38,
+   "w": 10.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_bank": {
+  "tris": 180,
+  "schild": {
+   "x": 0.0,
+   "y": 9.0,
+   "z": 5.88,
+   "w": 9.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_sheriff": {
+  "tris": 288,
+  "schild": {
+   "x": 0.0,
+   "y": 6.0,
+   "z": 5.38,
+   "w": 7.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_store": {
+  "tris": 144,
+  "schild": {
+   "x": 0.0,
+   "y": 6.0,
+   "z": 6.38,
+   "w": 12.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_hotel": {
+  "tris": 324,
+  "schild": {
+   "x": 0.0,
+   "y": 9.0,
+   "z": 6.38,
+   "w": 11.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_laden_a": {
+  "tris": 144,
+  "schild": {
+   "x": 0.0,
+   "y": 6.0,
+   "z": 5.38,
+   "w": 8.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_laden_b": {
+  "tris": 144,
+  "schild": {
+   "x": 0.0,
+   "y": 6.0,
+   "z": 5.88,
+   "w": 8.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_laden_c": {
+  "tris": 180,
+  "schild": {
+   "x": 0.0,
+   "y": 9.0,
+   "z": 5.38,
+   "w": 9.8,
+   "h": 1.88,
+   "st": "west"
+  }
+ },
+ "w_kapelle": {
+  "tris": 146,
+  "schild": null
+ },
+ "w_wasserturm": {
+  "tris": 166,
+  "schild": null
+ },
+ "w_windpumpe": {
+  "tris": 240,
+  "schild": null
+ },
+ "w_kaktus_a": {
+  "tris": 120,
+  "schild": null
+ },
+ "w_kaktus_b": {
+  "tris": 120,
+  "schild": null
+ },
+ "w_kaktus_c": {
+  "tris": 120,
+  "schild": null
+ },
+ "w_fels_a": {
+  "tris": 20,
+  "schild": null
+ },
+ "w_fels_b": {
+  "tris": 20,
+  "schild": null
+ },
+ "w_strauch": {
+  "tris": 20,
+  "schild": null
+ },
+ "w_kutsche": {
+  "tris": 432,
+  "schild": null
+ },
+ "w_planwagen": {
+  "tris": 336,
+  "schild": null
+ },
+ "m_haus_a": {
+  "tris": 764,
+  "schild": null
+ },
+ "m_haus_b": {
+  "tris": 1448,
+  "schild": null
+ },
+ "m_haus_c": {
+  "tris": 788,
+  "schild": null
+ },
+ "m_haus_d": {
+  "tris": 1496,
+  "schild": null
+ },
+ "m_laden_a": {
+  "tris": 812,
+  "schild": {
+   "x": 2.4,
+   "y": 2.6,
+   "z": 6.51,
+   "w": 2.0,
+   "h": 0.56,
+   "st": "mittel"
+  }
+ },
+ "m_laden_b": {
+  "tris": 1544,
+  "schild": {
+   "x": 2.7,
+   "y": 2.6,
+   "z": 7.36,
+   "w": 2.0,
+   "h": 0.56,
+   "st": "mittel"
+  }
+ },
+ "m_taverne": {
+  "tris": 1664,
+  "schild": {
+   "x": 3.0,
+   "y": 2.6,
+   "z": 7.86,
+   "w": 2.0,
+   "h": 0.56,
+   "st": "mittel"
+  }
+ },
+ "m_rathaus": {
+  "tris": 1784,
+  "schild": {
+   "x": 4.2,
+   "y": 2.6,
+   "z": 7.86,
+   "w": 2.0,
+   "h": 0.56,
+   "st": "mittel"
+  }
+ },
+ "m_kirche": {
+  "tris": 306,
+  "schild": null
+ },
+ "m_brunnen": {
+  "tris": 132,
+  "schild": null
+ },
+ "m_stand_a": {
+  "tris": 300,
+  "schild": null
+ },
+ "m_stand_b": {
+  "tris": 300,
+  "schild": null
+ },
+ "m_karren": {
+  "tris": 264,
+  "schild": null
+ },
+ "c_turm_a": {
+  "tris": 952,
+  "schild": {
+   "x": 0.0,
+   "y": 74.1,
+   "z": 8.6,
+   "w": 13,
+   "h": 4.12,
+   "st": "cyber"
+  }
+ },
+ "c_turm_b": {
+  "tris": 808,
+  "schild": {
+   "x": 0.0,
+   "y": 74.1,
+   "z": 8.6,
+   "w": 13,
+   "h": 4.12,
+   "st": "cyber"
+  }
+ },
+ "c_turm_c": {
+  "tris": 700,
+  "schild": {
+   "x": 0.0,
+   "y": 74.1,
+   "z": 8.6,
+   "w": 13,
+   "h": 4.12,
+   "st": "cyber"
+  }
+ },
+ "c_stufen_a": {
+  "tris": 772,
+  "schild": {
+   "x": 0.0,
+   "y": 74.1,
+   "z": 8.6,
+   "w": 13,
+   "h": 4.12,
+   "st": "cyber"
+  }
+ },
+ "c_stufen_b": {
+  "tris": 652,
+  "schild": {
+   "x": 0.0,
+   "y": 74.1,
+   "z": 8.6,
+   "w": 13,
+   "h": 4.12,
+   "st": "cyber"
+  }
+ },
+ "c_laterne_a": {
+  "tris": 36,
+  "schild": null
+ },
+ "c_laterne_b": {
+  "tris": 36,
+  "schild": null
+ },
+ "c_ramen": {
+  "tris": 376,
+  "schild": {
+   "x": 0.0,
+   "y": 4.45,
+   "z": 1.72,
+   "w": 4,
+   "h": 1.0,
+   "st": "cyber"
+  }
+ },
+ "c_holo": {
+  "tris": 48,
+  "schild": {
+   "x": 0.0,
+   "y": 7.2,
+   "z": 0.3,
+   "w": 5.4,
+   "h": 2.0,
+   "st": "cyber"
+  }
+ },
+ "c_auto_a": {
+  "tris": 192,
+  "schild": null
+ },
+ "c_auto_b": {
+  "tris": 192,
+  "schild": null
+ }
+}
