@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=629' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=630' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -924,22 +924,24 @@ const _ha = new THREE.Vector3(), _hb = new THREE.Vector3(), _hc = new THREE.Vect
    up) and which only turns about that axis to face the camera. The camera's own perspective then shortens and turns it: walking
    away it gets short and points slightly ahead, from the side it is long. Top of the picture always up; grip at 25 % / 38 %. */
 const _hu = new THREE.Vector3(), _hs = new THREE.Vector3(), _hn = new THREE.Vector3(), _hm = new THREE.Matrix4();
-function aimHand(cam) { const s = HAND.spr; if (!s || HAND.id !== 'gewehr' || !s.userData.anchor) return;
+/* Runde 202: every item with a direction uses it - grip point in the picture (gu, gv), size, tilt up (+) or down (-) */
+const AXIS = { gewehr: { gu: .25, gv: .38, sz: 1.05, up: .12 }, lampe: { gu: .4, gv: .42, sz: .72, up: -.06 } };
+function aimHand(cam) { const s = HAND.spr, A = AXIS[HAND.id]; if (!s || !A || !s.userData.anchor) return;
   s.visible = player.visible; if (!s.visible) return;
   s.userData.anchor.getWorldPosition(_ha); player.getWorldPosition(_hb); const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
   let ox = _ha.x - _hb.x, oz = _ha.z - _hb.z; const along = ox * fx + oz * fz; ox -= fx * along; oz -= fz * along; const ol = Math.hypot(ox, oz) || 1; // outwards: hand side
-  _hu.set(fx + ox / ol * .16, .12, fz + oz / ol * .16).normalize();
+  _hu.set(fx + ox / ol * .16, A.up, fz + oz / ol * .16).normalize();
   if (cam.isOrthographicCamera) _hc.setFromMatrixColumn(cam.matrixWorld, 2); else _hc.copy(cam.position).sub(_ha); _hc.normalize(); // towards the camera
   _hs.crossVectors(_hc, _hu); if (_hs.lengthSq() < 1e-6) _hs.set(0, 1, 0); _hs.normalize(); if (_hs.y < 0) _hs.negate(); // across the rifle, in the picture, top up
   _hn.crossVectors(_hu, _hs); const L = s.userData.len, H = s.userData.h;
   _hm.makeBasis(_hr.copy(_hu).multiplyScalar(L), _hb.copy(_hs).multiplyScalar(H), _hn);
-  _hm.setPosition(_ha.x + _hu.x * L * .25 + _hs.x * H * .12, _ha.y + _hu.y * L * .25 + _hs.y * H * .12, _ha.z + _hu.z * L * .25 + _hs.z * H * .12);
+  const gu = .5 - A.gu, gv = .5 - A.gv; _hm.setPosition(_ha.x + _hu.x * L * gu + _hs.x * H * gv, _ha.y + _hu.y * L * gu + _hs.y * H * gv, _ha.z + _hu.z * L * gu + _hs.z * H * gv);
   s.matrix.copy(_hm); s.matrixWorldNeedsUpdate = true; }
 function setItem(id) {
   if (!(id in ITEMS)) id = 'nichts'; HAND.id = id; store.set('hx.item', id);
   if (HAND.spr) { const an = HAND.spr.userData.anchor; if (an) an.parent.remove(an); HAND.spr.parent.remove(HAND.spr); HAND.spr.material.map.dispose(); HAND.spr.material.dispose(); if (HAND.spr.isMesh) HAND.spr.geometry.dispose(); HAND.spr = null; }
-  if (id === 'gewehr') { const { t, w } = itemTex(id), m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: t, alphaTest: .5, side: THREE.DoubleSide })); // Runde 201: axis billboard, see aimHand
-    m.matrixAutoUpdate = false; m.frustumCulled = false; m.userData.len = 1.05 * w; m.userData.h = 1.05; const an = new THREE.Object3D(); an.position.set(0, -.04, .08); player.userData.hand[0].add(an); m.userData.anchor = an; scene.add(m); HAND.spr = m; }
+  if (AXIS[id]) { const { t, w } = itemTex(id), m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: t, alphaTest: .5, side: THREE.DoubleSide })); // Runde 201: axis billboard, see aimHand
+    m.matrixAutoUpdate = false; m.frustumCulled = false; m.userData.len = AXIS[id].sz * w; m.userData.h = AXIS[id].sz; const an = new THREE.Object3D(); an.position.set(0, -.04, .08); player.userData.hand[0].add(an); m.userData.anchor = an; scene.add(m); HAND.spr = m; }
   else if (id !== 'nichts') { const { t, w } = itemTex(id), s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, alphaTest: .5 }));
     const sz = id === 'gewehr' ? 1.05 : .72; s.scale.set(sz * w, sz, 1); s.position.set(0, -.04, .08); s.center.set(id === 'gewehr' ? .25 : .5, .38); s.userData.w = w; /* Runde 107: held items oversized, like in pixel games */ player.userData.hand[0].add(s); HAND.spr = s; }
   for (const b of document.querySelectorAll('#itemSeg button')) b.setAttribute('aria-pressed', b.dataset.item === id ? 'true' : 'false'); }
