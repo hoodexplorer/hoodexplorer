@@ -224,9 +224,11 @@ function waterAmb(dt, x, z, swimming) {
   if (!WAMB.brook) { WAMB.brook = ambLoop('brook'); WAMB.rain = ambLoop('rainwater'); WAMB.shore = ambLoop('shore'); }
   const t = ac.currentTime, near = Math.min(flowD, stillD);
   WAMB.brook.gain.setTargetAtTime(flowD < 32 ? .14 * Math.pow(1 - flowD / 34, 2) : 0, t, .5);
-  WAMB.shore.gain.setTargetAtTime(stillD < 16 && !hard ? .07 * Math.pow(1 - stillD / 18, 1.5) * (W.storm ? 1.5 : 1) : 0, t, .6); // Runde 185: steady lapping at natural banks
+  WAMB.shore.gain.setTargetAtTime(0, t, .6); /* Runde 190: the steady lapping loop is off (overlapped with the gluggs) */
   WAMB.rain.gain.setTargetAtTime(W.rain > .08 && near < 26 ? .1 * W.rain * Math.pow(1 - near / 28, 1.5) : 0, t, .5);
-  if (stillD < 20 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 3000 + Math.random() * 5000; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
+  /* Runde 190 (phone test: still far too much - the steady lapping loop and the gluggs overlapped): no steady loop any more (gain 0),
+     single gluggs only within 12 m of the bank, every 8-18 s, never two at once (the next waits until the last has died away) */
+  if (stillD < 12 && !swimming && performance.now() > WAMB.next) { WAMB.next = performance.now() + 8000 + Math.random() * 10000; stepSnd(hard ? 'slap' : 'lap', Math.pow(1 - stillD / 22, 1.5) * (W.storm ? 1.4 : 1)); }
 }
 
 /* Runde 182-184: now and then a fish jumps out of the water - 6-22 m ahead in view, on rivers and lakes (not on ice, not at the bank).
