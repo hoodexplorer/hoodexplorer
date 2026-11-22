@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=718' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=722' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
