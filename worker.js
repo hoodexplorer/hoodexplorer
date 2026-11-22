@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=670'); importScripts('sonderbau.js?v=670'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=671'); importScripts('sonderbau.js?v=671'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2469,7 +2469,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           { const r = R(); HK = r < .3 ? 0 : r < .55 ? 1 : r < .75 ? 2 : r < .81 ? 3 : r < .93 ? 4 : 5; }
           const s = R(), tall = R() < .8, H = tall ? 2.3 + R() * .7 : 1.2 + R() * .3, th = tall ? .9 : .6, U1 = bu + BU * PW, V1 = bv + BV * RW;
           if (s < .42 && !spec && !turn) { hedge(bu - .4 - (R() < .45 ? 2.6 : 0), bv - .6, U1 + .4 + (R() < .45 ? 2.6 : 0), bv - .6, H, th); /* Runde 225: may run on across the walkway and meet the neighbour's */ for (const j of [2, 4]) if (R() < .85) hedge(bu - .4, bv + j * RW, U1 + .4, bv + j * RW, H, th); }
-          else if (s < .74) { side(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); side(bu - .4, V1 + .6, U1 + .4, V1 + .6, H, th); side(bu - 1.2, bv - .2, bu - 1.2, V1 + .2, H, th); side(U1 + 1.2, bv - .2, U1 + 1.2, V1 + .2, H, th); }
+          else if (s < .74) { const e = th / 2; /* Runde 228: corners closed - the long sides run to the outer face of the cross sides, these to the middle of the long ones (a 35 cm slit before) */ side(bu - 1.2 - e, bv - .6, U1 + 1.2 + e, bv - .6, H, th); side(bu - 1.2 - e, V1 + .6, U1 + 1.2 + e, V1 + .6, H, th); side(bu - 1.2, bv - .6, bu - 1.2, V1 + .6, H, th); side(U1 + 1.2, bv - .6, U1 + 1.2, V1 + .6, H, th); }
           else if (s < .88) hedge(bu - .4, bv - .6, U1 + .4, bv - .6, 1.1, .6); } }
       map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
   if (GR.length) map.graves = Float32Array.from(GR); if (HG.length) map.hedges = Float32Array.from(HG); // Runde 221
