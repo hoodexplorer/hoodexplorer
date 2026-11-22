@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=649'); importScripts('sonderbau.js?v=649'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=652'); importScripts('sonderbau.js?v=652'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1586,7 +1586,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const cars = []; // parked cars as baked sprites: x, z, heading, type, colour, seed
   const rnd = mulberry(tx * 7919 + ty);
   let fpItems = [];
-  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], cemPolys = [], pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
+  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], cemPolys = [], meadowPolys = [], fieldPolys = [], pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
 
   // areas (landcover, landuse, park, water)
   for (const ln of ['landcover', 'landuse', 'park', 'water']) {
@@ -1613,6 +1613,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         if (f.props.class === 'playground' || f.props.subclass === 'playground') playPolys.push(poly[0]);
         if (f.props.class === 'cemetery' || f.props.subclass === 'grave_yard') cemPolys.push(poly[0]); // Runde 204
         if (f.props.class === 'pitch' || f.props.subclass === 'pitch') pitchPolys.push(poly[0]);
+        if (/^(park|meadow|grass|village_green|recreation_ground|garden|nature_reserve)$/.test(f.props.class || '') || /^(meadow|garden)$/.test(f.props.subclass || '')) meadowPolys.push(poly[0]); else if (/^(farmland|orchard)$/.test(f.props.class || '')) fieldPolys.push(poly[0]); // Runde 213
         if (/^(wood|forest)$/.test(f.props.class) || /^(wood|forest)$/.test(f.props.subclass || '')) forestRings.push(poly[0]);
         if (ln === 'park' || /^(park|garden|cemetery)$/.test(f.props.class)) parkRings.push(poly[0]);
         if (dens > 0 && !osm.trees) { // no tree map here: scatter trees over green areas (fallback)
@@ -2357,6 +2358,26 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           const [px, pz] = W2(bu + BU * PW / 2, bv - 1.25); if (inside(px, pz)) lid(px, .05, pz, BU * PW + 2, 1.6, ux, uz, GRAVEL);
           const [hx2, hz2] = W2(bu - .9, bv + BV * RW / 2); if (inside(hx2, hz2) && R() < .6) box(hx2, 0, hz2, .5, .7, BV * RW, ux, uz, HEDGE); } }
       map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
+  /* Runde 213 (foliage video: patches of one kind + scaled/fewer): loose clusters of wild flowers and grass on parks, meadows and lawns
+     (a cluster centre every ~15-40 m, 4-12 plants of one kind within 2.5 m around it), and flower strips along field edges (poppy /
+     cornflower / grass on the inner 2.5 m of farmland). Single plant sprites 43/45/46/47; the sprite shader thins them out with
+     distance (none beyond 80 m). Hard cap per tile 650; never on roads, paths, buildings, only inside the own tile. */
+  { const TBm = ground.tileBox, CAPM = 650; let nm = 0;
+    const h2 = (a, b) => { let x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); };
+    const ok = (x, z, q) => (!TBm || (x >= TBm[0] && x <= TBm[2] && z >= TBm[1] && z <= TBm[3])) && inPoly(x, z, q) && !fpAt(x, z) && !roadCells.has(rc(x, z));
+    const plant = (x, z, kind) => { const s = (kind === 46 ? .45 : .36) + h2(x, z) * .26; ground.spr.push(x, z, s, s * (.85 + h2(z, x) * .3), kind, sprY(x, z, h2(x * 3, z))); nm++; };
+    for (const q of meadowPolys) { if (nm >= CAPM) break; const bb = bbox(q), ar = Math.abs(ringArea(q)); if (ar < 120) continue;
+      let nc = Math.max(1, Math.round(ar / (h2(bb.minx, bb.minz) < .5 ? 300 : 700)));                       // some parks lusher than others
+      for (let c = 0; c < nc * 3 && nm < CAPM; c++) { const cx = bb.minx + h2(c, bb.minx) * (bb.maxx - bb.minx), cz = bb.minz + h2(bb.minz, c + .5) * (bb.maxz - bb.minz);
+        if (!ok(cx, cz, q)) continue; const r = h2(cx, cz), kind = r < .35 ? 46 : r < .58 ? 43 : r < .8 ? 45 : 47, n = 4 + ((h2(cz, cx) * 9) | 0);
+        for (let i = 0; i < n && nm < CAPM; i++) { const a = h2(i, cx) * 6.283, d = Math.sqrt(h2(cz, i)) * 2.5, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d; if (ok(x, z, q)) plant(x, z, h2(x, i) < .85 ? kind : 46); }
+        if (--nc <= 0) break; } }
+    for (const q of fieldPolys) { if (nm >= CAPM) break; let cx0 = 0, cz0 = 0; for (let i = 0; i < q.length; i += 2) { cx0 += q[i]; cz0 += q[i + 1]; } cx0 /= q.length / 2; cz0 /= q.length / 2;
+      for (let i = 0; i + 3 < q.length && nm < CAPM; i += 2) { const ax = q[i], az = q[i + 1], ex = q[i + 2] - ax, ez = q[i + 3] - az, L = Math.hypot(ex, ez); if (L < 4) continue;
+        let nx = -ez / L, nz = ex / L; if (nx * (cx0 - ax) + nz * (cz0 - az) < 0) { nx = -nx; nz = -nz; }                 // inward
+        for (let t = 1.5; t < L - 1 && nm < CAPM; t += 2.2 + h2(ax + t, az) * 4) { if (h2(t, ax) < .45) continue;             // a strip with gaps
+          const d = .6 + h2(az, t) * 1.9, x = ax + ex / L * t + nx * d, z = az + ez / L * t + nz * d, r = h2(x * .2, z * .2); if (!ok(x, z, q)) continue;
+          plant(x, z, r < .4 ? 43 : r < .65 ? 46 : r < .85 ? 45 : 47); } } } }
   for (const q of pitchPolys) {
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
     const L2 = o.w / 2 - 1, D2 = o.d / 2 - 1, P2 = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], Wt = hex('#f2f2ee');

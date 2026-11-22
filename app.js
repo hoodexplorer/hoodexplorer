@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=649' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=652' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2080,6 +2080,7 @@ function step(now) {
     applyMood(cur); }
 
   aimHand(cam); /* Runde 195 */
+  window.HX_RTH = rt ? rt.height : innerHeight;
   updateSprites(cam, time, cam === iso, player.position, PRUEF === null && ISO === null); updateCarInstances(P.x, P.z); if (window.updateTiere) try { window.updateTiere(dt, time); } catch (e) { if (!window.TIERERR) { window.TIERERR = 1; console.error('Tiere', e); } } // Runde 82
   if (window.updateTraffic) try { window.updateTraffic(dt); } catch (e) { if (!window.TRERR) { window.TRERR = 1; console.error('Verkehr', e); } } // a traffic bug never stops the game loop /* Runde 81 */ if (frame % 30 === 0) updateFar(); if (frame % 20 === 0 && P.placed && PRUEF === null && ISO === null) checkSights();
   if (window.WX) try { WX.update(dt, time); } catch (e) { if (!window.WXERR) { window.WXERR = 1; console.error('Wetter', e); } } // Runde 141

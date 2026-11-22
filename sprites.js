@@ -168,41 +168,50 @@ function makeSpriteAtlas() {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x; if (a0[i]) continue;
     const cell = Math.floor(x / SPRITE_PX) + 100 * Math.floor(y / SPRITE_PX); let nb = -1;
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + a, yy = y + b; if (xx < 0 || yy < 0 || xx >= W || yy >= H || Math.floor(xx / SPRITE_PX) + 100 * Math.floor(yy / SPRITE_PX) !== cell) continue; const j = yy * W + xx; if (a0[j]) { nb = j; break; } }
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + a, yy = y + b; if (xx < 0 || yy < 0 || xx >= W || yy >= H || Math.floor(xx / SPRITE_PX) + 100 * Math.floor(yy / SPRITE_PX) !== cell) continue; const j = yy * W + xx; if (a0[j]) { const x3 = xx + a, y3 = yy + b; if (x3 < 0 || y3 < 0 || x3 >= W || y3 >= H || !a0[y3 * W + x3]) continue; /* Runde 213: 1-px lines get no outline */ nb = j; break; } }
     if (nb >= 0) { d[i * 4] = d[nb * 4] * .55; d[i * 4 + 1] = d[nb * 4 + 1] * .55; d[i * 4 + 2] = d[nb * 4 + 2] * .55; d[i * 4 + 3] = 255; }
   }
   g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   // pixel-art cells rendered in Blender replace the hand-coded ones once loaded (the game runs with the coded ones meanwhile)
-  fetch('daten/sprites.json?v=6').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
-    const im = new Image(); im.onload = () => { for (const n of meta.cells) { const x = (n % SPRITE_COLS) * SPRITE_PX, y = Math.floor(n / SPRITE_COLS) * SPRITE_PX; g.clearRect(x, y, SPRITE_PX, SPRITE_PX); g.drawImage(im, x, y, SPRITE_PX, SPRITE_PX, x, y, SPRITE_PX, SPRITE_PX); } tex.needsUpdate = true; };
-    im.src = 'daten/sprites.png?v=6'; }).catch(() => {});
+  fetch('daten/sprites.json?v=7').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
+    const im = new Image(); im.onload = () => { for (const n of meta.cells) { const x = (n % SPRITE_COLS) * SPRITE_PX, y = Math.floor(n / SPRITE_COLS) * SPRITE_PX; g.clearRect(x, y, SPRITE_PX, SPRITE_PX); g.drawImage(im, x, y, SPRITE_PX, SPRITE_PX, x, y, SPRITE_PX, SPRITE_PX); } tex.needsUpdate = true; tex.hxThickReady = 1; };
+    im.src = 'daten/sprites.png?v=7'; }).catch(() => {});
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
 }
 
+/* Runde 213 (foliage video: thin stems break up in the distance): a thick copy of an atlas - every empty pixel next to a filled one
+   (left/right/above/below, inside the same cell) takes that colour. Used only where one atlas pixel is smaller than one screen pixel:
+   ropes, poles, bike frames, thin branches then stay visible instead of flickering away. Built once, one more texture. */
+function thickTex(img, cell) { const W = img.width, H = img.height, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, W, H).data, o = new Uint8ClampedArray(d);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; if (d[i + 3] > 127) continue;
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + a, yy = y + b; if (xx < 0 || yy < 0 || xx >= W || yy >= H || ((xx / cell) | 0) !== ((x / cell) | 0) || ((yy / cell) | 0) !== ((y / cell) | 0)) continue;
+      const j = (yy * W + xx) * 4; if (d[j + 3] > 127) { o[i] = d[j]; o[i + 1] = d[j + 1]; o[i + 2] = d[j + 2]; o[i + 3] = 255; break; } } }
+  g.putImageData(new ImageData(o, W, H), 0, 0); const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t; }
 const spriteUniforms = {
   uAtlas: { value: null }, uRight: { value: new THREE.Vector3(1, 0, 0) }, uUp: { value: new THREE.Vector3(0, 1, 0) },
   uTime: { value: 0 }, uWind: { value: 1 }, uPlayer: { value: new THREE.Vector3() }, uSee: { value: 0 }, uLight: { value: new THREE.Color(1, 1, 1) },
   uFogColor: { value: new THREE.Color() }, uFogDensity: { value: 0 }, uFwd: { value: new THREE.Vector3(0, 0, 1) }, uFlat: { value: 1 },
-  uTrees: { value: null }, uTreesOn: { value: 0 }, uSlot: { value: new Array(48).fill(-1) }, uDirRows: { value: 1 }
+  uTreesF: { value: null }, uAtlasF: { value: null }, uPxM: { value: .002 }, uPxO: { value: 0 }, uTrees: { value: null }, uTreesOn: { value: 0 }, uSlot: { value: new Array(48).fill(-1) }, uDirRows: { value: 1 }
 };
 /* Static assets from 16 directions (werkzeuge/sprite_fabrik.py + sprite_atlas.py -> daten/dirs16.png): trees, bushes, bins, bikes,
    playground, parasols, roof props. Row = asset (dirs16.json "slots": type -> row), column = view (every 22.5 deg). The shader picks the
    view from the angle between camera and object (+ a fixed random turn per object) and blends into the next view with a pixel pattern
    just around the switch, so crowns don't jump when the camera turns. Same cost as before: one quad per object, one more texture. */
-fetch('daten/dirs16.json?v=5').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
-  new THREE.TextureLoader().load('daten/dirs16.png?v=5', t => { t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+fetch('daten/dirs16.json?v=6').then(r => r.ok ? r.json() : null).then(meta => { if (!meta) return;
+  new THREE.TextureLoader().load('daten/dirs16.png?v=6', t => { t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     const sl = new Array(48).fill(-1); for (const k in meta.slots) sl[+k] = meta.slots[k];
-    spriteUniforms.uSlot.value = sl; spriteUniforms.uDirRows.value = meta.rows; spriteUniforms.uTrees.value = t; spriteUniforms.uTreesOn.value = 1; window.HX_DIRS = true; }); }).catch(() => {});
+    spriteUniforms.uSlot.value = sl; spriteUniforms.uDirRows.value = meta.rows; spriteUniforms.uTrees.value = t; spriteUniforms.uTreesF.value = thickTex(t.image, 64); spriteUniforms.uTreesOn.value = 1; window.HX_DIRS = true; }); }).catch(() => {});
 const spriteMat = new THREE.ShaderMaterial({
   uniforms: spriteUniforms, side: THREE.DoubleSide,
   vertexShader: `
     attribute vec4 iA; // x, z, width, height
     attribute vec2 iB; // type, floor(baseY * 4) + seed
-    uniform vec3 uRight, uUp, uPlayer, uFwd; uniform float uTime, uWind, uSee, uFlat, uTreesOn, uDirRows, uSlot[48];
-    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix, vLamp, vPlant;
+    uniform vec3 uRight, uUp, uPlayer, uFwd; uniform float uTime, uWind, uSee, uFlat, uTreesOn, uDirRows, uSlot[48]; uniform float uPxM, uPxO;
+    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix, vLamp, vPlant, vThick;
     void main() {
       float h = position.y; vH = h;
       vPerson = (iB.x > 17.5 && iB.x < 21.5) ? 1.0 : 0.0; vLamp = abs(iB.x - 42.0) < 0.5 ? 1.0 : 0.0; vPlant = (iB.x > 42.5 && iB.x < 47.5) ? 1.0 : 0.0;
@@ -253,6 +262,7 @@ const spriteMat = new THREE.ShaderMaterial({
         vUv = vec2((mod(f0, 16.0) + position.x + 0.5) / 16.0, vy); vUvB = vec2((mod(f0 + 1.0, 16.0) + position.x + 0.5) / 16.0, vy);
         vMix = prop ? 0.0 : smoothstep(0.3, 0.7, a - f0); vTree = 1.0; }
       vSeed = seed; vFogDepth = -mv.z; vProp = prop ? 1.0 : 0.0;
+      { float px = uPxO > 0.0 ? uPxO : -mv.z * uPxM, texel = abs(iA.w) / (vTree > 0.5 ? 64.0 : 48.0); vThick = (vPerson > 0.5 || vMirror > 0.5) ? 0.0 : smoothstep(.8, 1.4, px / max(texel, 1e-4)); } // Runde 213: one atlas pixel smaller than a screen pixel -> thick copy
       // a tree standing in front of the player turns see-through (same pixel pattern as the houses)
       vSee = 0.0;
       if (uSee > 0.5) {
@@ -267,8 +277,8 @@ const spriteMat = new THREE.ShaderMaterial({
       }
     }`,
   fragmentShader: `
-    uniform sampler2D uAtlas, uTrees; uniform vec3 uLight, uFogColor; uniform float uFogDensity;
-    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix, vLamp, vPlant; uniform float uTime, uDirRows;
+    uniform sampler2D uAtlas, uTrees, uAtlasF, uTreesF; uniform vec3 uLight, uFogColor; uniform float uFogDensity;
+    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix, vLamp, vPlant, vThick; uniform float uTime, uDirRows, uTreesOn;
     float hxB2(vec2 a){a=floor(a);return fract(a.x*0.5+a.y*a.y*0.75);}
     float hh(float k){ return fract(sin(vSeed * k + k * 0.37) * 43758.5453); }
     bool mk(vec3 c, vec3 m){ return all(lessThan(abs(c - m), vec3(0.08))); }
@@ -299,7 +309,8 @@ const spriteMat = new THREE.ShaderMaterial({
     void main() {
       vec2 uvS = vUv;
       if (vMirror > 0.5) { float row = floor(vUv.y * ${SPRITE_ROWS * SPRITE_PX}.0); uvS.x += floor(sin(row * .9 + uTime * 2.2) * 1.6) / ${SPRITE_COLS * SPRITE_PX}.0; } // rows shift by whole pixels
-      vec4 c = vTree > 0.5 ? texture2D(uTrees, hxBayer(gl_FragCoord.xy) < vMix ? uvS + (vUvB - vUv) : uvS) : texture2D(uAtlas, uvS); // dithered blend between two neighbouring views
+      vec2 uvT = vTree > 0.5 && hxBayer(gl_FragCoord.xy) < vMix ? uvS + (vUvB - vUv) : uvS; bool thick = vThick > 0.0 && hxBayer(gl_FragCoord.xy + 3.0) < vThick && uTreesOn > 0.5;
+      vec4 c = vTree > 0.5 ? (thick ? texture2D(uTreesF, uvT) : texture2D(uTrees, uvT)) : (thick ? texture2D(uAtlasF, uvS) : texture2D(uAtlas, uvS)); // dithered blend between two neighbouring views; far: thick copy
       if (c.a < 0.5) discard;
       if (vMirror > 0.5) { float fy = fract(vUv.y * (vTree > 0.5 ? uDirRows : ${SPRITE_ROWS}.0)); if (hxBayer(gl_FragCoord.xy) < .5 + .4 * fy) discard; vec3 col = mix(c.rgb, vec3(.42, .56, .58), .55) * uLight * .9; // faint, fading out towards the treetop
         float f = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth); gl_FragColor = vec4(mix(col, uFogColor, clamp(f, 0.0, 1.0)), 1.0); return; }
@@ -370,6 +381,8 @@ function makeSpriteMesh(arr, shadow) {
 // called every frame: sprites stand upright in the street view and face the isometric camera fully
 function updateSprites(camObj, time, isIso, player, see) {
   const e = camObj.matrixWorld.elements, u = spriteUniforms;
+  { const rh = window.HX_RTH || innerHeight; if (camObj.isOrthographicCamera) u.uPxO.value = (camObj.top - camObj.bottom) / camObj.zoom / rh; else { u.uPxO.value = 0; u.uPxM.value = 2 * Math.tan(camObj.fov * Math.PI / 360) / rh; } // Runde 213
+    const A = u.uAtlas.value; if (A && !u.uAtlasF.value) u.uAtlasF.value = A; if (A && A.hxThickReady && !A.hxThickDone) { A.hxThickDone = 1; u.uAtlasF.value = thickTex(A.image, SPRITE_PX); } }
   if (player) u.uPlayer.value.copy(player); u.uSee.value = see ? 1 : 0;
   const rx = e[0], rz = e[2], l = Math.hypot(rx, rz) || 1; u.uRight.value.set(rx / l, 0, rz / l);
   // lean towards the camera only as much as the camera looks down: upright at eye level, leaning back when seen from above
