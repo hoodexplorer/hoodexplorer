@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=662' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=663' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -323,7 +323,8 @@ groundMat.onBeforeCompile = sh => {
         float joint = (f.x < w.x || f.y < w.y) ? 0.86 : 1.0, tone = 0.95 + 0.08 * fract(sin(dot(floor(g), vec2(12.9, 78.2))) * 43758.5);
         diffuseColor.rgb *= joint * tone;
       } }
-    if (abs(diffuseColor.b * 255.0 - 2.0) < 0.6 && diffuseColor.r < 0.99) { /* Runde 218: field - crop rows, tramlines, wind waves over cereals */
+    float hxSide = abs(diffuseColor.b * 255.0 - 3.0) < 0.6 ? 1.0 : 0.0; /* Runde 220: slanted edge of a standing crop */
+    if ((hxSide > 0.5 || abs(diffuseColor.b * 255.0 - 2.0) < 0.6) && diffuseColor.r < 0.99) { /* Runde 218: field - crop rows, tramlines, wind waves over cereals */
       float crop = floor(diffuseColor.r * 255.0 / 32.0), an = diffuseColor.g * 3.14159;
       vec2 dr = vec2(cos(an), sin(an)), p = vGW.xz; float u = dot(p, vec2(-dr.y, dr.x)), v = dot(p, dr);
       vec3 A = vec3(.74,.64,.33), B = vec3(.6,.5,.24); float sp = 1.4, wave = 1.0;           // 0 wheat
@@ -342,6 +343,7 @@ groundMat.onBeforeCompile = sh => {
       if (crop < 1.5 || crop > 5.5) { float tl = abs(fract(u / 18.0) - .5) * 18.0; if (abs(tl - .9) < .3) c *= .82; } // tramlines
       float w = sin(v * .16 + u * .05 - uFT * 1.3) + .6 * sin(v * .07 - u * .11 - uFT * .8);    // wind rolling over the field
       c *= 1.0 + wave * .07 * floor(clamp(w, -1.5, 1.5) * 1.5 + .5) / 2.0;                       // in steps (pixel look)
+      if (hxSide > 0.5) { float st = fract(sin(floor((p.x + p.y) * 2.5) * 91.7) * 43758.5); c = mix(B, A, .3 + .4 * st) * (.72 + .12 * st); } // stalks
       diffuseColor.rgb = c;
     }`);
 };

@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=662'); importScripts('sonderbau.js?v=662'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=663'); importScripts('sonderbau.js?v=663'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -824,7 +824,7 @@ class Geo {
         np.push(...L[0], ...L[k], ...L[k + 1]); gf.push(1);
         if (poly[0][1] > -.05) { const ux = L[k][0] - L[0][0], uy = L[k][1] - L[0][1], uz = L[k][2] - L[0][2], vx = L[k + 1][0] - L[0][0], vy = L[k + 1][1] - L[0][1], vz = L[k + 1][2] - L[0][2];
           if (Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) < 1) dt.push(gf.length - 1); } /* detail: small piece of an upper layer (never the base meadow: no holes when far blocks leave it out) */
-        for (const m of [0, k, k + 1]) { const q = SH[m]; if (this.noShade) nn.push(nx, ny, nz); else nn.push(q[1], q[2], q[3]); nc.push(col[0] * q[0], col[1] * q[0], col[2] * q[0]); }
+        for (const m of [0, k, k + 1]) { const q = SH[m]; if (this.noShade) nn.push(nx, ny, nz); else nn.push(q[1], q[2], q[3]); { const s = col[2] > .005 && col[2] < .016 ? 1 : q[0]; nc.push(col[0] * s, col[1] * s, col[2] * s); } } /* Runde 220: field code colours stay exact */
       }
     };
     /* Runde 42: join the flat pieces of one layer and colour per flat cell (the cuts along the terrain grid, the shore and the height
@@ -851,7 +851,7 @@ class Geo {
       np.push(...A, ...B, ...Cc); gf.push(1); if (g.y > -.05 && cl < 1) dt.push(gf.length - 1);
       for (const v of [A, B, Cc]) { const d = S * .5, gx = sH(v[0] + d, v[2]) - sH(v[0] - d, v[2]), gz = sH(v[0], v[2] + d) - sH(v[0], v[2] - d), l2 = Math.hypot(gx, 2 * d, gz);
         const mx = -gx / l2, my = 2 * d / l2, mz = -gz / l2, lit = mx * SUN_L[0] + my * SUN_L[1] + mz * SUN_L[2] - SUN_L[1], q = Math.max(0.7, Math.min(1.15, 1 + lit * 2.6));
-        nn.push(mx, my, mz); nc.push(g.col[0] * q, g.col[1] * q, g.col[2] * q); } };
+        nn.push(mx, my, mz); { const s = g.col[2] > .005 && g.col[2] < .016 ? 1 : q; nc.push(g.col[0] * s, g.col[1] * s, g.col[2] * s); } } };
     for (let i = 0; i < P.length; i += 9) {
       const a = [P[i], P[i + 1], P[i + 2]], b = [P[i + 3], P[i + 4], P[i + 5]], c = [P[i + 6], P[i + 7], P[i + 8]], col = [C[i], C[i + 1], C[i + 2]];
       if (N[i + 1] > 0.9 && a[1] < 0.25 && b[1] < 0.25 && c[1] < 0.25) { // ground layer: cut along the terrain grid
@@ -1586,7 +1586,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const cars = []; // parked cars as baked sprites: x, z, heading, type, colour, seed
   const rnd = mulberry(tx * 7919 + ty);
   let fpItems = [];
-  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], cemPolys = [], meadowPolys = [], fieldPolys = [], pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
+  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], cemPolys = [], meadowPolys = [], fieldPolys = [], tallFields = new Set(), pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
 
   // areas (landcover, landuse, park, water)
   for (const ln of ['landcover', 'landuse', 'park', 'water']) {
@@ -1614,13 +1614,28 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           a = ((a % Math.PI) + Math.PI) % Math.PI; const r0 = poly[0], hsh = Math.abs(Math.sin(r0[0] * 12.9898 + r0[1] * 78.233) * 43758.5453) % 1;
           colF = [(16 + 32 * Math.floor(hsh * 8)) / 255, Math.round(a / Math.PI * 255) / 255, 2 / 255]; }
         const t = G0.flat(poly, y, colF);
+        /* Runde 220: standing crops as one raised block that follows the ground: the field outline drawn in by ~1 m, lifted to the crop
+           height (wheat .9, barley .8, rapeseed 1.2, maize 2.1 m) and joined to the edge by a slanted band (code blue 3 = side: the shader
+           paints stalks). The drape puts both on the terrain like every ground layer. Beet, ploughed, young cereal and stubble stay flat. */
+        if (colF !== col && poly.length === 1) { const crop = Math.round((colF[0] * 255 - 16) / 32), Hc = [.9, .8, 1.2, 2.1, 0, 0, 0, 0][crop];
+          let r = Array.from(poly[0]); if (r.length > 4 && r[0] === r[r.length - 2] && r[1] === r[r.length - 1]) r = r.slice(0, -2);
+          const n = r.length / 2, A0 = ringArea(r);
+          if (Hc > 0 && n >= 3 && Math.abs(A0) > 400) { const d = Hc > 2 ? 1.1 : .8, sg = A0 > 0 ? 1 : -1, ins = [];
+            for (let i = 0; i < n; i++) { const p0 = (i + n - 1) % n, p2 = (i + 1) % n, ax = r[i * 2] - r[p0 * 2], az = r[i * 2 + 1] - r[p0 * 2 + 1], bx = r[p2 * 2] - r[i * 2], bz = r[p2 * 2 + 1] - r[i * 2 + 1];
+              const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1, n1x = -az / la * sg, n1z = ax / la * sg, n2x = -bz / lb * sg, n2z = bx / lb * sg;
+              let mx = n1x + n2x, mz = n1z + n2z; const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml; const k = Math.min(3, 1 / Math.max(.33, mx * n1x + mz * n1z));
+              ins.push(r[i * 2] + mx * d * k, r[i * 2 + 1] + mz * d * k); }
+            const A1 = ringArea(ins); let cx0 = 0, cz0 = 0; for (let i = 0; i < n; i++) { cx0 += ins[i * 2]; cz0 += ins[i * 2 + 1]; }
+            if (Math.sign(A1) === Math.sign(A0) && Math.abs(A1) > Math.abs(A0) * .6 && Math.abs(A1) < Math.abs(A0) && inPoly(cx0 / n, cz0 / n, r)) {
+              tallFields.add(poly[0]); G0.flat([Float32Array.from(ins)], y + Hc, colF); const side = [colF[0], colF[1], 3 / 255];
+              for (let i = 0; i < n; i++) { const j = (i + 1) % n; G0.quad([r[i * 2], y + .006, r[i * 2 + 1]], [r[j * 2], y + .006, r[j * 2 + 1]], [ins[j * 2], y + Hc, ins[j * 2 + 1]], [ins[i * 2], y + Hc, ins[i * 2 + 1]], side, 0, 1, 0); } } } }
         map.areas.push({ k: kind, rings: poly.map(r => Float32Array.from(r)) });
         if (kind === 'w') { waterRings.push(poly[0]); waterPolys.push(poly); }
         else if (ln !== 'landuse' || /^(grass|meadow|farmland|village_green|recreation_ground|cemetery|allotments|orchard|vineyard)$/.test(f.props.class)) greenPolys.push(poly);
         if (f.props.class === 'playground' || f.props.subclass === 'playground') playPolys.push(poly[0]);
         if (f.props.class === 'cemetery' || f.props.subclass === 'grave_yard') cemPolys.push(poly[0]); // Runde 204
         if (f.props.class === 'pitch' || f.props.subclass === 'pitch') pitchPolys.push(poly[0]);
-        if (/^(park|meadow|grass|village_green|recreation_ground|garden|nature_reserve)$/.test(f.props.class || '') || /^(meadow|garden)$/.test(f.props.subclass || '')) meadowPolys.push(poly[0]); else if (/^(farmland|orchard)$/.test(f.props.class || '')) fieldPolys.push(poly[0]); // Runde 213
+        if (/^(park|meadow|grass|village_green|recreation_ground|garden|nature_reserve)$/.test(f.props.class || '') || /^(meadow|garden)$/.test(f.props.subclass || '')) meadowPolys.push(poly[0]); else if (/^(farmland|orchard)$/.test(f.props.class || '') && !tallFields.has(poly[0])) fieldPolys.push(poly[0]); // Runde 213 (220: not under standing crops)
         if (/^(wood|forest)$/.test(f.props.class) || /^(wood|forest)$/.test(f.props.subclass || '')) forestRings.push(poly[0]);
         if (ln === 'park' || /^(park|garden|cemetery)$/.test(f.props.class)) parkRings.push(poly[0]);
         if (dens > 0 && !osm.trees) { // no tree map here: scatter trees over green areas (fallback)
