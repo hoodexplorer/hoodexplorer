@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=683' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=684' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -316,7 +316,7 @@ scene.background = new THREE.Color('#a8c8e0');
 scene.fog = new THREE.FogExp2(0xc4d6e2, .006);
 const camera = new THREE.PerspectiveCamera(46, 1, .5, 5000); // far: distant hills of the terrain view
 const iso = new THREE.OrthographicCamera(-1, 1, 1, -1, 40, 4500); // camera 1200 m away (wide zooms never clip); orthographic depth is linear, the long range costs no precision // true isometric view, rotatable in 45° steps
-let cam = camera, isoZoom = store.get('hx.zoom') || 30, dioYaw = Math.PI * 1.25, dioTarget = dioYaw;
+let zoomBtns = false, cam = camera, isoZoom = store.get('hx.zoom') || 30, dioYaw = Math.PI * 1.25, dioTarget = dioYaw;
 function fitIso() { const a = camera.aspect || 1; iso.top = isoZoom; iso.bottom = -isoZoom; iso.left = -isoZoom * a; iso.right = isoZoom * a; iso.updateProjectionMatrix(); }
 const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, .6); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, .9); scene.add(sun); scene.add(sun.target);
@@ -357,12 +357,12 @@ groundMat.onBeforeCompile = sh => {
       if (crop > 6.5) { A = vec3(.78,.73,.54); B = vec3(.64,.6,.43); sp = 1.3; wave = .3; }       // 7 stubble
       float q = u / (sp * 1.7), fw = fwidth(q), row = step(.62, fract(q));                      // rows a bit coarser than real, else they alias at pixel size 2
       row = mix(row, .38, smoothstep(.1, .28, fw));                                                // far: rows melt into one tone (no moire)
-      vec3 c = mix(B, A, .35 + .65 * row);
+      vec3 c = mix(B, A, .62 + .38 * row); /* Runde 239: rows calmer (they looked like hard stripes) */
       float n = fract(sin(dot(floor(p / 6.0), vec2(12.9, 78.2)) + crop) * 43758.5);              // patches of slightly different growth
-      c *= .95 + .1 * n;
+      c *= .95 + .1 * n; c *= .95 + .08 * fract(sin(dot(floor(p * 2.0), vec2(27.1, 61.7))) * 43758.5); /* fine grain, 50 cm */
       if (crop < 1.5 || crop > 5.5) { float tl = abs(fract(u / 18.0) - .5) * 18.0; if (abs(tl - .9) < .3) c *= .82; } // tramlines
       float w = sin(v * .16 + u * .05 - uFT * 1.3) + .6 * sin(v * .07 - u * .11 - uFT * .8);    // wind rolling over the field
-      c *= 1.0 + wave * .07 * floor(clamp(w, -1.5, 1.5) * 1.5 + .5) / 2.0;                       // in steps (pixel look)
+      /* Runde 239: no wind bands any more - on the phone they read as moving shadows */
       if (hxSide > 0.5) { float st = fract(sin(floor((p.x + p.y) * 2.5) * 91.7) * 43758.5); c = mix(B, A, .3 + .4 * st) * (.72 + .12 * st); } // stalks
       diffuseColor.rgb = c;
     }`);
@@ -1313,6 +1313,9 @@ function setCam(m) { camMode = m; camIcon();
   cam = m === 'dio' ? iso : camera; fitIso();
   post.uniforms.uNear.value = cam.near; post.uniforms.uFar.value = cam.far; post.uniforms.uOrtho.value = m === 'dio' ? 1 : 0; applyMood(cur);
   $('rot').hidden = m !== 'dio';
+  if (!zoomBtns) { zoomBtns = true; /* Runde 239: zoom buttons in the iso view (further out than before: up to 150) */
+    $('bZoomOut').addEventListener('click', () => { isoZoom = Math.min(150, isoZoom * 1.35); store.set('hx.zoom', isoZoom); fitIso(); });
+    $('bZoomIn').addEventListener('click', () => { isoZoom = Math.max(14, isoZoom / 1.35); store.set('hx.zoom', isoZoom); fitIso(); }); }
   toast(m === 'dio' ? 'Isometrische Ansicht: wischen oder Pfeile zum Drehen' : 'Verfolger-Ansicht', 1800); }
 function rotateIso(steps) { dioTarget = Math.round((dioTarget + steps * Math.PI / 4) / (Math.PI / 4)) * (Math.PI / 4); }
 $('bRotL').addEventListener('click', () => rotateIso(-1));
@@ -1328,7 +1331,7 @@ $('bRotR').addEventListener('click', () => rotateIso(1));
   const up = e => { if (e.pointerId !== did) return; did = null; if (camMode === 'dio') rotateIso(0);
     if (e.type === 'pointerup' && Math.hypot(e.clientX - tx0, e.clientY - ty0) < 12 && performance.now() - tt0 < 400 && worldReady) tapAt(e.clientX, e.clientY); }; // a tap, not a swipe
   view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
-  view.addEventListener('wheel', e => { if (camMode !== 'dio') return; isoZoom = Math.max(14, Math.min(70, isoZoom * (e.deltaY > 0 ? 1.1 : 0.9))); store.set('hx.zoom', isoZoom); fitIso(); e.preventDefault(); }, { passive: false });
+  view.addEventListener('wheel', e => { if (camMode !== 'dio') return; isoZoom = Math.max(14, Math.min(150, isoZoom * (e.deltaY > 0 ? 1.1 : 0.9))); store.set('hx.zoom', isoZoom); fitIso(); e.preventDefault(); }, { passive: false });
 }
 $('bCam').addEventListener('click', () => setCam(camMode === 'chase' ? 'dio' : 'chase'));
 /* Runde 149 (phone test: the button only switched fullscreen on, never off): it toggles now; the icon and label follow the state,

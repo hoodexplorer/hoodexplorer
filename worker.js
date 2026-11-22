@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=683'); importScripts('sonderbau.js?v=683'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=684'); importScripts('sonderbau.js?v=684'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1707,15 +1707,18 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         if (colF !== col && poly.length === 1) { const crop = Math.round((colF[0] * 255 - 16) / 32), Hc = [.9, .8, 1.2, 2.1, 0, 0, 0, 0][crop];
           let r = Array.from(poly[0]); if (r.length > 4 && r[0] === r[r.length - 2] && r[1] === r[r.length - 1]) r = r.slice(0, -2);
           const n = r.length / 2, A0 = ringArea(r);
-          if (Hc > 0 && n >= 3 && Math.abs(A0) > 400) { const d = Hc > 2 ? 1.1 : .8, sg = A0 > 0 ? 1 : -1, ins = [];
+          /* Runde 239 (phone test: blocks hung over the paths - field outlines often run along the middle of a farm track - and looked
+             floating beside the levelled road): the slope starts 1.8 m inside the outline, the top 1 m further in */
+          if (Hc > 0 && n >= 3 && Math.abs(A0) > 600) { const sg = A0 > 0 ? 1 : -1, inset = d => { const out = [];
             for (let i = 0; i < n; i++) { const p0 = (i + n - 1) % n, p2 = (i + 1) % n, ax = r[i * 2] - r[p0 * 2], az = r[i * 2 + 1] - r[p0 * 2 + 1], bx = r[p2 * 2] - r[i * 2], bz = r[p2 * 2 + 1] - r[i * 2 + 1];
               const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1, n1x = -az / la * sg, n1z = ax / la * sg, n2x = -bz / lb * sg, n2z = bx / lb * sg;
               let mx = n1x + n2x, mz = n1z + n2z; const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml; const k = Math.min(3, 1 / Math.max(.33, mx * n1x + mz * n1z));
-              ins.push(r[i * 2] + mx * d * k, r[i * 2 + 1] + mz * d * k); }
-            const A1 = ringArea(ins); let cx0 = 0, cz0 = 0; for (let i = 0; i < n; i++) { cx0 += ins[i * 2]; cz0 += ins[i * 2 + 1]; }
-            if (Math.sign(A1) === Math.sign(A0) && Math.abs(A1) > Math.abs(A0) * .6 && Math.abs(A1) < Math.abs(A0) && inPoly(cx0 / n, cz0 / n, r)) {
+              out.push(r[i * 2] + mx * d * k, r[i * 2 + 1] + mz * d * k); } return out; };
+            const foot = inset(1.8), ins = inset(Hc > 2 ? 3.0 : 2.8);
+            const A1 = ringArea(ins), A2 = ringArea(foot); let cx0 = 0, cz0 = 0; for (let i = 0; i < n; i++) { cx0 += ins[i * 2]; cz0 += ins[i * 2 + 1]; }
+            if (Math.sign(A1) === Math.sign(A0) && Math.sign(A2) === Math.sign(A0) && Math.abs(A1) > Math.abs(A0) * .6 && Math.abs(A1) < Math.abs(A2) && Math.abs(A2) < Math.abs(A0) && inPoly(cx0 / n, cz0 / n, r)) {
               tallFields.add(poly[0]); G0.flat([Float32Array.from(ins)], y + Hc, colF); const side = [colF[0], colF[1], 3 / 255];
-              for (let i = 0; i < n; i++) { const j = (i + 1) % n; G0.quad([r[i * 2], y + .006, r[i * 2 + 1]], [r[j * 2], y + .006, r[j * 2 + 1]], [ins[j * 2], y + Hc, ins[j * 2 + 1]], [ins[i * 2], y + Hc, ins[i * 2 + 1]], side, 0, 1, 0); } } } }
+              for (let i = 0; i < n; i++) { const j = (i + 1) % n; G0.quad([foot[i * 2], y + .006, foot[i * 2 + 1]], [foot[j * 2], y + .006, foot[j * 2 + 1]], [ins[j * 2], y + Hc, ins[j * 2 + 1]], [ins[i * 2], y + Hc, ins[i * 2 + 1]], side, 0, 1, 0); } } } }
         map.areas.push({ k: kind, rings: poly.map(r => Float32Array.from(r)) });
         if (kind === 'w') { waterRings.push(poly[0]); waterPolys.push(poly); }
         else if (ln !== 'landuse' || /^(grass|meadow|farmland|village_green|recreation_ground|cemetery|allotments|orchard|vineyard)$/.test(f.props.class)) greenPolys.push(poly);
