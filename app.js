@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=644' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=646' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1453,7 +1453,7 @@ function addSprites(key, arr, now) { // trees, bushes and props of one tile: one
   if (!now && BLOCKS && /^m:/.test(key)) { JOBQ[2].push(() => { if (tiles.has(key)) addSprites(key, arr, true); }); return; } // after ground and houses
   // all as sprites (bushes too: they now turn properly from 16 directions, see sprites.js); ground patches for all but ducks and birds
   { const b = []; for (let i = 0; i < arr.length; i += 6) if (arr[i + 4] === 16) b.push(arr[i], arr[i + 1]); if (b.length) BINS.set(key, b); else BINS.delete(key); } // wheelie bins: rats (Runde 82)
-  const sp = [], sh = []; for (let i = 0; i < arr.length; i += 6) { const t = arr[i + 4]; sp.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); if (t !== 28 && t !== 30 && t !== 38) sh.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); } // ducks swim, birds fly: no ground patch under them
+  const sp = [], sh = []; for (let i = 0; i < arr.length; i += 6) { const t = arr[i + 4]; sp.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); if (t !== 28 && t !== 30 && t !== 38 && !(t >= 42 && t <= 44)) /* Runde 210: no shadow under grave sprites */ sh.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); } // ducks swim, birds fly: no ground patch under them
   dropChunks(key + ':sprites');
   if (BLOCKS && /^m:/.test(key)) { // in 128 m blocks like the ground (culled outside the picture and in the fog)
     for (const suf of [':spr', ':sprs', ':sprb']) { const old = meshes.get(key + suf); if (old) { scene.remove(old); old.geometry.dispose(); meshes.delete(key + suf); } }

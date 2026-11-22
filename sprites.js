@@ -143,7 +143,18 @@ function makeSpriteAtlas() {
       for (let k = 0; k < 22; k++) { rect(22 + k, 16 + Math.round(k * 1.25), 24 + k, 18 + Math.round(k * 1.25), R); }
     }
   ];
-  draw.forEach((f, t) => { ox = (t % SPRITE_COLS) * SPRITE_PX; oy = Math.floor(t / SPRITE_COLS) * SPRITE_PX; f(); });
+  /* Runde 210: cemetery sprites - 42 grave light (red glass lantern with a flame; the flame glows at night), 43 grave planting
+     (low heather/pansies/begonias in a mound), 44 small evergreen (boxwood ball or little thuja) */
+  while (draw.length < 42) draw.push(null);
+  draw.push(() => { const G = hx('#b8261e'), GD = hx('#7a1a16'), L = hx('#3a3a3a'), F = hx('#ffd75a'), FW = hx('#fff4c2');
+      rect(17, 18, 30, 21, L); rect(18, 22, 29, 44, G); rect(18, 22, 20, 44, GD); rect(27, 22, 29, 44, GD); rect(16, 44, 31, 47, L);
+      rect(22, 28, 25, 38, F); rect(23, 30, 24, 35, FW); put(23, 27, F); put(24, 26, FW); rect(21, 14, 26, 17, L); },
+    () => { const P2 = [['#7a3a8a', '#a65cb8', '#d08ad8'], ['#c4323a', '#e2585e', '#f29a9a'], ['#e8c24a', '#f2dc7a', '#ffffff'], ['#d6d2e8', '#ffffff', '#b8b0d8']];
+      for (let y = 14; y <= 47; y++) { const w = Math.round(23 * Math.sqrt(Math.max(0, 1 - ((47 - y) / 34) ** 2))); for (let x = -w; x <= w; x++) put(24 + x, y, hx(rnd() < .5 ? '#3f6a34' : '#2f5428')); }
+      for (let i = 0; i < 150; i++) { const a = rnd() * Math.PI, r = Math.sqrt(rnd()), x = 24 + Math.cos(a) * r * 21, y = 46 - Math.sin(a) * r * 31, p = P2[(rnd() * P2.length) | 0];
+        disc(x, y, 1, hx(p[(rnd() * 3) | 0])); } },
+    () => { if (rnd() < 2) { crown(24, 30, 13, 15, P(['#1f3d24', '#2a5030', '#36653a', '#4c7e46']), 70); rect(23, 44, 25, 47, hx('#4a3426')); } });
+  draw.forEach((f, t) => { if (!f) return; ox = (t % SPRITE_COLS) * SPRITE_PX; oy = Math.floor(t / SPRITE_COLS) * SPRITE_PX; f(); });
   // 1-px dark outline around every sprite: reads as crisp pixel art at any distance
   const a0 = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) a0[i] = d[i * 4 + 3];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -183,10 +194,10 @@ const spriteMat = new THREE.ShaderMaterial({
     attribute vec4 iA; // x, z, width, height
     attribute vec2 iB; // type, floor(baseY * 4) + seed
     uniform vec3 uRight, uUp, uPlayer, uFwd; uniform float uTime, uWind, uSee, uFlat, uTreesOn, uDirRows, uSlot[48];
-    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix;
+    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix, vLamp;
     void main() {
       float h = position.y; vH = h;
-      vPerson = (iB.x > 17.5 && iB.x < 21.5) ? 1.0 : 0.0;
+      vPerson = (iB.x > 17.5 && iB.x < 21.5) ? 1.0 : 0.0; vLamp = abs(iB.x - 42.0) < 0.5 ? 1.0 : 0.0;
       // wind: the crown sways, the foot stays put; every tree has its own phase, gusts roll through the town
       float gust = 0.6 + 0.4 * sin(uTime * 0.37 + iA.x * 0.013 + iA.y * 0.009);
       float seed = fract(iB.y), y0 = floor(iB.y) * 0.25;
@@ -245,7 +256,7 @@ const spriteMat = new THREE.ShaderMaterial({
     }`,
   fragmentShader: `
     uniform sampler2D uAtlas, uTrees; uniform vec3 uLight, uFogColor; uniform float uFogDensity;
-    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix; uniform float uTime, uDirRows;
+    varying vec2 vUv, vUvB; varying float vSeed, vFogDepth, vSee, vH, vProp, vPerson, vMirror, vTree, vMix, vLamp; uniform float uTime, uDirRows;
     float hxB2(vec2 a){a=floor(a);return fract(a.x*0.5+a.y*a.y*0.75);}
     float hh(float k){ return fract(sin(vSeed * k + k * 0.37) * 43758.5453); }
     bool mk(vec3 c, vec3 m){ return all(lessThan(abs(c - m), vec3(0.08))); }
@@ -293,6 +304,7 @@ const spriteMat = new THREE.ShaderMaterial({
       // each tree a little different: brightness and a slight shift towards yellow or blue-green
       vec3 tint = vProp > 0.5 ? vec3(1.0) : vec3(0.9 + vSeed * 0.2, 0.92 + fract(vSeed * 7.0) * 0.16, 0.88 + fract(vSeed * 13.0) * 0.18);
       vec3 col = c.rgb * tint * uLight;
+      if (vLamp > 0.5 && c.r > 0.9 && c.g > 0.7) col = max(col, c.rgb * (1.0 + 0.6 * (1.0 - min(1.0, dot(uLight, vec3(.333)))))); // the flame keeps its light at night
       float f = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth);
       gl_FragColor = vec4(mix(col, uFogColor, clamp(f, 0.0, 1.0)), 1.0);
     }`

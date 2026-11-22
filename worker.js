@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=644'); importScripts('sonderbau.js?v=644'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=646'); importScripts('sonderbau.js?v=646'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2346,9 +2346,11 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           else if (t < .95) lid(hx + vx * .3, y0 + .1, hz + vz * .3, .5, .38, ux, uz, c);                                               // lying plate
           else if (t < .985) { box(hx, y0, hz, .35, 1.7 + R() * .8, .35, ux, uz, c); cap(hx, y0 + 1.7, hz, .35, .35, .45, ux, uz, c); } // stele
           else { box(hx, y0, hz, .5, .5, .4, ux, uz, pick(CURB)); box(hx, y0 + .5, hz, .22, .75, .2, ux, uz, FIG); ground.crown(hx, y0 + 1.15, hz, .28, .5, FIG); } // figure on a plinth
-          if (R() < .35) lid(x + vx * .5, y0 + .1, z + vz * .5, .3, .3, ux, uz, pick(FL));
-          else if (R() < .25) ground.crown(x + vx * .45, y0 + .05, z + vz * .45, .3, .55, pick(SHRUB));
-          if (R() < .2) { const lx = hx + vx * .25 + ux * .3, lz2 = hz + vz * .25 + uz * .3; box(lx, y0 + .1, lz2, .1, .1, .1, ux, uz, LBODY, false); glow.box(lx, y0 + .2, lz2, .08, .09, .08, LIGHTC); } // grave light, glows at night
+          /* Runde 210: planting and grave lights as sprites (one quad each, drawn with all the other sprites of the tile) */
+          const sp = (sx, sz, w, h, t) => ground.spr.push(sx, sz, w, h, t, sprY(sx, sz, R()));
+          if (R() < .55) sp(x + vx * .2, z + vz * .2, w * .95, .32 + R() * .1, 43);           // planting on the bed
+          if (R() < .22) sp(hx + vx * .3 - ux * w * .35, hz + vz * .3 - uz * w * .35, .55, .7 + R() * .25, 44); // small evergreen beside the stone
+          if (R() < .3) sp(hx + vx * .28 + ux * .28, hz + vz * .28 + uz * .28, .2, .32, 42);  // grave light (flame glows at night)
           roadCells.add(rc(x, z)); n++; used++; placed++; }
         if (placed > 8) { // gravel path and a low hedge along the block
           const [px, pz] = W2(bu + BU * PW / 2, bv - 1.25); if (inside(px, pz)) lid(px, .05, pz, BU * PW + 2, 1.6, ux, uz, GRAVEL);
