@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=676' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=677' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -266,7 +266,7 @@ const RECENT = { get: () => (store.get('hx.recent') || []).filter(r => r && r.na
   add(name, lat, lon) { if (!name || !isFinite(lat) || !isFinite(lon)) return; const a = RECENT.get().filter(r => r.name !== name); a.unshift({ name, lat: +(+lat).toFixed(6), lon: +(+lon).toFixed(6) }); store.set('hx.recent', a.slice(0, 10)); },
   /* Runde 231: only places that were searched AND then visited - a search pick is held here until one goes there ('Hierhin' / 'Los') */
   pend: null };
-function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); if (!a.length) return; boxMsg(box, 'Zuletzt besucht');
+function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); if (!a.length) return; // Runde 234: no heading line
   for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
   const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Liste leeren'; c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
 function recentOn(inp, box, pick) { const f = () => { if (!inp.value.trim()) showRecent(box, pick); }; inp.addEventListener('focus', f); inp.addEventListener('input', f);
