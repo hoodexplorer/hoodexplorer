@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=768' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=769' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1299,7 +1299,20 @@ $('bMood').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 $('bMood').addEventListener('click', () => { $('sheet').hidden = !$('sheet').hidden; });
 $('bClose').addEventListener('click', () => { $('sheet').hidden = true; });
 /* Runde 144: map layers (Einstellungen → Karte): what the minimap and the big map show */
-const LAYERS = Object.assign({ sights: true, zellen: true, burgen: true }, store.get('hx.layers') || {});
+const LAYERS = Object.assign({ sights: true, zellen: true, burgen: true, einr: true }, store.get('hx.layers') || {});
+/* Runde 252: public places per map tile (police, hospital, fire station, station, stadium, outdoor pool) - drawn like the castles */
+const EINR = new Map();
+function einrIcon(g, k, x, y, r) { const L = Math.max(1.5, r * .22); g.lineWidth = L; g.strokeStyle = '#1a1206';
+  const bg = k === 'P' ? '#2b5fb4' : k === 'H' ? '#ffffff' : k === 'F' ? '#d0342c' : k === 'B' ? '#3d4650' : k === 'S' ? '#3f8f4a' : '#3aaed0';
+  g.fillStyle = bg; g.beginPath(); g.roundRect ? g.roundRect(x - r, y - r, r * 2, r * 2, r * .3) : g.rect(x - r, y - r, r * 2, r * 2); g.fill(); g.stroke();
+  const W = '#ffffff', R = '#d0342c', u = r / 5, px = (cx, cy, w = 1, h = 1, c = W) => { g.fillStyle = c; g.fillRect(x + cx * u, y + cy * u, w * u, h * u); };
+  if (k === 'H') { px(-.8, -3.2, 1.6, 6.4, R); px(-3.2, -.8, 6.4, 1.6, R); }
+  else if (k === 'P') { px(-.6, -3.4, 1.2, 1.6); px(-3.4, -1.8, 6.8, 1.4); px(-2.2, -.4, 4.4, 1.4); px(-2.8, 1, 1.6, 2.4); px(1.2, 1, 1.6, 2.4); }
+  else if (k === 'F') { px(-.6, -3.4, 1.2, 1.4); px(-1.4, -2, 2.4, 1.4); px(-2, -.6, 3.6, 1.4); px(-2.8, .8, 5.6, 1.6); px(-2, 2.4, 4, 1.2); px(-.6, .9, 1.2, 1.4, R); }
+  else if (k === 'B') { px(-2.6, -3.2, 5.2, 4.8); px(-1.8, -2.4, 3.6, 1.6, '#3d4650'); px(-2, 2, 1.2, 1.2); px(.8, 2, 1.2, 1.2); }
+  else if (k === 'S') { g.strokeStyle = W; g.lineWidth = u * 1.1; g.beginPath(); g.ellipse(x, y, r * .62, r * .42, 0, 0, 7); g.stroke(); px(-.4, -2.1, .8, 4.2); }
+  else { for (const dy of [-1.6, .2, 2]) { g.strokeStyle = W; g.lineWidth = u * .9; g.beginPath(); for (let i = 0; i <= 8; i++) { const xx = x + (-3 + i * .75) * u, yy = y + dy * u + (i % 2 ? -.6 : .6) * u; i ? g.lineTo(xx, yy) : g.moveTo(xx, yy); } g.stroke(); } } }
+const EINR_NAME = { P: 'Polizei', H: 'Krankenhaus', F: 'Feuerwehr', B: 'Bahnhof', S: 'Stadion', W: 'Freibad' };
 /* Runde 154: in the medieval world there are castles (layer "Burgen") and no sights; the switches show only where they apply */
 const MITTEL = (window.HX_WELT || 'heute') === 'mittel';
 document.querySelectorAll('.lyMittel').forEach(el => { el.hidden = !MITTEL; }); document.querySelectorAll('.lyHeute').forEach(el => { el.hidden = MITTEL; });
@@ -1471,6 +1484,7 @@ function onData(e) {
     t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); addHedges(m.key, m.map && m.map.hedges); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
     if (m.pass && m.pass.length) PASS_APP.set(m.key, m.pass); else PASS_APP.delete(m.key);
+    if (m.einr && m.einr.length) EINR.set(m.key, m.einr); else EINR.delete(m.key); /* Runde 252 */
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);
     if (m.dz) DZ_APP.set(m.key, m.dz); else DZ_APP.delete(m.key);
@@ -1506,6 +1520,7 @@ function onData(e) {
     for (const [k, o] of meshes) if (k.startsWith(m.prefix)) { scene.remove(o); o.geometry.dispose(); if (o.userData.ownMat) { o.material.uniforms_tex && o.material.uniforms_tex.dispose(); o.material.dispose(); } meshes.delete(k); }
     for (const k of [...DIPS_APP.keys()]) if (k.startsWith(m.prefix)) DIPS_APP.delete(k);
     for (const k of [...PASS_APP.keys()]) if (k.startsWith(m.prefix)) PASS_APP.delete(k);
+    for (const k of [...EINR.keys()]) if (k.startsWith(m.prefix)) EINR.delete(k);
     for (const k of [...RAILS.keys()]) if (k.startsWith(m.prefix)) RAILS.delete(k);
     for (const k of [...CORR_APP.keys()]) if (k.startsWith(m.prefix)) CORR_APP.delete(k);
     for (const k of [...DZ_APP.keys()]) if (k.startsWith(m.prefix)) DZ_APP.delete(k);
@@ -1826,6 +1841,7 @@ function drawMini(viewYaw) {
   mctx.filter = T.f; for (const t of tiles.values()) if (t.map) mctx.drawImage(t.map.cv, t.map.x0 * MS, t.map.z0 * MS); mctx.filter = 'none';
   drawRouteMini(mctx, MS);
   if (window.HXZ) HXZ.drawMini(mctx, MS); // Runde 144: telephone booths (layer)
+  if (LAYERS.einr && !MITTEL) for (const a of EINR.values()) for (const e of a) { mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(e[1] * MS, e[2] * MS, 19, 0, 7); mctx.fill(); einrIcon(mctx, e[0], e[1] * MS, e[2] * MS, 12); } // Runde 252: like the castles
   if (LAYERS.burgen) for (const b of burgList()) { mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(b.x * MS, b.z * MS, 19, 0, 7); mctx.fill(); burgIcon(mctx, b.x * MS, b.z * MS, 14); } // Runde 154/163: larger, on a light disc
   if (LAYERS.sights) for (const list of SIGHTS.values()) for (const s of list) { if (s.quiet) continue; mctx.fillStyle = 'rgba(255,248,224,.95)'; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 12, 0, 7); mctx.fill(); mctx.fillStyle = seen.has(s.name) ? T.ss : T.s; mctx.strokeStyle = '#1a1206'; mctx.lineWidth = 2.5; mctx.beginPath(); mctx.arc(s.x * MS, s.z * MS, 9, 0, 7); mctx.fill(); mctx.stroke(); } // Runde 163: larger, light halo, dark rim
   mctx.restore();
@@ -1891,6 +1907,8 @@ function drawBig() {
   const mark = (x, z, col, r) => { const [sx, sy] = toScr(x, z); g.fillStyle = col; g.strokeStyle = '#1a1206'; g.lineWidth = 2; g.beginPath(); g.arc(sx, sy, r, 0, 7); g.fill(); g.stroke(); };
   if (window.HXZ) HXZ.drawBig(g, toScr, W / bigCv.clientWidth, bm.s); // Runde 144
   if (window.HXGORE && HXGORE.scene) { const d = W / bigCv.clientWidth, [sx, sy] = toScr(HXGORE.scene.x, HXGORE.scene.z); einsatzIcon(g, sx, sy, 11 * d); g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText('Einsatz', sx, sy + 24 * d); g.fillText('Einsatz', sx, sy + 24 * d); g.textAlign = 'start'; } // Runde 171
+  if (LAYERS.einr && !MITTEL && bm.s >= .03) { const d = W / bigCv.clientWidth; for (const a of EINR.values()) for (const e of a) { const [sx, sy] = toScr(e[1], e[2]); g.fillStyle = 'rgba(255,248,224,.95)'; g.beginPath(); g.arc(sx, sy, 12 * d, 0, 7); g.fill(); einrIcon(g, e[0], sx, sy, 8 * d); /* Runde 252 */
+      if (bm.s >= .12) { const t = e[3] || EINR_NAME[e[0]]; g.font = '600 ' + (11 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(t, sx, sy + 22 * d); g.fillText(t, sx, sy + 22 * d); g.textAlign = 'start'; } } }
   if (LAYERS.burgen) { const d = W / bigCv.clientWidth; for (const b of burgList()) { const [sx, sy] = toScr(b.x, b.z); burgIcon(g, sx, sy, 9 * d); // Runde 154: castles with their names
       if (bm.s >= .08 && b.t) { g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(b.t, sx, sy + 22 * d); g.fillText(b.t, sx, sy + 22 * d); g.textAlign = 'start'; } } }
   if (bm.s >= .05 && LAYERS.sights) { const r = 6 * Math.max(.5, Math.min(1, bm.s / .25)); for (const list of SIGHTS.values()) for (const s of list) if (!s.quiet) mark(s.x, s.z, seen.has(s.name) ? '#9ea6b8' : '#7fd3ff', r); } // Runde 162: visible far out too, smaller dots

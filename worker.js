@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=768'); importScripts('sonderbau.js?v=768'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=769'); importScripts('sonderbau.js?v=769'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -3119,7 +3119,16 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       for (let t = 0; t <= l; t += 2) { const x = p[i] + (p[i + 2] - p[i]) * t / l, z = p[i + 1] + (p[i + 3] - p[i + 1]) * t / l, inB = !!fpAt(x, z);
         if (inB) { if (!run) run = [x, z]; } else { if (run) close(x, z); seenOut = true; } } }
     run = null; }
-  return { pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
+  /* Runde 252 (Nutzer: police, hospital, fire brigade, station, stadium ... as a map layer like the castles): one list per map tile -
+     [kind, x, z, name]; kinds P police, H hospital, F fire station, B railway station, S stadium, W outdoor pool */
+  const einr = [];
+  if (WELT === 'heute') { const L = layers.poi, TB = ground.tileBox, seen = [], inT = (x, z) => !TB || (x >= TB[0] && x <= TB[2] && z >= TB[1] && z <= TB[3]);
+    const add = (k, x, z, nm) => { if (!inT(x, z)) return; if (seen.some(q => q[0] === k && Math.abs(q[1] - x) < 60 && Math.abs(q[2] - z) < 60)) return; seen.push([k, x, z]); einr.push([k, Math.round(x * 10) / 10, Math.round(z * 10) / 10, nm || '']); };
+    if (L) { const toP = mk(L.extent || ext0); for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1) continue; const cls = f.props.class || '', sub = f.props.subclass || cls, nm = f.props.name || f.props['name:de'] || '';
+        const k = sub === 'police' ? 'P' : sub === 'hospital' ? 'H' : sub === 'fire_station' ? 'F' : (cls === 'railway' && /^(station|halt)$/.test(sub)) ? 'B' : sub === 'stadium' ? 'S' : sub === 'water_park' ? 'W' : null; if (!k) continue;
+        for (const [x, z] of pointsOf(f, toP)) add(k, x, z, nm); } }
+    for (const a of (osm && osm.areas) || []) { if (a.kind !== 7 && a.kind !== 8) continue; let x = 0, z = 0; const n = a.ring.length / 2; for (let i = 0; i < a.ring.length; i += 2) { x += a.ring[i]; z += a.ring[i + 1]; } add(a.kind === 7 ? 'S' : 'W', x / n, z / n, ''); } }
+  return { einr, pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }
 /* Runde 204: an oriented box whose sides face outwards (obox below winds them inwards - seen from outside they were culled) and with a lid */
 function obox2(G, x, y, z, len, h, wid, dx, dz, col, lid) {
@@ -4214,7 +4223,7 @@ async function loadMVT(rec, key) {
   const pn0 = PENDR.length; const out = buildMVT(layers, rec.tx, rec.ty, l2, osm);
   rec.state = 'ready'; if (PENDR.length > pn0) pendRebuild(key, pn0); rec.buckets = out.buckets; rec.items = out.items;
   const g = out.ground, gl = out.glow; chunkify(g, g.det); chunkify(gl, gl.det); quant8(g); quant8(gl);
-  post({ type: 'ground', key: 'm:' + key, pos: g.pos, nor: g.nor, col: g.col, idx: g.idx || null, det: g.det, cidx: g.cidx, cinfo: g.cinfo, glow: gl, collide: out.collide, names: out.names, samples: out.samples, sqNames: out.sqNames, pedNames: out.pedNames, spawn: out.spawn, start: out.start, welt: out.welt, map: out.map, spr: out.spr, refl: out.refl, cars: out.cars, dips: out.dips, pass: out.pass, rails: out.rails, corr: out.corr, dz: out.dz, span: out.span, elev: out.elev }, [g.pos.buffer, g.nor.buffer, g.col.buffer, g.cidx.buffer, g.cinfo.buffer, gl.pos.buffer, gl.nor.buffer, gl.col.buffer, gl.cidx.buffer, gl.cinfo.buffer, out.spr.buffer, out.refl.buffer, out.cars.buffer]);
+  post({ type: 'ground', key: 'm:' + key, pos: g.pos, nor: g.nor, col: g.col, idx: g.idx || null, det: g.det, cidx: g.cidx, cinfo: g.cinfo, glow: gl, collide: out.collide, names: out.names, samples: out.samples, sqNames: out.sqNames, pedNames: out.pedNames, spawn: out.spawn, start: out.start, welt: out.welt, map: out.map, spr: out.spr, refl: out.refl, cars: out.cars, dips: out.dips, pass: out.pass, einr: out.einr, rails: out.rails, corr: out.corr, dz: out.dz, span: out.span, elev: out.elev }, [g.pos.buffer, g.nor.buffer, g.col.buffer, g.cidx.buffer, g.cinfo.buffer, gl.pos.buffer, gl.nor.buffer, gl.col.buffer, gl.cidx.buffer, gl.cinfo.buffer, out.spr.buffer, out.refl.buffer, out.cars.buffer]);
   if (out.water) { const w = out.water, f = w.field; if (f) f.S = out.waterS;
     { const tr = [w.pos.buffer, w.nor.buffer, w.col.buffer]; if (f) { tr.push(f.data.buffer); if (f.flow) tr.push(f.flow.buffer); if (f.dry) tr.push(f.dry.buffer); }
     post({ type: 'water', key: 'm:' + key + ':water', pos: w.pos, nor: w.nor, col: w.col, field: f }, tr); } }
