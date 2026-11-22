@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=661' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=662' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -313,6 +313,7 @@ function withLamp(mat) { const f = mat.onBeforeCompile; mat.onBeforeCompile = sh
 const groundMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 // squares and pedestrian zones: a paving pattern drawn in the shader (no extra geometry); recognised by their sand colour
 groundMat.onBeforeCompile = sh => {
+  sh.uniforms.uFT = waterTime; sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uFT;');
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <color_fragment>', `#include <color_fragment>
     { vec3 pc = normalize(vec3(0.761, 0.71, 0.612)), c = normalize(diffuseColor.rgb + 1e-4);
@@ -321,7 +322,28 @@ groundMat.onBeforeCompile = sh => {
         vec2 f = fract(g), w = fwidth(g) * 1.2;
         float joint = (f.x < w.x || f.y < w.y) ? 0.86 : 1.0, tone = 0.95 + 0.08 * fract(sin(dot(floor(g), vec2(12.9, 78.2))) * 43758.5);
         diffuseColor.rgb *= joint * tone;
-      } }`);
+      } }
+    if (abs(diffuseColor.b * 255.0 - 2.0) < 0.6 && diffuseColor.r < 0.99) { /* Runde 218: field - crop rows, tramlines, wind waves over cereals */
+      float crop = floor(diffuseColor.r * 255.0 / 32.0), an = diffuseColor.g * 3.14159;
+      vec2 dr = vec2(cos(an), sin(an)), p = vGW.xz; float u = dot(p, vec2(-dr.y, dr.x)), v = dot(p, dr);
+      vec3 A = vec3(.74,.64,.33), B = vec3(.6,.5,.24); float sp = 1.4, wave = 1.0;           // 0 wheat
+      if (crop > 0.5) { A = vec3(.83,.77,.48); B = vec3(.71,.65,.36); }                          // 1 barley
+      if (crop > 1.5) { A = vec3(.8,.72,.2); B = vec3(.62,.62,.2); sp = 1.6; wave = .6; }      // 2 rapeseed
+      if (crop > 2.5) { A = vec3(.37,.54,.23); B = vec3(.25,.39,.16); sp = 1.5; wave = .4; }      // 3 maize
+      if (crop > 3.5) { A = vec3(.42,.6,.28); B = vec3(.42,.35,.25); sp = 1.0; wave = 0.0; }      // 4 beet on soil
+      if (crop > 4.5) { A = vec3(.48,.38,.28); B = vec3(.37,.29,.21); sp = 1.2; wave = 0.0; }     // 5 ploughed
+      if (crop > 5.5) { A = vec3(.54,.66,.35); B = vec3(.45,.57,.29); sp = 1.1; wave = 1.0; }     // 6 young cereal
+      if (crop > 6.5) { A = vec3(.78,.73,.54); B = vec3(.64,.6,.43); sp = 1.3; wave = .3; }       // 7 stubble
+      float q = u / (sp * 1.7), fw = fwidth(q), row = step(.62, fract(q));                      // rows a bit coarser than real, else they alias at pixel size 2
+      row = mix(row, .38, smoothstep(.1, .28, fw));                                                // far: rows melt into one tone (no moire)
+      vec3 c = mix(B, A, .35 + .65 * row);
+      float n = fract(sin(dot(floor(p / 6.0), vec2(12.9, 78.2)) + crop) * 43758.5);              // patches of slightly different growth
+      c *= .95 + .1 * n;
+      if (crop < 1.5 || crop > 5.5) { float tl = abs(fract(u / 18.0) - .5) * 18.0; if (abs(tl - .9) < .3) c *= .82; } // tramlines
+      float w = sin(v * .16 + u * .05 - uFT * 1.3) + .6 * sin(v * .07 - u * .11 - uFT * .8);    // wind rolling over the field
+      c *= 1.0 + wave * .07 * floor(clamp(w, -1.5, 1.5) * 1.5 + .5) / 2.0;                       // in steps (pixel look)
+      diffuseColor.rgb = c;
+    }`);
 };
 groundMat.extensions = { derivatives: true };
 /* Water: one material per map tile with the tile's shore field (distance to the shore, hard or natural shore; 2 m raster).

@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=661'); importScripts('sonderbau.js?v=661'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=662'); importScripts('sonderbau.js?v=662'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1606,7 +1606,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         if (MED && /^(residential|commercial|industrial|retail|railway|construction|garages|brownfield|landfill|military|parking|cemetery|school|university|hospital)$/.test(f.props.class)) { const g0 = geomLines(f, toL)[0]; if (g0) { let x = 0, z = 0; for (let i = 0; i < g0.length; i += 2) { x += g0[i]; z += g0[i + 1]; } if (MED.townD(x / (g0.length / 2), z / (g0.length / 2)) > 1.05) continue; } } }
       const G0 = ln === 'water' ? waterG : ground;
       for (const poly of polygons(geomLines(f, toL))) {
-        const t = G0.flat(poly, y, col);
+        /* Runde 218 (fields as one block with a shader): farmland gets a code colour instead of its colour - red = crop (8 kinds, by
+           hash of the field), green = row direction (the long side of the field), blue = 2/255 marks it. The ground shader paints rows,
+           crop colours and wind waves from it; no extra geometry. Only where the world keeps the field colour (today, middle ages). */
+        let colF = col;
+        if (f.props.class === 'farmland' && WELT !== 'west' && WELT !== 'cyber') { const o = obb(poly[0]); let a = o ? Math.atan2(o.s, o.c) : 0; if (o && o.d > o.w) a += Math.PI / 2;
+          a = ((a % Math.PI) + Math.PI) % Math.PI; const r0 = poly[0], hsh = Math.abs(Math.sin(r0[0] * 12.9898 + r0[1] * 78.233) * 43758.5453) % 1;
+          colF = [(16 + 32 * Math.floor(hsh * 8)) / 255, Math.round(a / Math.PI * 255) / 255, 2 / 255]; }
+        const t = G0.flat(poly, y, colF);
         map.areas.push({ k: kind, rings: poly.map(r => Float32Array.from(r)) });
         if (kind === 'w') { waterRings.push(poly[0]); waterPolys.push(poly); }
         else if (ln !== 'landuse' || /^(grass|meadow|farmland|village_green|recreation_ground|cemetery|allotments|orchard|vineyard)$/.test(f.props.class)) greenPolys.push(poly);
