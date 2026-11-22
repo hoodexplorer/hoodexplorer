@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=750' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=751' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1691,7 +1691,8 @@ function updPassages() { const now = performance.now(); if (now - PASSC.t < 2000
   for (const t of tiles.values()) for (const r of t.roads || []) { if (r.k !== 'm' && r.k !== 'p') continue; const p = r.p, hw = (r.w || 4) / 2 + .6; let run = null, seenOut = false;
     for (let i = 0; i + 3 < p.length; i += 2) { const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]); if (l < .05) continue;
       for (let u = 0; u <= l; u += 2) { const x = p[i] + (p[i + 2] - p[i]) * u / l, z = p[i + 1] + (p[i + 3] - p[i + 1]) * u / l, b = rawBuildingAt(x, z), inB = !!(b && b.h - b.base > 2.5);
-        if (inB) { if (!run) run = [x, z]; } else { if (run && seenOut) { const L = Math.hypot(x - run[0], z - run[1]); if (L >= 2 && L <= 40) out.push(run[0], run[1], x, z, hw); } run = null; seenOut = true; } } } }
+        if (inB) { if (!run) run = [x, z]; } else { if (run && seenOut) { const L = Math.hypot(x - run[0], z - run[1]); if (L >= 2 && L <= 40) out.push(run[0], run[1], x, z, hw); } run = null; seenOut = true; } } }
+    if (run && seenOut) { const ex = p[p.length - 2], ez = p[p.length - 1], L = Math.hypot(ex - run[0], ez - run[1]); if (L >= 6 && L <= 40) out.push(run[0], run[1], ex, ez, hw); } } /* Runde 249 (Earth: Alsterarkaden, Hofeinfahrten in Bielefeld, Bruecke in ein Hamburger Kontorhaus): a street that runs 6-40 m into a building and ends there is a passage too */
   if (out.length) PASS_APP.set('auto', Float32Array.from(out)); else PASS_APP.delete('auto'); }
 function buildingAt(x, z) {
   if (PASS_APP.size && inPassage(x, z)) return null; /* Runde 248: through a building passage */
