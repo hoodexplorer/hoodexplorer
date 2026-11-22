@@ -18,7 +18,9 @@ const TERRAIN = (() => { try { const v = JSON.parse(localStorage.getItem('hx.ter
 // terrain heights, sent by the worker per Terrarium tile (zoom 13); heights relative to the start point, 0 without terrain
 const TER = { tiles: new Map(), far: new Map(), h0: null, z: 13 };
 // underpass troughs from the worker (see worker.js DIPS): [x, z, ux, uz, hw, F, R, D] each; keyed by tile, deduplicated on use
-const DIPS_APP = new Map();
+const DIPS_APP = new Map(), PASS_APP = new Map(); /* Runde 248: building passages per map tile - [ax, az, bx, bz, half width] */
+function inPassage(x, z) { for (const a of PASS_APP.values()) for (let i = 0; i < a.length; i += 5) { const ex = a[i + 2] - a[i], ez = a[i + 3] - a[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - a[i]) * ex + (z - a[i + 1]) * ez) / l2));
+  if ((a[i] + ex * t - x) ** 2 + (a[i + 1] + ez * t - z) ** 2 < a[i + 4] * a[i + 4]) return true; } return false; }
 // bridge railings [x0, z0, x1, z1, offset] per tile: solid for whoever is up on the deck (phone test: walked through them)
 const RAILS = new Map();
 function railAt(x, z, y) {
@@ -213,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=730' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=750' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1468,6 +1470,7 @@ function onData(e) {
     }
     t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); addHedges(m.key, m.map && m.map.hedges); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
+    if (m.pass && m.pass.length) PASS_APP.set(m.key, m.pass); else PASS_APP.delete(m.key);
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);
     if (m.dz) DZ_APP.set(m.key, m.dz); else DZ_APP.delete(m.key);
@@ -1502,6 +1505,7 @@ function onData(e) {
     for (const k of [...WFIELDS.keys()]) if (k.startsWith(m.prefix)) WFIELDS.delete(k);
     for (const [k, o] of meshes) if (k.startsWith(m.prefix)) { scene.remove(o); o.geometry.dispose(); if (o.userData.ownMat) { o.material.uniforms_tex && o.material.uniforms_tex.dispose(); o.material.dispose(); } meshes.delete(k); }
     for (const k of [...DIPS_APP.keys()]) if (k.startsWith(m.prefix)) DIPS_APP.delete(k);
+    for (const k of [...PASS_APP.keys()]) if (k.startsWith(m.prefix)) PASS_APP.delete(k);
     for (const k of [...RAILS.keys()]) if (k.startsWith(m.prefix)) RAILS.delete(k);
     for (const k of [...CORR_APP.keys()]) if (k.startsWith(m.prefix)) CORR_APP.delete(k);
     for (const k of [...DZ_APP.keys()]) if (k.startsWith(m.prefix)) DZ_APP.delete(k);
@@ -1678,7 +1682,22 @@ function addCollide(key, c, l2, keep) { // outlines for walls, standing and jump
     let a = Infinity, b = -Infinity, cc = Infinity, d = -Infinity; for (let k = 0; k < p.length; k += 2) { if (p[k] < a) a = p[k]; if (p[k] > b) b = p[k]; if (p[k + 1] < cc) cc = p[k + 1]; if (p[k + 1] > d) d = p[k + 1]; }
     const it = { p, h, base, minx: a, maxx: b, minz: cc, maxz: d, tile: key, l2: !!l2, keep: !!keep };
     for (let ix = Math.floor(a / CELL); ix <= Math.floor(b / CELL); ix++) for (let iz = Math.floor(cc / CELL); iz <= Math.floor(d / CELL); iz++) { const k = gk(ix, iz); let arr = bgrid.get(k); if (!arr) bgrid.set(k, arr = []); arr.push(it); } } }
+/* Runde 248 (Bielefeld Nikolaus-Duerkopp-Strasse): a street or path that runs through a building (as the game holds it, LoD2 included) for
+   2-40 m and goes on outside on both sides passes under it - the building lets figure and cars through there. Found again whenever
+   tiles or buildings change (at most every 2 s). */
+const PASSC = { a: -1, b: -1, c: -1, t: 0 };
+function updPassages() { const now = performance.now(); if (now - PASSC.t < 2000) return; PASSC.t = now; if (PASSC.a === TILEVER && PASSC.b === L2VER && PASSC.c === bgrid.size) return;
+  PASSC.a = TILEVER; PASSC.b = L2VER; PASSC.c = bgrid.size; const out = [];
+  for (const t of tiles.values()) for (const r of t.roads || []) { if (r.k !== 'm' && r.k !== 'p') continue; const p = r.p, hw = (r.w || 4) / 2 + .6; let run = null, seenOut = false;
+    for (let i = 0; i + 3 < p.length; i += 2) { const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]); if (l < .05) continue;
+      for (let u = 0; u <= l; u += 2) { const x = p[i] + (p[i + 2] - p[i]) * u / l, z = p[i + 1] + (p[i + 3] - p[i + 1]) * u / l, b = rawBuildingAt(x, z), inB = !!(b && b.h - b.base > 2.5);
+        if (inB) { if (!run) run = [x, z]; } else { if (run && seenOut) { const L = Math.hypot(x - run[0], z - run[1]); if (L >= 2 && L <= 40) out.push(run[0], run[1], x, z, hw); } run = null; seenOut = true; } } } }
+  if (out.length) PASS_APP.set('auto', Float32Array.from(out)); else PASS_APP.delete('auto'); }
 function buildingAt(x, z) {
+  if (PASS_APP.size && inPassage(x, z)) return null; /* Runde 248: through a building passage */
+  return rawBuildingAt(x, z);
+}
+function rawBuildingAt(x, z) {
   const arr = bgrid.get(gk(Math.floor(x / CELL), Math.floor(z / CELL))); if (!arr) return null; let best = null;
   for (const it of arr) { if (x < it.minx || x > it.maxx || z < it.minz || z > it.maxz) continue; if (inPoly(x, z, it.p) && (!best || it.h > best.h) && !itemGhost(it)) best = it; }
   return best;
@@ -2284,6 +2303,7 @@ if (ISO !== null) { pxSize = userPx = 2; document.querySelectorAll('.hud > :not(
 if (PRUEF !== null) { pxSize = userPx = 2; document.querySelectorAll('.hud > :not(.loader)').forEach(el => { el.style.visibility = 'hidden'; }); if (moodId !== 'original') setMood('original', true); }
 makeRT();
 requestAnimationFrame(step);
+setInterval(updPassages, 2100); /* Runde 248 */
 /* ================================================================ driving
    
    Get into any parked car (button next to the car or key C), drive yourself or pick an address and let the car drive you there.
@@ -3312,7 +3332,7 @@ window.HXZ_API = { scene, P, DRV, tiles, LAYERS, clearCars(x, z, r) { let n = 0;
 /* Runde 141: what the weather module (wetter.js) needs */
 window.HXWX_API = { scene, groundMat, bldMat, P, DV, DRV, store, get cam() { return cam; }, get iso() { return cam === iso; }, get isoZoom() { return isoZoom; }, get started() { return started; },
   terrainH: (x, z, y) => terrainH(x, z, y), underground: (x, z, y) => !!(TUN.segs.length && underground(x, z, y)), water: (x, z) => !!waterFloor(x, z), waterProbe, waterSurf: (x, z) => waterSurf(x, z), /* = the drawn water surface (measured: ray onto the water mesh) */ waterFloor: (x, z) => waterFloor(x, z), get camera() { return camera; }, remood: () => applyMood(cur), waterIce, get fogColor() { return scene.fog.color; } };
-window.HXTR = { get SIGHTS() { return SIGHTS; }, player, isoCam: iso, setFigur, addEigenCard, get CARS() { let n = 0, g = 0; for (const a of carTiles.values()) for (let i = 0; i < a.length; i += 6) { n++; if (a[i + 3] < 0) g++; } return { n, weg: g }; }, get OCCDBG() { return { slots: occSlots.map(o => ({ a: +o.a.toFixed(2), cx: Math.round((o.b.minx + o.b.maxx) / 2 - P.x), cz: Math.round((o.b.minz + o.b.maxz) / 2 - P.z), h: Math.round(o.b.h - o.b.base), l2: o.b.l2 })), g: occG.map(o => o.g + ":" + o.a.toFixed(2)) }; }, HXL, withLamp, itemGhost, get BG() { return bgrid; }, get L2B() { return L2B; }, bldU: bldUniforms, beamTex: () => beamTex(), glowTex: () => glowTex(), get worker() { return worker; }, SPAN_APP, ELEV_APP, scene, terrainH, buildGraph, ONEW, P, DV, DRV, tiles, BINS, waterAt, waterSurf, buildingAt, inPoly, camera, streetAt, DIPS_APP, get ELEV() { return typeof ELEV_APP !== 'undefined' ? ELEV_APP : null; }, get camMode() { return camMode; }, get night() { return Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)); }, get TILEVER() { return TILEVER; }, get PRUEF() { return PRUEF; }, get ISO() { return ISO; } }; // Runde 81: traffic.js
+window.HXTR = { get PASS() { return PASS_APP; }, get SIGHTS() { return SIGHTS; }, player, isoCam: iso, setFigur, addEigenCard, get CARS() { let n = 0, g = 0; for (const a of carTiles.values()) for (let i = 0; i < a.length; i += 6) { n++; if (a[i + 3] < 0) g++; } return { n, weg: g }; }, get OCCDBG() { return { slots: occSlots.map(o => ({ a: +o.a.toFixed(2), cx: Math.round((o.b.minx + o.b.maxx) / 2 - P.x), cz: Math.round((o.b.minz + o.b.maxz) / 2 - P.z), h: Math.round(o.b.h - o.b.base), l2: o.b.l2 })), g: occG.map(o => o.g + ":" + o.a.toFixed(2)) }; }, HXL, withLamp, itemGhost, get BG() { return bgrid; }, get L2B() { return L2B; }, bldU: bldUniforms, beamTex: () => beamTex(), glowTex: () => glowTex(), get worker() { return worker; }, SPAN_APP, ELEV_APP, scene, terrainH, buildGraph, ONEW, P, DV, DRV, tiles, BINS, waterAt, waterSurf, buildingAt, inPoly, camera, streetAt, DIPS_APP, get ELEV() { return typeof ELEV_APP !== 'undefined' ? ELEV_APP : null; }, get camMode() { return camMode; }, get night() { return Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)); }, get TILEVER() { return TILEVER; }, get PRUEF() { return PRUEF; }, get ISO() { return ISO; } }; // Runde 81: traffic.js
 window.HXD = { toLocal: (lat, lon) => toLocal(lat, lon), terrainH2: (x, z, y) => terrainH(x, z, y), get tiles() { return tiles; }, get mw() { return DRV.mw; }, buildGraph2: () => buildGraph(), attach: (G, x, z, h, n) => attach(G, x, z, h, n), get ONEW() { return ONEW; }, get CRATES() { return CRATES; }, get INV() { return INV; }, lootBox: b => lootBox(b), get worker() { return worker; }, get worldReady() { return worldReady; }, bldUniforms, groundAround: r => groundAround(r), JOBQ, onData: e => onData(e), toLatLon: (x, z) => toLatLon(x, z), lod2Top, bridgeElev, ELEV_APP, jump, objTop, surfAhead, CORR_APP, DZ_APP, dzH, terrainRaw, wakePts, waterAt, WFIELDS, enterCar, leaveCar, driveTo, nearestParked, buildGraph, nearestNode, aStar, DRV, DV, P, keys, meshes, scene, dipInfo, DIPS_APP, RAILS, railAt, get camera() { return camera; }, get renderer() { return renderer; }, get iso() { return iso; } }; // debugging in the browser console
 // route on the mini and big map
 function drawRouteMini(ctx, ms) {

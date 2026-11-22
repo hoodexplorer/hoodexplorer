@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=730'); importScripts('sonderbau.js?v=730'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=750'); importScripts('sonderbau.js?v=750'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -37,7 +37,7 @@ const PAKS = new Map();
 function pakOpen(dir, rk) {
   const key = dir + rk;
   if (!PAKS.has(key)) PAKS.set(key, (async () => {
-    const url = dir + 'pak/' + rk + '.pak?v=' + (/osm\/?$/.test(dir) ? 245 : 1); /* Runde 245: new OSM packs - never mix an old cached directory with new data */
+    const url = dir + 'pak/' + rk + '.pak?v=' + (/osm\/?$/.test(dir) ? 248 : 1); /* Runde 245/248: new OSM packs - never mix an old cached directory with new data */
     let r = await fetch(url, { headers: { Range: 'bytes=0-8191' } });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -312,8 +312,8 @@ function osmTile(k) {
   if (!osmFiles.has(k)) osmFiles.set(k, (async () => {
     let buf = null;
     try {
-      buf = await cget('o8:' + k, 30 * 864e5);
-      if (!buf) { const r = await tileGet(OPFAD, k, OPFAD + k + '.bin?v=5'); /* ?v: new tile version (castle grounds), never the old file from the browser cache */ buf = r.ok ? r.buf : new ArrayBuffer(0); if (r.ok || r.status === 404) cput('o8:' + k, buf) /* Runde 238/240 (new tiles: ruins, halls, sport): read and write under the same key (wrote o5, read o6 - never hit) */; }
+      buf = await cget('o9:' + k, 30 * 864e5);
+      if (!buf) { const r = await tileGet(OPFAD, k, OPFAD + k + '.bin?v=5'); /* ?v: new tile version (castle grounds), never the old file from the browser cache */ buf = r.ok ? r.buf : new ArrayBuffer(0); if (r.ok || r.status === 404) cput('o9:' + k, buf) /* Runde 238/240 (new tiles: ruins, halls, sport): read and write under the same key (wrote o5, read o6 - never hit) */; }
     } catch (e) { buf = new ArrayBuffer(0); }
     const out = { blds: [], pts: [], parts: [], areas: [] };
     if (buf.byteLength >= 8) {
@@ -1470,6 +1470,7 @@ function lhTower(G, x, z, y0, H, r0, cols, cap) {
 /* Runde 245: models from the comparison with aerial views and Google Earth (stations, water towers, windmills, stadiums).
    MILLS / ARENAS persist (Mercator) so the LoD2 pass can give way to them as well. */
 let STADV = 0; const STADP = new Map(); /* full-size pitches in stadium areas (Mercator) */
+const PLATP = new Map(), RAILP = new Map(); /* Runde 248: points every 6 m along railway platforms / along tracks within 400 m of a station (Mercator) - the LoD2 pass finds station halls over them */
 const MILLS = new Map(), ARENAS = new Map(), mX = x => x / O.c + O.X0, mY = z => -z / O.c + O.Y0;
 function ptModels() { const out = []; if (LHS) for (const L of LHS) out.push([lx(L.X), lz(L.Y)]); for (const m of MILLS.values()) out.push([lx(m.X), lz(m.Y)]); return out; }
 /* a flat blade (two faces) from point a along unit vector b (length L), width w across unit vector q */
@@ -1805,8 +1806,13 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const cars = []; // parked cars as baked sprites: x, z, heading, type, colour, seed
   const rnd = mulberry(tx * 7919 + ty);
   let fpItems = [];
-  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], stadPolys = [], trackPolys = [], cemPolys = [], meadowPolys = [], fieldPolys = [], tallFields = new Set(), pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
+  const passSegs = [], spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], stadPolys = [], trackPolys = [], cemPolys = [], meadowPolys = [], fieldPolys = [], tallFields = new Set(), pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
 
+  /* Runde 248 (Freibad Gadderbaum, Naturbad Brackwede looked like ponds): water in an outdoor pool area (OSM leisure=water_park) or mapped as
+     swimming pool is a pool - clear turquoise, tiled deck, no bank shrubs, no trees at the edge */
+  const WPA = WELT === 'heute' ? ((osm && osm.areas) || []).filter(a => a.kind === 8) : [], poolRings = new Set(), POOLC = hex('#4fb7d6');
+  const inWPA = r => { if (!WPA.length) return null; let x = 0, z = 0; const n = r.length / 2; for (let i = 0; i < r.length; i += 2) { x += r[i]; z += r[i + 1]; } x /= n; z /= n;
+    return WPA.find(a => x >= a.minx && x <= a.maxx && z >= a.minz && z <= a.maxz && inPoly(x, z, a.ring)) || null; };
   // areas (landcover, landuse, park, water)
   for (const ln of ['landcover', 'landuse', 'park', 'water']) {
     const L = layers[ln]; if (!L) continue; const toL = mk(L.extent || ext0);
@@ -1830,6 +1836,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
            hash of the field), green = row direction (the long side of the field), blue = 2/255 marks it. The ground shader paints rows,
            crop colours and wind waves from it; no extra geometry. Only where the world keeps the field colour (today, middle ages). */
         let colF = col;
+        if (kind === 'w' && WELT === 'heute' && (f.props.class === 'swimming_pool' || inWPA(poly[0]))) { colF = POOLC; poolRings.add(poly[0]); }
         if (f.props.class === 'farmland' && WELT !== 'west' && WELT !== 'cyber') { const o = obb(poly[0]); let a = o ? Math.atan2(o.s, o.c) : 0; if (o && o.d > o.w) a += Math.PI / 2;
           a = ((a % Math.PI) + Math.PI) % Math.PI; const r0 = poly[0], hsh = Math.abs(Math.sin(r0[0] * 12.9898 + r0[1] * 78.233) * 43758.5453) % 1;
           colF = [(16 + 32 * Math.floor(hsh * 8)) / 255, Math.round(a / Math.PI * 255) / 255, 2 / 255]; }
@@ -1923,8 +1930,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           if (run.length >= 4) clip.push(run); }
         if (!clip.length) continue; f._clip = clip; }
       if (f.props.brunnel !== 'tunnel' && (f.props.layer || 0) < 0 && f.type === 2 && /^(rail|transit|motorway|trunk|primary|secondary)$/.test(cls)) for (const line of geomLines(f, toL)) lowLines.push(line); /* railways and through roads in a cutting (not underground footways) */ // lowered (cutting): bridges over them stay at street level
-      if (f.props.brunnel === 'tunnel' && f.type === 2 && ROAD[cls] && !/^(path|track|bridleway|pier)$/.test(cls)) for (const line of geomLines(f, toL)) map.roads.push({ w: ROAD[cls][0], k: 't', p: Float32Array.from(line), a: cls === 'motorway' ? 1 : 0, rail: cls === 'rail' || cls === 'transit' ? 1 : 0, o: +f.props.oneway || 0 }); // tunnels: known to the game (portals), not drawn or driven (Runde 79)
-      if (f.props.brunnel === 'tunnel' || (f.props.layer || 0) < 0) continue;
+      /* Runde 248 (Bielefeld Gundlach-Carre: the street ended at a building that stands over it): building passages are mapped as short
+         tunnels on street level - a tunnel road (not rail) at layer 0 or above, shorter than 80 m (30 m for main roads), is a passage:
+         drawn and driven like any street, and the app lets the figure and the cars through the building over it */
+      let pass = false; if (f.props.brunnel === 'tunnel' && f.type === 2 && ROAD[cls] && cls !== 'rail' && cls !== 'transit' && (f.props.layer || 0) >= 0) { const gl = geomLines(f, toL), major = /^(motorway|trunk|primary|secondary|tertiary)$/.test(cls);
+        let len = 0; for (const line of gl) for (let i = 0; i + 3 < line.length; i += 2) len += Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]);
+        if (len > 1 && len < (major ? 30 : 80)) { pass = true; const hw = (ROAD[cls][0] || 4) / 2 + .6; for (const line of gl) for (let i = 0; i + 3 < line.length; i += 2) passSegs.push(line[i], line[i + 1], line[i + 2], line[i + 3], hw); } }
+      if (!pass && f.props.brunnel === 'tunnel' && f.type === 2 && ROAD[cls] && !/^(path|track|bridleway|pier)$/.test(cls)) for (const line of geomLines(f, toL)) map.roads.push({ w: ROAD[cls][0], k: 't', p: Float32Array.from(line), a: cls === 'motorway' ? 1 : 0, rail: cls === 'rail' || cls === 'transit' ? 1 : 0, o: +f.props.oneway || 0 }); // tunnels: known to the game (portals), not drawn or driven (Runde 79)
+      if ((f.props.brunnel === 'tunnel' && !pass) || (f.props.layer || 0) < 0) continue;
       if (cls === 'pier') { // jetties and piers: plank deck just above the water, posts along the edges
         if (f.type === 3) for (const poly of polygons(geomLines(f, toL))) { const big = Math.abs(ringArea(poly[0])) > 250; ground.flat(poly, .45 - WL(), big ? PONTOON : PLANK); pierLines.push(poly[0], big ? -1 : 0); dryPolys.push(poly); }
         else if (f.type === 2) for (const line of geomLines(f, toL)) { ribbon(ground, line, 2.4, .45 - WL() * .6, PLANK); pierLines.push(line, 2.4); dryLines.push(line, 2.4);
@@ -2532,10 +2545,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   /* Runde 245: railway platforms (OSM): raised light grey strip; a roof on posts - over the whole length where covered, else over the
      middle of platforms near a station (half the length, at most 120 m), a small shelter on long platforms elsewhere */
   if (WELT === 'heute') { const stations = osm.pts.filter(p => p.t === 12), PLAT = hex('#b9b6ad'), PROOF = hex('#cfd2d4'), POST = hex('#7b8085');
+    if (stations.length) for (const r of map.roads) { if (r.k !== 'r') continue; const p = r.p; for (let i = 0; i + 3 < p.length; i += 2) { const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]); if (l < .1) continue;
+      for (let t = 0; t < l; t += 6) { const x = p[i] + (p[i + 2] - p[i]) * t / l, z = p[i + 1] + (p[i + 3] - p[i + 1]) * t / l; if (!stations.some(sp => Math.abs(sp.x - x) < 400 && Math.abs(sp.z - z) < 400)) continue;
+        const k = Math.round(mX(x) / 3) + ',' + Math.round(mY(z) / 3); if (!RAILP.has(k)) RAILP.set(k, { X: mX(x), Y: mY(z) }); } } } /* Runde 248 */
     for (const a of osm.areas || []) { if (a.kind < 3 || a.kind > 6) continue; let line, w;
       if (a.kind === 3 || a.kind === 5) { const o = obb(a.ring); if (!o || o.w < 15) continue; w = Math.min(12, Math.max(2.5, o.d)); line = [o.cx - o.c * o.w / 2, o.cz - o.s * o.w / 2, o.cx + o.c * o.w / 2, o.cz + o.s * o.w / 2]; ground.flat([a.ring], .55, PLAT); }
       else { line = Array.from(a.ring); w = 4; ribbon(ground, line, w, .55, PLAT); }
       let L = 0; const segL = []; for (let i = 0; i + 3 < line.length; i += 2) { const l = Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]); segL.push(l); L += l; } if (L < 20) continue;
+      for (let i = 0; i + 3 < line.length; i += 2) { const l = segL[i / 2]; for (let t = 0; t < l; t += 6) { const x = line[i] + (line[i + 2] - line[i]) * t / l, z = line[i + 1] + (line[i + 3] - line[i + 1]) * t / l, k = Math.round(mX(x) / 3) + ',' + Math.round(mY(z) / 3); if (!PLATP.has(k)) PLATP.set(k, { X: mX(x), Y: mY(z) }); } }
       /* Runde 247: a platform beside a railway in a trough sinks with it (lower level of a Kreuzbahnhof) - same depth, its own flat trough */
       { const bb = bbox(line), near = dipsIn(bb.minx - 12, bb.minz - 12, bb.maxx + 12, bb.maxz + 12); let D = 0;
         if (near.length) for (let i = 0; i + 3 < line.length; i += 2) { const ex = line[i + 2] - line[i], ez = line[i + 3] - line[i + 1], l = Math.hypot(ex, ez) || 1, nx = -ez / l, nz = ex / l;
@@ -2829,12 +2846,45 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       ground.spr.push(x, z, t === 25 ? 2.6 : t === 24 ? 1.1 : 1.9, t === 25 ? 2.6 : t === 24 ? 1.1 : 1.9, t, sprY(x, z, sd)); i++;
     }
   }
+  /* Runde 248: outdoor pools (one rule for all of them). A pool area without mapped water gets a 50 m basin (or smaller to fit); every pool
+     gets a light tiled deck, big rectangular ones lane lines; the area is closed by a fence (or a wall, by hash) that collides, with an
+     opening wherever a road or path crosses it and at least three openings in all (evenly spread when the map has fewer) */
+  if (WPA.length) { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), tx0 = Math.min(c0[0], c1[0]), tx1 = Math.max(c0[0], c1[0]), tz0 = Math.min(c0[1], c1[1]), tz1 = Math.max(c0[1], c1[1]);
+    const inT = (x, z) => x >= tx0 && x < tx1 && z >= tz0 && z < tz1, DECK = hex('#dcdad2'), LANE = hex('#3d88ad'), FEN = hex('#8a958f'), FPOST = hex('#4a524e');
+    const yAt = (x, z) => TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0;
+    for (const a of WPA) { let ax = 0, az = 0; const n = a.ring.length / 2; for (let i = 0; i < a.ring.length; i += 2) { ax += a.ring[i]; az += a.ring[i + 1]; } ax /= n; az /= n;
+      const own = inT(ax, az); // things of the whole area (invented basin) only in the tile that holds its middle
+      if (own && ![...poolRings].some(r => inWPA(r) === a)) { const o = obb(a.ring);
+        if (o && o.w >= 30 && o.d >= 22) { const L = Math.min(50, o.w * .5), W = Math.min(21, o.d * .45);
+          for (const [fu, fv] of [[0, 0], [.2, 0], [-.2, 0], [0, .2], [0, -.2], [.25, .25], [-.25, -.25]]) { const cx = o.cx + o.c * o.w * fu - o.s * o.d * fv, cz = o.cz + o.s * o.w * fu + o.c * o.d * fv;
+            const ring = []; for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) ring.push(cx + o.c * u * L / 2 - o.s * v * W / 2, cz + o.s * u * L / 2 + o.c * v * W / 2);
+            let ok = true; for (let i = 0; i < 8 && ok; i += 2) for (const t of [0, .5]) { const px = ring[i] * (1 - t) + cx * t, pz = ring[i + 1] * (1 - t) + cz * t; if (!inPoly(px, pz, a.ring) || fpAt(px, pz)) ok = false; }
+            if (!ok || fpAt(cx, cz)) continue; const r = Float32Array.from(ring); waterG.flat([r], .02 - WL(), POOLC); map.areas.push({ k: 'w', rings: [r] }); waterRings.push(r); waterPolys.push([r]); poolRings.add(r); break; } } }
+      /* fence along the outline: 2.5 m pieces; gaps at roads/paths, in houses (the entrance building is the border there) and on water */
+      const R0 = Array.from(a.ring); if (R0[0] !== R0[R0.length - 2] || R0[1] !== R0[R0.length - 1]) R0.push(R0[0], R0[1]);
+      const per = []; let P = 0; for (let i = 0; i + 3 < R0.length; i += 2) { const l = Math.hypot(R0[i + 2] - R0[i], R0[i + 3] - R0[i + 1]); if (l < .05) continue; const dx = (R0[i + 2] - R0[i]) / l, dz = (R0[i + 3] - R0[i + 1]) / l;
+        for (let t = 0; t < l; t += 2.5) { const e = Math.min(l, t + 2.5); if (e - t < .3) continue;
+          const mx = R0[i] + dx * (t + e) / 2, mz = R0[i + 1] + dz * (t + e) / 2, rd = roadAt(mx, mz); per.push({ mx, mz, dx, dz, l: e - t, s: P + (t + e) / 2, gap: !!(rd && Math.hypot(rd[0] - mx, rd[1] - mz) < rd[4] / 2 + 1.5) || !!fpAt(mx, mz) }); } P += l; }
+      if (P < 40) continue;
+      let runs = 0; for (let i = 0; i < per.length; i++) if (per[i].gap && !(i ? per[i - 1].gap : per[per.length - 1].gap)) runs++;
+      if (runs < 3) { const h0 = hashStr('fb' + Math.round(ax) + ',' + Math.round(az)), want = 3 - runs; for (let k = 0; k < want; k++) { const sc = ((h0 + k / want) % 1) * P; for (const q of per) if (Math.abs(q.s - sc) < 2.6) q.gap = true; } }
+      const wall = hashStr('fw' + Math.round(ax) + ',' + Math.round(az)) < .3, WALLC = hex(hashStr('fc' + Math.round(ax)) < .5 ? '#c9bfae' : '#a8664c');
+      for (let i = 0; i < per.length; i++) { const q = per[i]; if (q.gap || !inT(q.mx, q.mz) || waterRings.some(r => inPoly(q.mx, q.mz, r))) continue; const y = yAt(q.mx, q.mz), H = wall ? 2.1 : 1.9;
+        obox2(ground, q.mx, 0, q.mz, q.l + .04, H, wall ? .3 : .07, q.dx, q.dz, wall ? WALLC : FEN, wall);
+        if (!wall) { const px = q.mx - q.dx * q.l / 2, pz = q.mz - q.dz * q.l / 2; ground.box(px, 0, pz, .12, 2.0, .12, FPOST); }
+        const ring = []; for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) ring.push(q.mx + q.dx * u * q.l / 2 - q.dz * v * .2, q.mz + q.dz * u * q.l / 2 + q.dx * v * .2);
+        collide.push(4, y + H, y - 1, ...ring); } }
+    /* deck and lanes for every pool in this tile */
+    for (const r of poolRings) { const R1 = Array.from(r); if (R1[0] !== R1[R1.length - 2] || R1[1] !== R1[R1.length - 1]) R1.push(R1[0], R1[1]); ribbon(ground, R1, 3.2, .03, DECK);
+      const o = obb(r); if (o && o.w >= 20 && o.d >= 8 && Math.abs(ringArea(r)) > o.w * o.d * .85) { const nl = Math.min(8, Math.floor(o.d / 2.5) - 1);
+        for (let k = 1; k <= nl; k++) { const v = -o.d / 2 + k * o.d / (nl + 1), x0 = o.cx - o.c * (o.w / 2 - 2) - o.s * v, z0 = o.cz - o.s * (o.w / 2 - 2) + o.c * v, x1 = o.cx + o.c * (o.w / 2 - 2) - o.s * v, z1 = o.cz + o.s * (o.w / 2 - 2) + o.c * v;
+          ribbon(waterG, [x0, z0, x1, z1], .25, .024 - WL(), LANE); } } } }
   // Street View (Moritzburg, lake shores): banks of lakes and ponds are lined with shrubs and trees, not bare.
   // Only real shores count (tile-cut edges of water polygons are skipped); never on roads, sidewalks or in houses.
   { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), bx0 = Math.min(c0[0], c1[0]) + 3, bx1 = Math.max(c0[0], c1[0]) - 3, bz0 = Math.min(c0[1], c1[1]) + 3, bz1 = Math.max(c0[1], c1[1]) - 3;
     let ns = 0;
     for (const ring of waterRings) {
-      const ar = Math.abs(ringArea(ring)); if (ar < 150) continue; // tiny pools: no bank vegetation
+      const ar = Math.abs(ringArea(ring)); if (ar < 150 || poolRings.has(ring)) continue; // tiny pools and outdoor pools (Runde 248): no bank vegetation
       for (let i = 0; i + 3 < ring.length && ns < 3000; i += 2) {
         const ax = ring[i], az = ring[i + 1], ex = ring[i + 2] - ax, ez = ring[i + 3] - az, L = Math.hypot(ex, ez); if (L < 0.5) continue;
         for (let u = rnd() * 3; u < L; u += 3.2) {
@@ -2904,6 +2954,9 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       return false;
     };
     if (waterPolys.length || waterLines.length) { const S = ground.spr, out = []; for (let i = 0; i < S.length; i += 6) if (!wet(S[i], S[i + 1])) for (let k = 0; k < 6; k++) out.push(S[i + k]); ground.spr = out; }
+    if (poolRings.size) { const PB = [...poolRings].map(r => [r, bbox(r)]), near = (x, z) => PB.some(([r, b]) => { if (x < b.minx - 4 || x > b.maxx + 4 || z < b.minz - 4 || z > b.maxz + 4) return false; if (inPoly(x, z, r)) return true;
+        for (let i = 0; i < r.length; i += 2) { const j = (i + 2) % r.length, ex = r[j] - r[i], ez = r[j + 1] - r[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - r[i]) * ex + (z - r[i + 1]) * ez) / l2)); if ((r[i] + ex * t - x) ** 2 + (r[i + 1] + ez * t - z) ** 2 < 12) return true; } return false; });
+      const S = ground.spr, out = []; for (let i = 0; i < S.length; i += 6) if (!near(S[i], S[i + 1])) for (let k = 0; k < 6; k++) out.push(S[i + k]); ground.spr = out; } /* Runde 248: no trees or shrubs on the pool deck */
   }
   const wfield = waterPolys.length || waterLines.length ? waterField(waterPolys, waterLines, mk(ext0), { green: greenPolys, urban: resPolys.concat(indPolys, plazaPolys).map(p => [p]), blds: fpItems.map(it => [it.p]), paved: (x, z) => paved.has(rc(x, z)) || nearRoad(x, z), dryLines, dryPolys, bridgeDry }, ground) : null;
   if (TERRAIN_ON) meadow(ground, mk(ext0), wfield); // base ground of the tile, cut out where the (lowered) water is
@@ -3002,7 +3055,16 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         refl.push(rx, rz, S[i + 2], -(S[i + 3] + 100 * k), S[i + 4], Math.floor((hAt(rx, rz) - WL() + .65) * 4) + sd); /* base rounded to 25 cm: always just above the water surface; one copy per direction with water, the shader shows the one facing the camera */ } } }
   const dipsOut = []; for (const d of (ground.dips || [])) dipsOut.push(d.x, d.z, d.ux, d.uz, d.hw, d.F, d.R, d.D);
   const dzOut = DZF ? { x0: DZF.gx0 * DZC, z0: DZF.gz0 * DZC, nx: DZF.nx, nz: DZF.nz, c: DZC, W: DZF.W, WT: DZF.WT } : null; DZF = null;
-  return { span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
+  /* Runde 248 (Bielefeld Nikolaus-Duerkopp-Strasse: a building bridges the street, which is mapped as an ordinary street under it): where a
+     street or path runs through a building outline for a short stretch (2-40 m) and goes on outside on both sides, the building has a
+     passage there */
+  if (WELT === 'heute') for (const r of map.roads) { if (r.k === 't' || r.k === 'r') continue; const p = r.p, hw = (r.w || 4) / 2 + .6; let run = null, seenOut = false;
+    const close = (x, z) => { if (run && seenOut) { const L = Math.hypot(x - run[0], z - run[1]); if (L >= 2 && L <= 40) passSegs.push(run[0], run[1], x, z, hw); } run = null; };
+    for (let i = 0; i + 3 < p.length; i += 2) { const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]); if (l < .05) continue;
+      for (let t = 0; t <= l; t += 2) { const x = p[i] + (p[i + 2] - p[i]) * t / l, z = p[i + 1] + (p[i + 3] - p[i + 1]) * t / l, inB = !!fpAt(x, z);
+        if (inB) { if (!run) run = [x, z]; } else { if (run) close(x, z); seenOut = true; } } }
+    run = null; }
+  return { pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }
 /* Runde 204: an oriented box whose sides face outwards (obox below winds them inwards - seen from outside they were culled) and with a lid */
 function obox2(G, x, y, z, len, h, wid, dx, dz, col, lid) {
@@ -3526,6 +3588,34 @@ function blockGroups(d, prev) {
       const from = G.p.length, base = TERRAIN_ON ? dzLift(cx, cz, g0) : 0; arenaBowl(G, A); G.lift(from, base); arenaCollide(A, acol, base); arects.push(cx, cz, S.c, S.s, A.ou + 3, A.ov + 3); ai++; }
     if (ai) post({ type: 'arena', key: 'l:' + d.tid + ':arena', rects: arects, collide: Float32Array.from(acol) }); /* the app ignores LoD2 walls inside, the bowl blocks except at its entrances */
     if (ai) { const o = G.out(); post({ type: 'bld', key: 'l:' + d.tid + ':arena', pos: o.pos, nor: o.nor, col: o.col, fac: o.fac, wal: o.wal, base: o.base }, [o.pos.buffer, o.nor.buffer, o.col.buffer, o.fac.buffer, o.wal.buffer, o.base.buffer]); } }
+  /* Runde 248 (Ostkreuz, Suedkreuz: the hall over the platforms was a solid block - no way onto the platforms): a LoD2 building with platform
+     points under its roof (4 platform or 8 track points, level faces more than 2.5 m above the ground - Ostkreuz: 3.6 m) is a station hall - drawn as before, but the figure walks through it */
+  const CAN = [];
+  if ((PLATP.size || RAILP.size) && d.tid !== undefined) { const PP = [...PLATP.values()].map(q => [lx(q.X), lz(q.Y), 2]).concat([...RAILP.values()].map(q => [lx(q.X), lz(q.Y), 1])), hr = []; /* a platform point counts twice: 4 platform or 8 track points */
+    const HT = new Map(), P3 = d.pos, I3 = d.idx; /* all level faces (the Ostkreuz hall roof comes as wall faces), height = middle of the face */
+    for (let i = 0; i < I3.length; i += 3) { const A = I3[i], B = I3[i + 1], C = I3[i + 2], ux = P3[B * 3] - P3[A * 3], uy = P3[B * 3 + 1] - P3[A * 3 + 1], uz = P3[B * 3 + 2] - P3[A * 3 + 2], vx = P3[C * 3] - P3[A * 3], vy = P3[C * 3 + 1] - P3[A * 3 + 1], vz = P3[C * 3 + 2] - P3[A * 3 + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz); if (l < 1e-6 || Math.abs(ny) / l < .7) continue;
+      const g = d.grp[d.bid[A]]; let t = HT.get(g); if (!t) HT.set(g, t = []); t.push(P3[A * 3], P3[A * 3 + 2], P3[B * 3], P3[B * 3 + 2], P3[C * 3], P3[C * 3 + 2], (P3[A * 3 + 1] + P3[B * 3 + 1] + P3[C * 3 + 1]) / 3); }
+    for (const [g, t] of HT) { let a = Infinity, b = -Infinity, c = Infinity, e = -Infinity; for (let k = 0; k < t.length; k += 7) for (let m = 0; m < 6; m += 2) { a = Math.min(a, t[k + m]); b = Math.max(b, t[k + m]); c = Math.min(c, t[k + m + 1]); e = Math.max(e, t[k + m + 1]); }
+      if (b - a < 15 && e - c < 15) continue; let n = 0;
+      /* Runde 248 (Hannover Hbf: platform roofs as closed LoD2 blocks with brick ends down to the ground): a long narrow block (40 m or more,
+         at most 22 m wide, 3 times as long as wide, 3-30 m high) with tracks along both long sides is a platform roof - drawn as a flat roof
+         on one row of posts, the figure walks under it */
+      if (!set.has(g) && RAILP.size) { const V0 = []; for (let k = 0; k < t.length; k += 7) for (let m = 0; m < 6; m += 2) V0.push(t[k + m], t[k + m + 1]); const o = obb(Float32Array.from(V0));
+        if (o && o.w >= 40 && o.d <= 22 && o.w >= 3 * o.d) { const gl = TERRAIN_ON ? hAt(o.cx, o.cz) : 0; let hm = -1e9; for (let k = 0; k < t.length; k += 7) hm = Math.max(hm, t[k + 6]); const H = hm - gl;
+          if (H >= 3 && H <= 30) { let l = 0, r = 0; for (const [x, z, wt] of PP) { if (wt !== 1) continue; const u = (x - o.cx) * o.c + (z - o.cz) * o.s, v = -(x - o.cx) * o.s + (z - o.cz) * o.c; if (Math.abs(u) > o.w / 2 || Math.abs(v) > o.d / 2 + 7) continue; if (v < -o.d / 2 + 1) l++; else if (v > o.d / 2 - 1) r++; }
+            if (l >= 4 && r >= 4) { set.add(g); tris.set(g, []); CAN.push(o.cx, o.cz, o.c, o.s, o.w, o.d, H > 12 ? 5 : H); continue; /* above 12 m: the roof of an upper level whose tracks lie on the ground in the game (Koeln Messe/Deutz) - at 5 m */ } } } }
+      for (const [x, z, wt] of PP) { if (x < a || x > b || z < c || z > e) continue; const gl = TERRAIN_ON ? hAt(x, z) : 0; for (let k = 0; k < t.length; k += 7) if (inTri(x, z, t, k) && t[k + 6] - gl > 2.5) { n += wt; break; } if (n >= 8) break; }
+      if (n < 8) continue; const V = []; for (let k = 0; k < t.length; k += 7) for (let m = 0; m < 6; m += 2) V.push(t[k + m], t[k + m + 1]); const o = obb(Float32Array.from(V));
+      if (o) hr.push(o.cx, o.cz, o.c, o.s, o.w / 2 + 1, o.d / 2 + 1); }
+    if (hr.length) post({ type: 'arena', key: 'l:' + d.tid + ':halle', rects: hr, collide: new Float32Array(0) });
+
+    if (CAN.length) { const G = new Geo(true), RO = hex('#8d9398'), PO = hex('#5d6266');
+      for (let i = 0; i < CAN.length; i += 7) { const [cx, cz, c, s2, w, dd, H] = CAN.slice(i, i + 7), from = G.p.length, base = TERRAIN_ON ? dzLift(cx, cz, hAt(cx, cz)) : 0;
+        obox2(G, cx, H - .35, cz, w, .35, dd, c, s2, RO, true);
+        for (let u = -w / 2 + 4; u <= w / 2 - 4; u += 12) { obox2(G, cx + c * u, 0, cz + s2 * u, .35, H - .35, .35, c, s2, PO, false); }
+        G.lift(from, base); }
+      const o = G.out(); post({ type: 'bld', key: 'l:' + d.tid + ':dach', pos: o.pos, nor: o.nor, col: o.col, fac: o.fac, wal: o.wal, base: o.base }, [o.pos.buffer, o.nor.buffer, o.col.buffer, o.fac.buffer, o.wal.buffer, o.base.buffer]); } }
   const PM = ptModels(); /* Runde 245: lighthouses and windmills; arenas below */
   if (PM.length || ARENAS.size) { const ng = d.ng, x0 = new Float32Array(ng).fill(1e9), x1 = new Float32Array(ng).fill(-1e9), z0 = new Float32Array(ng).fill(1e9), z1 = new Float32Array(ng).fill(-1e9);
     for (let k = 0; k < P.length / 3; k++) { const g = d.grp[d.bid[k]], x = P[k * 3], z = P[k * 3 + 2]; if (x < x0[g]) x0[g] = x; if (x > x1[g]) x1[g] = x; if (z < z0[g]) z0[g] = z; if (z > z1[g]) z1[g] = z; }
@@ -4040,7 +4130,7 @@ async function loadMVT(rec, key) {
   const pn0 = PENDR.length; const out = buildMVT(layers, rec.tx, rec.ty, l2, osm);
   rec.state = 'ready'; if (PENDR.length > pn0) pendRebuild(key, pn0); rec.buckets = out.buckets; rec.items = out.items;
   const g = out.ground, gl = out.glow; chunkify(g, g.det); chunkify(gl, gl.det); quant8(g); quant8(gl);
-  post({ type: 'ground', key: 'm:' + key, pos: g.pos, nor: g.nor, col: g.col, idx: g.idx || null, det: g.det, cidx: g.cidx, cinfo: g.cinfo, glow: gl, collide: out.collide, names: out.names, samples: out.samples, sqNames: out.sqNames, pedNames: out.pedNames, spawn: out.spawn, start: out.start, welt: out.welt, map: out.map, spr: out.spr, refl: out.refl, cars: out.cars, dips: out.dips, rails: out.rails, corr: out.corr, dz: out.dz, span: out.span, elev: out.elev }, [g.pos.buffer, g.nor.buffer, g.col.buffer, g.cidx.buffer, g.cinfo.buffer, gl.pos.buffer, gl.nor.buffer, gl.col.buffer, gl.cidx.buffer, gl.cinfo.buffer, out.spr.buffer, out.refl.buffer, out.cars.buffer]);
+  post({ type: 'ground', key: 'm:' + key, pos: g.pos, nor: g.nor, col: g.col, idx: g.idx || null, det: g.det, cidx: g.cidx, cinfo: g.cinfo, glow: gl, collide: out.collide, names: out.names, samples: out.samples, sqNames: out.sqNames, pedNames: out.pedNames, spawn: out.spawn, start: out.start, welt: out.welt, map: out.map, spr: out.spr, refl: out.refl, cars: out.cars, dips: out.dips, pass: out.pass, rails: out.rails, corr: out.corr, dz: out.dz, span: out.span, elev: out.elev }, [g.pos.buffer, g.nor.buffer, g.col.buffer, g.cidx.buffer, g.cinfo.buffer, gl.pos.buffer, gl.nor.buffer, gl.col.buffer, gl.cidx.buffer, gl.cinfo.buffer, out.spr.buffer, out.refl.buffer, out.cars.buffer]);
   if (out.water) { const w = out.water, f = w.field; if (f) f.S = out.waterS;
     { const tr = [w.pos.buffer, w.nor.buffer, w.col.buffer]; if (f) { tr.push(f.data.buffer); if (f.flow) tr.push(f.flow.buffer); if (f.dry) tr.push(f.dry.buffer); }
     post({ type: 'water', key: 'm:' + key + ':water', pos: w.pos, nor: w.nor, col: w.col, field: f }, tr); } }
