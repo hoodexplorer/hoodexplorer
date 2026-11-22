@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=631'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=638'); // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1157,23 +1157,36 @@ function obb(p) {
    was measured from (hillside). In the game the last case floats. Rule: a raised part with nothing under it - no lower part
    reaching up to it, no road, path or railway underneath, and not a bridge between two buildings - is drawn down to the ground
    (and becomes solid like any house). */
-function groundFloating(items, roads) { for (const it of items) if (it.minH >= 2 && floatFix(it, [items], roads)) gAdd(fpgrid, it); }
+function groundFloating(items, roads) { for (const it of items) if (it.minH >= 2) { if (floatFix(it, [items], roads)) gAdd(fpgrid, it); else if (it.minH >= 2.5 && !it.onPart && !it.bridgeP && !it.smallP) it.pillars = pillarsFor(it, roads); } }
+/* Runde 204 (Brandenburger Tor: the attic floated above the passages): columns and pillars are often too thin for the map tiles
+   (dropped by the tile's simplification), so a raised part over a road or an open arcade stands on nothing. Rule: a raised part
+   that stays raised and is not carried by another part, not a bridge between buildings and not an oriel gets pillars from the
+   ground to its bottom - rows along both long sides (more rows when it is deep), about every 4.5 m, thicker the higher it is,
+   never on a road or path line (passages stay free), only where the part is above open ground. */
+function pillarsFor(it, roads) { const o = obb(it.p); if (!o) return null; const H = it.minH, sz = Math.max(.45, Math.min(1.7, .07 * H + .35)), ins = sz / 2 + .3;
+  const vs = [-o.d / 2 + ins, o.d / 2 - ins]; if (o.d > 14) for (let v = -o.d / 2 + 7; v < o.d / 2 - 6; v += 7) vs.push(v);
+  const n = Math.max(2, Math.round((o.w - 2 * ins) / 4.5) + 1), out = [], segD = (x, z, q) => { let m = Infinity; for (let i = 0; i + 3 < q.length; i += 2) { const ax = q[i], az = q[i + 1], dx = q[i + 2] - ax, dz = q[i + 3] - az, L2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2)); m = Math.min(m, Math.hypot(ax + dx * t - x, az + dz * t - z)); } return m; };
+  for (const v of vs) for (let k = 0; k < n; k++) { const u = -o.w / 2 + ins + k * (o.w - 2 * ins) / (n - 1), x = o.cx + u * o.c - v * o.s, z = o.cz + u * o.s + v * o.c;
+    if (!inPoly(x, z, it.p) || fpAt(x, z)) continue; let onRoad = false;
+    for (const r of roads) { if (r.k === 't' || r.p[0] === undefined) continue; if (segD(x, z, r.p) < 1.4 + sz / 2) { onRoad = true; break; } } if (onRoad) continue;
+    out.push([x, z]); if (out.length >= 60) break; }
+  return out.length ? { pts: out, sz, c: o.c, s: o.s } : null; }
 function floatFix(it, lists, roads) {
   const ov = (a, b) => { for (let i = 0; i < a.p.length; i += 2) if (inPoly(a.p[i], a.p[i + 1], b.p)) return true; for (let i = 0; i < b.p.length; i += 2) if (inPoly(b.p[i], b.p[i + 1], a.p)) return true;
     let cx = 0, cz = 0; for (let i = 0; i < a.p.length; i += 2) { cx += a.p[i]; cz += a.p[i + 1]; } return inPoly(cx / (a.p.length / 2), cz / (a.p.length / 2), b.p); };
   const baseF = o => { if (o.bF === undefined) o.bF = !TERRAIN_ON ? 0 : o.ring ? hAt(o.x, o.z) : baseOf(o.p); return o.bF; }; // parts stand on the terrain at their centre
   // small or narrow raised parts are oriels, battlements, turrets, balconies, bridges: they belong to a wall beside them, not on the ground
   { const A = Math.abs(ringArea(it.p)); let per = 0; for (let i = 0; i < it.p.length; i += 2) { const j = (i + 2) % it.p.length; per += Math.hypot(it.p[j] - it.p[i], it.p[j + 1] - it.p[i + 1]); }
-    if (A < 60 || 2 * A / per < 3) return false; }
+    if (A < 60 || 2 * A / per < 3) { it.smallP = true; return false; } }
   // low raised parts on flat ground are arcades, canopies on columns, halls on stilts: they stay open. Only high ones (8 m and more)
   // or ones on a slope (the ground under them differs by more than 2 m) are taken as standing on ground the terrain smooths away
   if (it.minH < 8) { if (!TERRAIN_ON) return false; let lo = Infinity, hi = -Infinity; for (let i = 0; i < it.p.length; i += 2) { const h = hAt(it.p[i], it.p[i + 1]); if (h < lo) lo = h; if (h > hi) hi = h; } if (hi - lo < 2) return false; }
   const bottom = baseF(it) + it.minH; let sup = false, near = 0;
   for (const l of lists) { for (const o of l) { if (o === it || !o.p || o.maxx < it.minx - 1 || o.minx > it.maxx + 1 || o.maxz < it.minz - 1 || o.minz > it.maxz + 1) continue; const om = o.minH0 !== undefined ? o.minH0 : o.minH || 0; // the mapped bottom, also after this rule drew it down
-    if (om < it.minH && baseF(o) + o.h >= bottom - 1.5 && ov(it, o)) { sup = true; break; }
+    if (om < it.minH && baseF(o) + o.h >= bottom - 1.5 && ov(it, o)) { sup = true; it.onPart = true; break; }
     if (baseF(o) + o.h >= bottom) near++; } if (sup) break; }
   if (!sup && near >= 2) { let per = 0; for (let i = 0; i < it.p.length; i += 2) { const j = (i + 2) % it.p.length; per += Math.hypot(it.p[j] - it.p[i], it.p[j + 1] - it.p[i + 1]); }
-    if (2 * Math.abs(ringArea(it.p)) / per < 5) sup = true; } // a narrow bridge between two buildings (about under 5-6 m wide)
+    if (2 * Math.abs(ringArea(it.p)) / per < 5) { sup = true; it.bridgeP = true; } } // a narrow bridge between two buildings (about under 5-6 m wide)
   if (!sup) for (const r of roads) { const q = r.p; if (r.k === 't') continue;
     for (let i = 0; i + 1 < q.length && !sup; i += 2) for (const u of [0, .5]) { const j = Math.min(q.length - 2, i + 2), x = q[i] + (q[j] - q[i]) * u, z = q[i + 1] + (q[j + 1] - q[i + 1]) * u;
       if (x >= it.minx && x <= it.maxx && z >= it.minz && z <= it.maxz && inPoly(x, z, it.p)) { sup = true; break; } }
@@ -1573,7 +1586,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const cars = []; // parked cars as baked sprites: x, z, heading, type, colour, seed
   const rnd = mulberry(tx * 7919 + ty);
   let fpItems = [];
-  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
+  const spanLines = [], pathBr = [], sideBr = [], hallPolys = [], lowLines = [], brLines = [], allLines = [], drvA = [], drvLines = [], corrSegs = [], bridgeDry = [], railSegs = [], dryLines = [], dryPolys = [], greenPolys = [], pierLines = [], playPolys = [], cemPolys = [], pitchPolys = [], plazaPolys = [], waterPolys = [], waterLines = [], parkRings = [], forestRings = [], waterRings = [], walkLines = [], indPolys = [], resPolys = [], hedgeCand = [], treeCand = [], roadCells = new Set(), rc = (x, z) => Math.floor(x / 3) * 100003 + Math.floor(z / 3); // trees are planted last, away from roads and houses
 
   // areas (landcover, landuse, park, water)
   for (const ln of ['landcover', 'landuse', 'park', 'water']) {
@@ -1598,6 +1611,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         if (kind === 'w') { waterRings.push(poly[0]); waterPolys.push(poly); }
         else if (ln !== 'landuse' || /^(grass|meadow|farmland|village_green|recreation_ground|cemetery|allotments|orchard|vineyard)$/.test(f.props.class)) greenPolys.push(poly);
         if (f.props.class === 'playground' || f.props.subclass === 'playground') playPolys.push(poly[0]);
+        if (f.props.class === 'cemetery' || f.props.subclass === 'grave_yard') cemPolys.push(poly[0]); // Runde 204
         if (f.props.class === 'pitch' || f.props.subclass === 'pitch') pitchPolys.push(poly[0]);
         if (/^(wood|forest)$/.test(f.props.class) || /^(wood|forest)$/.test(f.props.subclass || '')) forestRings.push(poly[0]);
         if (ln === 'park' || /^(park|garden|cemetery)$/.test(f.props.class)) parkRings.push(poly[0]);
@@ -1986,6 +2000,9 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       const roof = (osrc && osrc.roof) || roofGuess(cx, cz, seed, H);
       const from = G.p.length;
       fallbackBuilding(G, poly, H, minH, wall, roof, seed, 'yes', era + (it.shop ? 16 : 0) + (hashStr('v' + seed) < 0.5 ? 32 : 0) + (wall.brick ? 128 : 0) + (it.btype || 0) * 512, it);
+      if (it.pillars && owner === 'none') { (map.stuetzen || (map.stuetzen = [])).push({ x: Math.round(cx), z: Math.round(cz), n: it.pillars.pts.length, minH: +minH.toFixed(1), h: +H.toFixed(1), ar: Math.round(area) }); const Pp = it.pillars, pc = [Math.min(1, wall[0] * 1.06), Math.min(1, wall[1] * 1.06), Math.min(1, wall[2] * 1.06)]; // Runde 204: the pillars under a raised part
+        for (const [x, z] of Pp.pts) { const b0 = TERRAIN_ON ? hAt(x, z) : 0, top = base + minH + .2; obox2(ground, x, 0, z, Pp.sz, top - b0, Pp.sz, Pp.c, Pp.s, pc, false);
+          const hs = Pp.sz / 2, ux = Pp.c * hs, uz = Pp.s * hs, vx = -Pp.s * hs, vz = Pp.c * hs; collide.push(4, top, b0, x - ux - vx, z - uz - vz, x + ux - vx, z + uz - vz, x + ux + vx, z + uz + vz, x - ux + vx, z - uz + vz); } }
       G.lift(from, base);
       it.poly = null; it.cx = cx; it.cz = cz; it.G = G; it.r0 = from; it.r1 = G.p.length;
     }
@@ -2220,6 +2237,13 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   // petrol stations (map POI 'fuel'): canopy on pillars, pump islands, price pylon at the road – recognisable at a glance
   { const L = layers.poi; if (L) { const toP = mk(L.extent || ext0), done = [];
     for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1 || f.props.class !== 'fuel') continue;
+      /* Runde 204 (phone: e-charging points stood there as petrol stations): the map puts charging stations in the class 'fuel'
+         too (subclass charging_station) - they get one or two slim charging posts at the kerb, no canopy, no pumps */
+      if (f.props.subclass === 'charging_station') { for (const pt of pointsOf(f, toP)) { if (fpAt(pt[0], pt[1]) || done.some(q => Math.hypot(q[0] - pt[0], q[1] - pt[1]) < 6)) continue; done.push([pt[0], pt[1]]);
+          const r = roadAt(pt[0], pt[1]); let dx = 1, dz = 0; if (r) { dx = r[2]; dz = r[3]; } const n = hashStr('ev' + pt[0].toFixed(0)) < .5 ? 1 : 2, Wc = hex('#eef0ee'), Gc = hex('#2f9a4a'), Dc = hex('#3a3c40');
+          for (let k = 0; k < n; k++) { const x = pt[0] + dx * (k - (n - 1) / 2) * 2.4, z = pt[1] + dz * (k - (n - 1) / 2) * 2.4;
+            obox2(ground, x, 0, z, .42, 1.45, .3, dx, dz, Wc); obox2(ground, x, 1.2, z, .44, .22, .32, dx, dz, Gc); obox2(ground, x, .75, z, .2, .2, .34, dx, dz, Dc); } // post, green light band, socket
+          sights.push({ name: 'Ladesäule', cls: 'charging', x: pt[0], z: pt[1], rank: 99, quiet: true }); } continue; }
       for (const pt of pointsOf(f, toP)) {
         if (done.some(q => Math.hypot(q[0] - pt[0], q[1] - pt[1]) < 40)) continue;
         const r = roadAt(pt[0], pt[1]); let dx = 1, dz = 0, nx = 0, nz = 1;
@@ -2249,6 +2273,40 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (TBp && (x < TBp[0] || x > TBp[2] || z < TBp[1] || z > TBp[3])) continue; if (pgAt.some(o => (o[0] - x) ** 2 + (o[1] - z) ** 2 < 16)) continue; pgAt.push([x, z]);
       const t = i % 2 ? 27 : 26; ground.spr.push(x, z, 3.2, 3.2, t, sprY(x, z, hashStr('pg' + x.toFixed(1)))); i++; }
   }
+  /* Runde 204: fantasy cemeteries - the inside of a cemetery is filled with made-up graves: rows of plots in the cemetery's own
+     direction (oriented box), blocks of 10 x 6 plots with wider paths between, grave beds (planted, soil or gravel, some double),
+     headstones in granite, sandstone, black or white, wooden and stone crosses, flat plates, flowers and grave lights, now and then a
+     family tomb. Never on a mapped path or under a building, only inside the own tile. Cheap: plain boxes (about 13 quads a grave),
+     at most 450 graves per cemetery and 500 per tile - big cemeteries get whole blocks at random, the rest stays lawn and trees.
+     Every cemetery goes into map.friedhoefe (centre, ring, size, graves) - for riddles later. Same seed, same cemetery. */
+  { const TBc = ground.tileBox, CAP = 500; let used = 0; map.friedhoefe = [];
+    const GRAN = ['#7d7f84', '#5d6066', '#9a9ca0', '#3a3b40', '#b8a789', '#2a2b30', '#d9d7d0', '#8a8274'].map(hex), BED = ['#4f7a3a', '#5f8a40', '#6a8f45', '#6b4e36', '#a9a69c', '#3f6a34'].map(hex),
+      FL = ['#c43a3a', '#e8c24a', '#e6e2da', '#b04ab0', '#e88a3a'].map(hex), WOOD = hex('#6b4a2e'), LAMP = hex('#b8261e');
+    const gb = (x, y, z, len, h, wid, ax, az, col) => obox2(ground, x, y, z, len, h, wid, ax, az, col);
+    for (const q of cemPolys) { if (used >= CAP) break; const ar = Math.abs(ringArea(q)); if (ar < 250) continue; const o = obb(q); if (!o) continue; const bb = bbox(q);
+      let st = Math.floor(hashStr('fh' + o.cx.toFixed(0) + ',' + o.cz.toFixed(0)) * 2147483645) + 1; const R = () => (st = st * 16807 % 2147483647) / 2147483647;
+      const rc2 = new Set(), ck = (x, z) => Math.floor(x / 2) * 100003 + Math.floor(z / 2);
+      for (const r of map.roads) { const p = r.p; for (let i = 0; i + 3 < p.length; i += 2) { if (Math.max(p[i], p[i + 2]) < bb.minx - 3 || Math.min(p[i], p[i + 2]) > bb.maxx + 3 || Math.max(p[i + 1], p[i + 3]) < bb.minz - 3 || Math.min(p[i + 1], p[i + 3]) > bb.maxz + 3) continue;
+        const dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1], L = Math.hypot(dx, dz) || 1; for (let t = 0; t <= L; t += 1) rc2.add(ck(p[i] + dx * t / L, p[i + 1] + dz * t / L)); } }
+      const nearRoad = (x, z) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (rc2.has(ck(x + a * 2, z + b * 2))) return true; return false; };
+      const PW = 1.5, RW = 3.0, BU = 10, BV = 6, bw = BU * PW + 3, bd = BV * RW + 2.5, ux = o.c, uz = o.s, vx = -o.s, vz = o.c; // plot width, row depth, block size with paths
+      const blocks = []; for (let bu = -o.w / 2 + 2; bu + bw / 2 < o.w / 2 + bw / 2; bu += bw) for (let bv = -o.d / 2 + 2; bv < o.d / 2 - 2; bv += bd) blocks.push([bu, bv, R()]);
+      blocks.sort((a, b) => a[2] - b[2]); let n = 0;
+      for (const [bu, bv] of blocks) { if (used >= CAP || n >= 450) break;
+        for (let j = 0; j < BV; j++) for (let k = 0; k < BU; k++) { const u = bu + (k + .5) * PW, v = bv + (j + .5) * RW, x = o.cx + u * ux + v * vx, z = o.cz + u * uz + v * vz;
+          if (TBc && (x < TBc[0] || x > TBc[2] || z < TBc[1] || z > TBc[3])) continue;
+          if (!inPoly(x + vx * 1.2, z + vz * 1.2, q) || !inPoly(x - vx * 1.2, z - vz * 1.2, q) || fpAt(x, z) || nearRoad(x, z)) continue;
+          const y = .02, r = R(), /* ground geometry follows the terrain by itself */ hx = x - vx * .95, hz = z - vz * .95; // head end of the plot
+          if (r < .025) { gb(x, y, z, 1.4, 2.1 + R() * .8, 2.3, ux, uz, GRAN[(R() * 3) | 0]); gb(x, y + 2.1, z, 1.6, .25, 2.5, ux, uz, GRAN[3]); }
+          else { const dbl = R() < .14, w = dbl ? 1.35 : .85; gb(x, y, z, w, .1 + R() * .08, 1.8, ux, uz, BED[(R() * BED.length) | 0]);
+            const t = R(), c = GRAN[(R() * GRAN.length) | 0];
+            if (t < .66) gb(hx, y, hz, Math.min(w, .45 + R() * .45), .5 + R() * .55, .14, ux, uz, c);
+            else if (t < .86) { const cc = R() < .55 ? WOOD : c; gb(hx, y, hz, .1, 1.05, .1, ux, uz, cc); gb(hx, y + .62, hz, .55, .1, .1, ux, uz, cc); }
+            else gb(hx + vx * .3, y + .1, hz + vz * .3, .5, .06, .38, ux, uz, c);
+            if (R() < .4) gb(x + vx * .55, y + .1, z + vz * .55, .22, .14, .22, ux, uz, FL[(R() * FL.length) | 0]);
+            if (R() < .15) gb(hx + vx * .25 + ux * .3, y + .1, hz + vz * .25 + uz * .3, .1, .16, .1, ux, uz, LAMP); }
+          roadCells.add(rc(x, z)); n++; used++; } } // no tree on a grave
+      map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
   for (const q of pitchPolys) {
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
     const L2 = o.w / 2 - 1, D2 = o.d / 2 - 1, P2 = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], Wt = hex('#f2f2ee');
@@ -2443,6 +2501,13 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const dzOut = DZF ? { x0: DZF.gx0 * DZC, z0: DZF.gz0 * DZC, nx: DZF.nx, nz: DZF.nz, c: DZC, W: DZF.W, WT: DZF.WT } : null; DZF = null;
   return { span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }
+/* Runde 204: an oriented box whose sides face outwards (obox below winds them inwards - seen from outside they were culled) and with a lid */
+function obox2(G, x, y, z, len, h, wid, dx, dz, col, lid) {
+  const ax = dx * len / 2, az = dz * len / 2, bx = -dz * wid / 2, bz = dx * wid / 2, y1 = y + h;
+  const c = [[x - ax - bx, z - az - bz], [x + ax - bx, z + az - bz], [x + ax + bx, z + az + bz], [x - ax + bx, z - az + bz]];
+  for (let k = 0; k < 4; k++) { const p = c[k], q = c[(k + 1) % 4], mx = (p[0] + q[0]) / 2 - x, mz = (p[1] + q[1]) / 2 - z;
+    G.quad([q[0], y, q[1]], [p[0], y, p[1]], [p[0], y1, p[1]], [q[0], y1, q[1]], col, mx, 0, mz); }
+  if (lid !== false) G.quad([c[0][0], y1, c[0][1]], [c[3][0], y1, c[3][1]], [c[2][0], y1, c[2][1]], [c[1][0], y1, c[1][1]], col, 0, 1, 0); }
 function obox(G, x, y, z, len, h, wid, dx, dz, col) { // box oriented along (dx, dz)
   const ax = dx * len / 2, az = dz * len / 2, bx = -dz * wid / 2, bz = dx * wid / 2, y1 = y + h;
   const c = [[x - ax - bx, z - az - bz], [x + ax - bx, z + az - bz], [x + ax + bx, z + az + bz], [x - ax + bx, z - az + bz]];
