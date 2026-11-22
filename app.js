@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=693' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=705' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -322,12 +322,26 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, .6); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, .9); scene.add(sun); scene.add(sun.target);
 const pLight = new THREE.PointLight(0xffd28a, 0, 26, 2); /* Runde 102: not added to the scene any more - Lambert lights per vertex, so on the big ground
    triangles the lantern drew sharp triangles of light (phone test, night). Its light is added per pixel instead (hxLamp below). */
-const HXL = { uHxLP: { value: [new THREE.Vector3(0, -999, 0), new THREE.Vector3(0, -999, 0)] }, uHxLC: { value: [new THREE.Color(0, 0, 0), new THREE.Color(0, 0, 0)] }, uHxLR: { value: [26, 26] } };
+const HXL = { uHxLP: { value: [new THREE.Vector3(0, -999, 0), new THREE.Vector3(0, -999, 0)] }, uHxLC: { value: [new THREE.Color(0, 0, 0), new THREE.Color(0, 0, 0)] }, uHxLR: { value: [26, 26] },
+  /* Runde 244: the beams of the two nearest rotating lighthouses light ground, houses and cars where they sweep: lantern position, (angle, beams per side, spacing, length), colour */
+  uHxBP: { value: [new THREE.Vector3(0, -999, 0), new THREE.Vector3(0, -999, 0)] }, uHxBQ: { value: [new THREE.Vector4(0, 0, .3, 0), new THREE.Vector4(0, 0, .3, 0)] }, uHxBC: { value: [new THREE.Color(0, 0, 0), new THREE.Color(0, 0, 0)] },
+  /* beam drop from the lantern to the ground at the end of its range; a height map of the buildings round each tower (512 x 512 cells of 4 m) for the shadow test */
+  uHxBD: { value: [0, 0] }, uHxBM: { value: [new THREE.Vector4(0, 0, 4, -999), new THREE.Vector4(0, 0, 4, -999)] }, uHxBT0: { value: null }, uHxBT1: { value: null } };
+const LH_MAP = [0, 1].map(i => { const d = new Uint8Array(512 * 512), t = new THREE.DataTexture(d, 512, 512, THREE.LuminanceFormat); t.needsUpdate = true; HXL['uHxBT' + i].value = t; return { d, t, g: null, at: -99, ver: -1 }; });
 function hxLamp(sh) { // two point lamps computed per pixel: 0 = the figure's lantern, 1 = blue light of the own emergency vehicle (traffic.js)
-  sh.uniforms.uHxLP = HXL.uHxLP; sh.uniforms.uHxLC = HXL.uHxLC; sh.uniforms.uHxLR = HXL.uHxLR;
+  sh.uniforms.uHxLP = HXL.uHxLP; sh.uniforms.uHxLC = HXL.uHxLC; sh.uniforms.uHxLR = HXL.uHxLR; sh.uniforms.uHxBP = HXL.uHxBP; sh.uniforms.uHxBQ = HXL.uHxBQ; sh.uniforms.uHxBC = HXL.uHxBC; sh.uniforms.uHxBD = HXL.uHxBD; sh.uniforms.uHxBM = HXL.uHxBM; sh.uniforms.uHxBT0 = HXL.uHxBT0; sh.uniforms.uHxBT1 = HXL.uHxBT1;
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHxLW;').replace('#include <project_vertex>', '#include <project_vertex>\n{ vec4 hxLw = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nhxLw = instanceMatrix * hxLw;\n#endif\nvHxLW = (modelMatrix * hxLw).xyz; }');
-  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHxLW; uniform vec3 uHxLP[2]; uniform vec3 uHxLC[2]; uniform float uHxLR[2];')
-    .replace('#include <envmap_fragment>', 'for (int hxi = 0; hxi < 2; hxi++) { float hxa = clamp(1.0 - length(vHxLW - uHxLP[hxi]) / uHxLR[hxi], 0.0, 1.0); outgoingLight += diffuseColor.rgb * uHxLC[hxi] * hxa * hxa; }\n#include <envmap_fragment>'); }
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHxLW; uniform vec3 uHxLP[2]; uniform vec3 uHxLC[2]; uniform float uHxLR[2]; uniform vec3 uHxBP[2]; uniform vec4 uHxBQ[2]; uniform vec3 uHxBC[2]; uniform float uHxBD[2]; uniform vec4 uHxBM[2]; uniform sampler2D uHxBT0; uniform sampler2D uHxBT1;\n'
+      + 'float hxOcc(sampler2D m, vec4 mo, vec3 a, vec3 b) { for (int i = 1; i < 20; i++) { vec3 p = mix(a, b, float(i) / 20.0); vec2 uv = (p.xz - mo.xy) / (mo.z * 512.0); if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) continue; if (texture2D(m, uv).r * 255.0 + mo.w > p.y + .4) return 0.0; } return 1.0; }')
+    .replace('#include <envmap_fragment>', 'for (int hxi = 0; hxi < 2; hxi++) { float hxa = clamp(1.0 - length(vHxLW - uHxLP[hxi]) / uHxLR[hxi], 0.0, 1.0); outgoingLight += diffuseColor.rgb * uHxLC[hxi] * hxa * hxa; }\n'
+      + 'for (int hb = 0; hb < 2; hb++) { vec4 q = uHxBQ[hb]; vec3 hd = vHxLW - uHxBP[hb]; float hr = length(hd.xz); if (q.w < 1.0 || hr < 3.0 || hr > q.w) continue;\n'
+      + '  float yc = -uHxBD[hb] * hr, hv = 1.5 + hr * .05, vk = 1.0 - smoothstep(hv * .5, hv, abs(hd.y - yc)); if (vk <= 0.0) continue;\n'
+      + '  float ph = atan(-hd.z, hd.x), w = .035 + 2.5 / hr, hk = 0.0;\n'
+      + '  for (int s = 0; s < 8; s++) { float fs = float(s), fi = mod(fs, 4.0); if (fi >= q.y) continue; float an = q.x + (fs < 4.0 ? 0.0 : 3.14159) + (fi - (q.y - 1.0) * .5) * q.z; float dl = abs(mod(ph - an + 3.14159, 6.28318) - 3.14159); hk = max(hk, 1.0 - smoothstep(w * .35, w, dl)); }\n'
+      + '  if (hk <= 0.0) continue;\n'
+      + '  vec3 fn = normalize(cross(dFdx(vHxLW), dFdy(vHxLW))), ld = normalize(uHxBP[hb] - vHxLW); float fc = dot(fn, ld) * sign(dot(fn, cameraPosition - vHxLW)); if (fc <= 0.0) continue;\n'
+      + '  float oc = hb == 0 ? hxOcc(uHxBT0, uHxBM[0], uHxBP[0], vHxLW) : hxOcc(uHxBT1, uHxBM[1], uHxBP[1], vHxLW);\n'
+      + '  outgoingLight += diffuseColor.rgb * uHxBC[hb] * hk * vk * (.35 + .65 * fc) * oc * pow(1.0 - hr / q.w, 1.2); }\n#include <envmap_fragment>'); }
 function withLamp(mat) { const f = mat.onBeforeCompile; mat.onBeforeCompile = sh => { if (f) f(sh); hxLamp(sh); }; }
 
 const groundMat = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -2767,27 +2781,44 @@ function lhBeamMat(col) { return new THREE.ShaderMaterial({ uniforms: { uC: { va
   fragmentShader: 'uniform vec3 uC; uniform float uI; varying float vT; varying vec3 vN; varying vec3 vV; void main(){ float e = pow(abs(dot(normalize(vN), normalize(vV))), 2.4); float a = uI * e * pow(1. - vT, 2.6) * (.4 + .6 * smoothstep(0., .03, vT)); gl_FragColor = vec4(uC * a, 1.); }' }); }
 function addLighthouses(key, list) {
   if (LIGHTS.has(key)) dropLighthouses(key); const arr = [];
-  for (const L of list) { const g = new THREE.Group(); g.position.set(L.x, L.y, L.z); const u = g.userData; u.beams = []; u.per = Math.max(2, L.per || 10); u.ch = L.ch; u.ph = L.s * 20;
-    const len = Math.max(450, Math.min(2200, (L.rng || 10) * 85)), wide = len * .03;
+  for (const L of list) { const g = new THREE.Group(); g.position.set(L.x, L.y, L.z); const u = g.userData; u.beams = []; u.drop = (L.H || 20) + 1.5; /* the beam sinks and reaches the ground at about twelve lantern heights */ u.ld = Math.max(250, Math.min(2200, u.drop * 12)); u.per = Math.max(2, L.per || 10); u.ch = L.ch; u.ph = L.s * 20;
+    const len = Math.min(Math.max(450, Math.min(2200, (L.rng || 10) * 85)), u.ld * 1.15), wide = len * .03;
     if (L.ch === 'Fl') { const rot = new THREE.Group(); g.add(rot); u.rot = rot; u.th0 = L.s * 6.28; const n = Math.max(1, L.grp || 1);
-      for (const side of [0, Math.PI]) for (let i = 0; i < n; i++) { const m = new THREE.Mesh(LH_GEO, lhBeamMat(LH_COL.w)); m.rotation.y = side + (i - (n - 1) / 2) * .3; m.scale.set(len, wide, wide); m.frustumCulled = false; rot.add(m); u.beams.push(m); } }
-    for (const [a0, a1, c] of L.sec || []) { let span = ((a1 - a0) % 360 + 360) % 360; if (span < .3) continue; span = Math.min(span, 300); const n = Math.ceil(span / 40), st = span / n;
+      for (const side of [0, Math.PI]) for (let i = 0; i < n; i++) { const m = new THREE.Mesh(LH_GEO, lhBeamMat(LH_COL.w)); m.rotation.order = 'YZX'; m.rotation.y = side + (i - (n - 1) / 2) * .3; m.rotation.z = -Math.atan2(u.drop, u.ld); m.scale.set(len, wide, wide); /* sinks to the ground at the end of its range */ m.frustumCulled = false; rot.add(m); u.beams.push(m); } }
+    const colSec = (L.sec || []).some(x => x[2] !== 'w'); /* only coloured sector lights get fans; all-white sectors are an all-round light */
+    if (colSec) for (const [a0, a1, c] of L.sec || []) { let span = ((a1 - a0) % 360 + 360) % 360; if (span < .3) continue; span = Math.min(span, 300); const n = Math.ceil(span / 40), st = span / n;
       for (let i = 0; i < n; i++) { const b = (a0 + st * (i + .5)) + 180, th = Math.PI / 2 - b * Math.PI / 180, w = Math.tan(Math.max(.4, st) / 2 * Math.PI / 180) * len * .7;
-        const m = new THREE.Mesh(LH_GEO, lhBeamMat(LH_COL[c] || LH_COL.w)); m.rotation.y = th; m.scale.set(len * .7, Math.min(w, len * .02), w); m.frustumCulled = false; m.userData.fix = true; g.add(m); u.beams.push(m); } }
+        const m = new THREE.Mesh(LH_GEO, lhBeamMat(LH_COL[c] || LH_COL.w)); m.rotation.order = 'YZX'; m.rotation.y = th; m.rotation.z = -Math.atan2(u.drop, u.ld); m.scale.set(len * .7, Math.min(w, len * .02), w); m.frustumCulled = false; m.userData.fix = true; g.add(m); u.beams.push(m); } }
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xfff1c8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
+    u.len = len; u.nb = L.ch === 'Fl' ? Math.max(1, Math.min(4, L.grp || 1)) : 0;
     u.glow = sp; u.gs = 5 + L.H * .22; sp.scale.setScalar(u.gs); g.add(sp); scene.add(g); arr.push(g); }
   LIGHTS.set(key, arr); }
 function dropLighthouses(key) { for (const g of LIGHTS.get(key) || []) { scene.remove(g); for (const m of g.userData.beams) m.material.dispose(); g.userData.glow.material.dispose(); } LIGHTS.delete(key); }
 const _lhV = new THREE.Vector3();
-function updateLighthouses(cam) { if (!LIGHTS.size) return; const n = Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5));
+/* height map of the buildings round a lighthouse (tops in metres above the ground at the tower, 4 m cells), rebuilt when the tower changes
+   or new tiles arrive (at most every 2 s); the tower itself is left out */
+function lhMap(i, g) { const M = LH_MAP[i]; if (M.g === g && (M.ver === TILEVER || time - M.at < 2)) return M;
+  const C = 4, N = 512, u = g.userData; M.g = g; M.ver = TILEVER; M.at = time; M.ox = g.position.x - N * C / 2; M.oz = g.position.z - N * C / 2; M.by = g.position.y - u.drop - 5; M.d.fill(0);
+  const seen = new Set(), x1 = M.ox + N * C, z1 = M.oz + N * C;
+  for (const arr of bgrid.values()) for (const b of arr) { if (seen.has(b) || !b.p) continue; seen.add(b); if (b.maxx < M.ox || b.minx > x1 || b.maxz < M.oz || b.minz > z1) continue;
+    const v = Math.max(0, Math.min(255, Math.round((b.base || 0) + b.h - M.by))); if (v < 6) continue;
+    for (let cz = Math.max(0, Math.floor((b.minz - M.oz) / C)); cz <= Math.min(N - 1, Math.floor((b.maxz - M.oz) / C)); cz++) for (let cx = Math.max(0, Math.floor((b.minx - M.ox) / C)); cx <= Math.min(N - 1, Math.floor((b.maxx - M.ox) / C)); cx++) {
+      const x = M.ox + (cx + .5) * C, z = M.oz + (cz + .5) * C; if (Math.hypot(x - g.position.x, z - g.position.z) < 8) continue;
+      if (inPoly(x, z, b.p)) { const k = cz * N + cx; if (v > M.d[k]) M.d[k] = v; } } }
+  M.t.needsUpdate = true; return M; }
+function updateLighthouses(cam) { if (!LIGHTS.size) return; const n = moodId === 'sincity' ? 1 : moodId === 'morgen' ? .45 : Math.max(0, Math.min(1, (cur.lamp || 0) / 1.2)); /* half at dawn and dusk, some in fog, full at night and in Sin City - never by day */
+  for (const arr of LIGHTS.values()) for (const g of arr) g.visible = n > .02;
+  { const near = []; if (n > .02) for (const arr of LIGHTS.values()) for (const g of arr) if (g.userData.rot) near.push([Math.hypot(g.position.x - P.x, g.position.z - P.z), g]); near.sort((a, b) => a[0] - b[0]); /* the two nearest light the world */
+    for (let i = 0; i < 2; i++) { const e = near[i], q = HXL.uHxBQ.value[i]; if (!e || e[0] > e[1].userData.len + 200) { q.w = 0; continue; } const u = e[1].userData; HXL.uHxBP.value[i].copy(e[1].position); q.set(u.rot.rotation.y, u.nb, .3, u.len); HXL.uHxBC.value[i].setRGB(1, .95, .82).multiplyScalar(.9 * n); HXL.uHxBD.value[i] = u.drop / u.ld; const M = lhMap(i, e[1]); HXL.uHxBM.value[i].set(M.ox, M.oz, 4, M.by); } }
+  if (n <= .02) return;
   if (cam.isOrthographicCamera) _lhV.setFromMatrixColumn(cam.matrixWorld, 2);
   for (const arr of LIGHTS.values()) for (const g of arr) { const u = g.userData, ph = (time + u.ph) % u.per;
     const on = u.ch === 'Oc' ? (ph < u.per - Math.min(1.5, u.per * .3) ? 1 : 0) : u.ch === 'Iso' ? (ph < u.per / 2 ? 1 : 0) : 1;
     let boost = 0;
     if (u.rot) { u.rot.rotation.y = u.th0 - time * Math.PI / u.per; const dx = cam.isOrthographicCamera ? _lhV.x : cam.position.x - g.position.x, dz = cam.isOrthographicCamera ? _lhV.z : cam.position.z - g.position.z, ang = Math.atan2(-dz, dx);
       for (const b of u.beams) if (!b.userData.fix) { const d = Math.cos(u.rot.rotation.y + b.rotation.y - ang); if (d > 0) boost = Math.max(boost, Math.pow(d, 90)); } }
-    for (const b of u.beams) b.material.uniforms.uI.value = b.userData.fix ? (.008 + .14 * n) * on : .03 + .42 * n; /* sector fans stay a soft tint, beams carry the show */
-    const k = u.rot ? .55 + boost * 1.6 : on; u.glow.material.opacity = Math.min(1, (.25 + .75 * n) * k + boost * .4); u.glow.scale.setScalar(u.gs * (1 + n * .8 + boost * 2.5)); } }
+    for (const b of u.beams) b.material.uniforms.uI.value = (b.userData.fix ? .14 * on : .45) * n; /* sector fans stay a soft tint, beams carry the show */
+    const k = u.rot ? .55 + boost * 1.6 : on; u.glow.material.opacity = Math.min(1, n * k + boost * .4 * n); u.glow.scale.setScalar(u.gs * (1 + n * .8 + boost * 2.5)); } }
 function glowTex() { if (glowTex.t) return glowTex.t; const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.4, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return glowTex.t = new THREE.CanvasTexture(c); }

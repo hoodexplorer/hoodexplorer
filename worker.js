@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=693'); importScripts('sonderbau.js?v=693'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=705'); importScripts('sonderbau.js?v=705'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1274,6 +1274,7 @@ function ringLen(r) { let L = 0; for (let i = 0; i < r.length; i += 2) { const j
 function fallbackBuilding(G, poly, H, minH, wall, roof, seed, type, code, own) {
   const outer = poly[0], area = Math.abs(ringArea(outer));
   if (area < 6) return;
+  if (own && own.lh) return; /* Runde 244: the lighthouse tower stands here */
   if (own && own.hall && own.btype === 4 && H - minH < 7) H = minH + 7; /* Runde 242: halls from OSM without height (they replace flat LoD2 blocks) */
   /* Runde 238: special buildings get their own roofs instead of a flat box. Church: gable along the long axis, walls no higher than the nave
      needs (a tall height value belongs to the tower), a west tower with a helm if no tower stands there, a dome on a round or polygonal plan.
@@ -1445,9 +1446,14 @@ function burgSite(i, j) {
    fixed, so every tile knows the same castles. Near-duplicates (several OSM objects of one castle) within 400 m count once. */
 /* Runde 244: lighthouses (daten/leuchttuerme.json from OSM seamarks, werkzeuge/leuchttuerme.py): loaded once, kept as Mercator points */
 let LHS = null, LHP = null;
-function lhLoad() { if (LHP) return LHP; LHP = (async () => { try { const r = await fetch('daten/leuchttuerme.json?v=1'); const A = r.ok ? await r.json() : [];
+setTimeout(() => lhLoad(), 0);
+function lhLoad() { if (LHP) return LHP; LHP = (async () => { try { const r = await fetch('daten/leuchttuerme.json?v=2'); const A = r.ok ? await r.json() : [];
   LHS = A.map(a => { const m = merc(a[0], a[1]); return { X: m.X, Y: m.Y, H: a[2], ch: a[3], per: a[4], grp: a[5], rng: a[6], cols: a[7], sec: a[8], st: a[9], s: hashStr('lh' + a[0] + ',' + a[1]) }; }); } catch (e) { LHS = []; } })(); return LHP; }
 /* a round tower, slightly tapered, in colour bands; gallery, glass lantern and a cap on top (y from the ground, lifted with the terrain) */
+/* the footprint that is the lighthouse: the one under the point or the nearest within 15 m, under 400 m² (Helgoland: point beside the
+   square tower, Westerhever: LoD2 cylinder) */
+function lhFp(x, z) { let f = fpAt(x, z); if (f && f.p && Math.abs(ringArea(f.p)) < 400) return f; if (f) return null;
+  for (const d of [4, 8, 12, 15]) for (let a = 0; a < 16; a++) { const q = fpAt(x + Math.cos(a / 16 * 6.2832) * d, z + Math.sin(a / 16 * 6.2832) * d); if (q && q.p && Math.abs(ringArea(q.p)) < 400) return q; } return null; }
 function lhTower(G, x, z, y0, H, r0, cols, cap) {
   const N = 12, r1 = r0 * .64, nb = cols.length, P = (a, r, y) => [x + Math.cos(a) * r, y, z + Math.sin(a) * r];
   const ring = (ra, rb, ya, yb, col, n) => { for (let k = 0; k < n; k++) { const a0 = k / n * 6.2832, a1 = (k + 1) / n * 6.2832, am = (a0 + a1) / 2;
@@ -2163,6 +2169,10 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (it.btype === 4 && ar > 250 && it.h < 25) it.hall = true; /* Runde 240: sports, riding, ice halls from OSM */
       if (!it.util && !it.landmark && !(it.year && it.year < 1950) && !it.btype && !(it.levels > 3) && ((ar > 1200 && it.h < 16) || (ind && ar > 250 && it.h < 22))) it.hall = true; // listed or old warehouses are no sheet-metal halls (Hamburg Speicherstadt)
     }
+    if (WELT === 'heute' && LHS) for (const L of LHS) { const x = lx(L.X), z = lz(L.Y); let best = null, bd = 15; /* Runde 244: the footprint under the lighthouse point, or the nearest one within 15 m (under 400 m²), is drawn as the tower */
+      for (const it of items) { if (x < it.minx - 15 || x > it.maxx + 15 || z < it.minz - 15 || z > it.maxz + 15 || Math.abs(ringArea(it.p)) >= 400) continue; if (inPoly(x, z, it.p)) { best = it; break; }
+        let cx = 0, cz = 0; for (let i = 0; i < it.p.length; i += 2) { cx += it.p[i]; cz += it.p[i + 1]; } const d = Math.hypot(cx / (it.p.length / 2) - x, cz / (it.p.length / 2) - z); if (d < bd) { bd = d; best = it; } }
+      if (best) best.lh = true; }
     if (WELT !== 'heute') { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0); weltBauten(items.filter(it => it.minH < 2), map.roads, collide, map, plazaPolys, [Math.min(c0[0], c1[0]), Math.min(c0[1], c1[1]), Math.max(c0[0], c1[0]), Math.max(c0[1], c1[1])], (x, z) => waterRings.some(q => inPoly(x, z, q))); gRemove(fpgrid, i => i.tile === tkey); fpItems = []; }
     else for (const it of items) {
       const { poly, p: outer, minH, wallTag } = it; let H = it.h;
@@ -2409,6 +2419,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (pt.hid) continue;
       if (pt.x < bx0 || pt.x >= bx1 || pt.z < bz0 || pt.z >= bz1 || pt.h - pt.mh < 0.3) continue;
       if (sRects.length && sRects.some(r => SONDER.inRect(pt.x, pt.z, r))) continue; // Runde 206: a landmark model stands here
+      if (LHS && LHS.some(L => { const d = Math.hypot(lx(L.X) - pt.x, lz(L.Y) - pt.z); return d < 7 || (d < 15 && pt.h > 20); })) continue; /* Runde 244: lighthouse parts (Westerhever, Norderney) - the tower model stands here */
       if (pt.mh >= 2 && !pt.fChk) { pt.fChk = 1; if (pt.p) floatFix(pt, [osm.parts, fpItems], map.roads); } // Runde 136: a raised part with nothing under it
       // building type: from the footprint, else from the nearest OSM building with a type (outlines of buildings in parts are
       // hidden in the map tiles, so the parts often have no footprint of their own)
@@ -2451,15 +2462,17 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const lights = [];
   if (WELT === 'heute' && LHS) { const TBl = ground.tileBox;
     for (const L of LHS) { const x = lx(L.X), z = lz(L.Y); if (TBl && (x < TBl[0] || x > TBl[2] || z < TBl[1] || z > TBl[3])) continue;
-      const fp = fpAt(x, z), fa = fp && fp.p ? Math.abs(ringArea(fp.p)) : 0, onRoof = fa >= 150, base = onRoof ? (fp.h || 0) : 0, H = onRoof ? Math.min(L.H, 12) : L.H;
-      const r0 = Math.max(H > 25 ? 3 + H * .045 : 1.2 + H * .09, fa && !onRoof ? Math.sqrt(fa / Math.PI) + .3 : 0);
+      let fp = lhFp(x, z), fa = 0, x0 = x, z0 = z; const big = fp ? null : fpAt(x, z), onRoof = !!big, base = onRoof ? (big.h || 0) : 0;
+      if (fp) { fa = Math.abs(ringArea(fp.p)); let sx = 0, sz = 0; for (let i = 0; i < fp.p.length; i += 2) { sx += fp.p[i]; sz += fp.p[i + 1]; } x0 = sx / (fp.p.length / 2); z0 = sz / (fp.p.length / 2); }
+      const H = onRoof ? Math.min(L.H, 12) : fp ? Math.max(L.H, Math.min(70, (fp.h || 0) - 3)) : L.H;
+      const r0 = Math.max(H > 25 ? 3 + H * .045 : 1.2 + H * .09, fa ? Math.min(9, Math.sqrt(fa / Math.PI)) : 0);
       const RED = '#c8302a', WH = '#f2f0ea', s = L.s; let cols = L.cols.length ? L.cols : null;
       if (!cols) cols = L.st && s < .5 ? ['#9c4a32'] : s < .55 ? (H > 20 ? [RED, WH, RED, WH, RED, WH] : [RED, WH, RED, WH]) : s < .8 ? [WH, WH, WH, RED] : ['#a9a49a'];
       const cap = hex(cols.includes(RED) || s > .7 ? '#a8281f' : '#2f4a3e');
-      const yl = lhTower(ground, x, z, base, H, r0, cols.map(hex), cap);
-      const yb = TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0;
-      if (!fp) { const R = []; for (let k = 0; k < 8; k++) R.push(x + Math.cos(k / 8 * 6.2832) * r0, z + Math.sin(k / 8 * 6.2832) * r0); collide.push(8, yb + H, yb - 1, ...R); }
-      lights.push({ x, z, y: yb + yl, H, ch: L.ch, per: L.per, grp: L.grp, rng: L.rng, sec: L.sec, s }); } }
+      const yl = lhTower(ground, x0, z0, base, H, r0, cols.map(hex), cap);
+      const yb = TERRAIN_ON ? dzLift(x0, z0, hAt(x0, z0)) : 0;
+      if (!fp && !onRoof) { const R = []; for (let k = 0; k < 8; k++) R.push(x0 + Math.cos(k / 8 * 6.2832) * r0, z0 + Math.sin(k / 8 * 6.2832) * r0); collide.push(8, yb + H, yb - 1, ...R); }
+      lights.push({ x: x0, z: z0, y: yb + yl, H, ch: L.ch, per: L.per, grp: L.grp, rng: L.rng, sec: L.sec, s }); } }
   // petrol stations (map POI 'fuel'): canopy on pillars, pump islands, price pylon at the road – recognisable at a glance
   { const L = layers.poi; if (L) { const toP = mk(L.extent || ext0), done = [];
     for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1 || f.props.class !== 'fuel') continue;
@@ -3369,12 +3382,21 @@ function blockGroups(d, prev) {
       if (cov[g] / cn[g] >= .5 && above > 2 * Math.max(oh[g], 6) && flatA > .7 * allA) { set.add(g); tris.set(g, t); if (!prev || !prev.has(g)) post({ type: 'info', msg: 'LoD2 im Burggelände ersetzt: ' + above.toFixed(0) + ' m über Kuppe (OSM ' + oh[g].toFixed(0) + ' m, Abdeckung ' + Math.round(cov[g] / cn[g] * 100) + ' %)' }); }
     }
   }
+  /* Runde 244: a LoD2 building of at most 60 m whose extent (all its surfaces, also towers without a roof surface like Norderney) holds a
+     lighthouse point gives way to the tower model */
+  if (LHS && LHS.length) { const ng = d.ng, x0 = new Float32Array(ng).fill(1e9), x1 = new Float32Array(ng).fill(-1e9), z0 = new Float32Array(ng).fill(1e9), z1 = new Float32Array(ng).fill(-1e9);
+    for (let k = 0; k < P.length / 3; k++) { const g = d.grp[d.bid[k]], x = P[k * 3], z = P[k * 3 + 2]; if (x < x0[g]) x0[g] = x; if (x > x1[g]) x1[g] = x; if (z < z0[g]) z0[g] = z; if (z > z1[g]) z1[g] = z; }
+    const pts = LHS.map(L => [lx(L.X), lz(L.Y)]);
+    for (let g = 0; g < ng; g++) { if (set.has(g) || x1[g] < x0[g] || x1[g] - x0[g] > 60 || z1[g] - z0[g] > 60) continue;
+      if (pts.some(([x, z]) => x > x0[g] - 3 && x < x1[g] + 3 && z > z0[g] - 3 && z < z1[g] + 3)) { set.add(g); tris.set(g, all.get(g) || []); } } }
   /* Runde 238: some LoD2 models hold churches and castles as flat-topped blocks (Bardowick, Petruskirche). Where OSM has a church or
      castle footprint under a flat LoD2 top, it is drawn from OSM (with gable roof and tower) instead. */
   for (const [g, t] of all) { if (set.has(g)) continue;
     let sx = 0, sz = 0, flatA = 0, allA = 0; for (let k = 0; k < t.length; k += 7) { const ar = Math.abs((t[k + 2] - t[k]) * (t[k + 5] - t[k + 1]) - (t[k + 4] - t[k]) * (t[k + 3] - t[k + 1])) / 2; allA += ar; sx += (t[k] + t[k + 2] + t[k + 4]) / 3 * ar; sz += (t[k + 1] + t[k + 3] + t[k + 5]) / 3 * ar; if (t[k + 6] > top[g] - 1) flatA += ar; }
-    if (allA < 60) continue;
-    const fp = fpAt(sx / allA, sz / allA); if (!fp || !(fp.btype === 7 || ((fp.btype === 1 || (fp.btype === 4 && fp.hall)) && flatA >= 0.85 * allA))) continue; /* Runde 242: flat LoD2 sports halls -> hall model (skylights, barrel) */ /* castles keep LoD2: OSM often lacks their height (Montfort became a stump) */ // ruins: always from OSM (open walls)
+    if (LHS && allA > 0 && allA < 3000) { const gx = sx / allA, gz = sz / allA; /* Runde 244: a LoD2 lighthouse (also joined with its keeper's house, Norderney) gives way to the tower model; the rest comes from OSM */
+      if (LHS.some(L => { const x = lx(L.X), z = lz(L.Y); if (Math.abs(x - gx) > 60 || Math.abs(z - gz) > 60) return false; if (Math.hypot(x - gx, z - gz) < 15) return true; for (let k = 0; k < t.length; k += 7) if (inTri(x, z, t, k)) return true; return false; })) { set.add(g); tris.set(g, t); continue; } }
+    if (allA < 10) continue;
+    const fp = fpAt(sx / allA, sz / allA); if (!fp || (allA < 60 && !fp.lh) || !(fp.lh || fp.btype === 7 || ((fp.btype === 1 || (fp.btype === 4 && fp.hall)) && flatA >= 0.85 * allA))) continue; /* Runde 242: flat LoD2 sports halls -> hall model (skylights, barrel) */ /* castles keep LoD2: OSM often lacks their height (Montfort became a stump) */ // ruins: always from OSM (open walls)
     set.add(g); tris.set(g, t); if (!prev || !prev.has(g)) post({ type: 'info', msg: 'LoD2-Flachblock ' + (fp.btype === 1 ? 'Kirche' : 'Burg') + ' durch OSM ersetzt: ' + allA.toFixed(0) + ' m²' }); }
   for (const [g, t] of all) {
     if (top[g] < 12 || set.has(g)) continue;
