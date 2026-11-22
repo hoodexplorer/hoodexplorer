@@ -268,7 +268,7 @@ const RECENT = { get: () => (store.get('hx.recent') || []).filter(r => r && r.na
   pend: null };
 function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); if (!a.length) return; // Runde 234: no heading line
   for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
-  const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Liste leeren'; c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
+  const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Zuletzt Besucht leeren'; // Runde 235 c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
 function recentOn(inp, box, pick) { const f = () => { if (!inp.value.trim()) showRecent(box, pick); }; inp.addEventListener('focus', f); inp.addEventListener('input', f);
   /* Runde 232/233: an x at the right end of the field empties it (only shown while there is text), then the recent places show */
   const w = document.createElement('span'); w.className = 'pwrap'; inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
