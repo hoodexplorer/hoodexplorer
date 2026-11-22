@@ -149,7 +149,7 @@ function makeSpriteAtlas() {
   function plant(flowers, leaf) { const L = P(leaf || ['#2c4a26', '#3a5e30', '#4f7a3a', '#6a9a48']);
     for (let i = 0; i < 46; i++) { const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()), x = 24 + Math.cos(a) * r * 15, y = 30 + Math.sin(a) * r * 11; disc(x, y, 2 + (rnd() < .4 ? 1 : 0), L[(rnd() * 4) | 0]); }
     for (let i = 0; i < 16; i++) { const x = 12 + rnd() * 24, y0 = 36 + rnd() * 4, h = 3 + rnd() * 6; for (let k = 0; k < h; k++) put(x + (rnd() - .5), y0 + k, L[(rnd() * 3) | 0]); } // ragged foot: single blades
-    if (flowers) for (let i = 0; i < 22; i++) { const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()), x = 24 + Math.cos(a) * r * 13, y = 27 + Math.sin(a) * r * 8 - 2; const c = hx(flowers[(rnd() * flowers.length) | 0]); disc(x, y, 1, c); put(x, y, hx('#fff6c8')); } }
+    if (flowers) for (let i = 0; i < 11; i++) { const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()), x = 24 + Math.cos(a) * r * 13, y = 26 + Math.sin(a) * r * 9 - 2; const c = hx(flowers[(rnd() * flowers.length) | 0]); disc(x, y, 3, c); disc(x - 1, y - 1, 1, c.map(v => Math.min(255, v + 45))); put(x, y, hx('#fff2a0')); } } // Runde 214: few big blossoms - they must read at pixel size 2-3
   /* Runde 210: cemetery sprites - 42 grave light (red glass lantern with a flame; the flame glows at night), 43 grave planting
      (low heather/pansies/begonias in a mound), 44 small evergreen (boxwood ball or little thuja) */
   while (draw.length < 42) draw.push(null);

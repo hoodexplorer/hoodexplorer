@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=652'); importScripts('sonderbau.js?v=652'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=653'); importScripts('sonderbau.js?v=653'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2350,7 +2350,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           /* Runde 210: planting and grave lights as sprites (one quad each, drawn with all the other sprites of the tile) */
           const sp = (sx, sz, w, h, t) => ground.spr.push(sx, sz, w, h, t, sprY(sx, sz, R()));
           if (R() < .7) { const np = 2 + ((R() * 4) | 0), kind = [43, 45, 46, 47][(R() * 4) | 0]; // Runde 211: several single plants scattered on the bed
-            for (let q2 = 0; q2 < np; q2++) { const pu = (R() - .5) * (w - .2), pv = -.1 + R() * .85, s2 = .36 + R() * .24; sp(x + ux * pu + vx * pv, z + uz * pu + vz * pv, s2, s2 * (.8 + R() * .3), R() < .7 ? kind : [43, 45, 46, 47][(R() * 4) | 0]); } }
+            for (let q2 = 0; q2 < np; q2++) { const pu = (R() - .5) * (w - .2), pv = -.1 + R() * .85, s2 = .5 + R() * .3; sp(x + ux * pu + vx * pv, z + uz * pu + vz * pv, s2, s2 * (.8 + R() * .3), R() < .7 ? kind : [43, 45, 46, 47][(R() * 4) | 0]); } }
           if (R() < .22) sp(hx + vx * .3 - ux * w * .35, hz + vz * .3 - uz * w * .35, .55, .7 + R() * .25, 44); // small evergreen beside the stone
           if (R() < .3) sp(hx + vx * .28 + ux * .28, hz + vz * .28 + uz * .28, .2, .32, 42);  // grave light (flame glows at night)
           roadCells.add(rc(x, z)); n++; used++; placed++; }
@@ -2365,7 +2365,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   { const TBm = ground.tileBox, CAPM = 650; let nm = 0;
     const h2 = (a, b) => { let x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); };
     const ok = (x, z, q) => (!TBm || (x >= TBm[0] && x <= TBm[2] && z >= TBm[1] && z <= TBm[3])) && inPoly(x, z, q) && !fpAt(x, z) && !roadCells.has(rc(x, z));
-    const plant = (x, z, kind) => { const s = (kind === 46 ? .45 : .36) + h2(x, z) * .26; ground.spr.push(x, z, s, s * (.85 + h2(z, x) * .3), kind, sprY(x, z, h2(x * 3, z))); nm++; };
+    const plant = (x, z, kind) => { const s = (kind === 46 ? .75 : .8) + h2(x, z) * .45; /* Runde 214: oversized like the other props, else invisible at pixel size 2 */ ground.spr.push(x, z, s, s * (.85 + h2(z, x) * .3), kind, sprY(x, z, h2(x * 3, z))); nm++; };
     for (const q of meadowPolys) { if (nm >= CAPM) break; const bb = bbox(q), ar = Math.abs(ringArea(q)); if (ar < 120) continue;
       let nc = Math.max(1, Math.round(ar / (h2(bb.minx, bb.minz) < .5 ? 300 : 700)));                       // some parks lusher than others
       for (let c = 0; c < nc * 3 && nm < CAPM; c++) { const cx = bb.minx + h2(c, bb.minx) * (bb.maxx - bb.minx), cz = bb.minz + h2(bb.minz, c + .5) * (bb.maxz - bb.minz);
