@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=667' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=668' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1529,14 +1529,14 @@ PLOT_MAT.onBeforeCompile = sh => {
    edge and ends (pixels cut away), bare stems at the foot, light from above on the top, slow bulges along the hedge. */
 const HEDGE_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
 HEDGE_MAT.onBeforeCompile = sh => {
-  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aKind; varying vec3 vHW, vHL, vHS; varying float vHK, vHN;').replace('#include <begin_vertex>', `#include <begin_vertex>
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aKind, aEnd; varying vec3 vHW, vHL, vHS; varying float vHK, vHN, vHE;').replace('#include <begin_vertex>', `#include <begin_vertex>
     { vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vHW = w.xyz - normalize(mat3(modelMatrix * instanceMatrix) * normal) * .05;
-      vHS = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vHL = position * vHS; vHK = aKind; vHN = normal.y; }`);
-  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHW, vHL, vHS; varying float vHK, vHN;\nfloat hxH(vec3 p) { return fract(sin(dot(p, vec3(12.9, 78.2, 37.7))) * 43758.5); }').replace('#include <color_fragment>', `#include <color_fragment>
+      vHS = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vHL = position * vHS; vHK = aKind; vHN = normal.y; vHE = aEnd; }`);
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHW, vHL, vHS; varying float vHK, vHN, vHE;\nfloat hxH(vec3 p) { return fract(sin(dot(p, vec3(12.9, 78.2, 37.7))) * 43758.5); }').replace('#include <color_fragment>', `#include <color_fragment>
     { float k = vHK, sc = k < .5 ? 5.0 : k < 1.5 ? 7.5 : k < 2.5 ? 6.0 : k < 3.5 ? 4.5 : k < 4.5 ? 8.0 : 5.0;
       vec3 cell = k > 1.5 && k < 2.5 ? floor(vec3(vHW.x * sc, vHW.y * sc * .3, vHW.z * sc)) : floor(vHW * sc);   // thuja: upright streaks
       float n = hxH(cell), m = hxH(floor(vHW * 1.3) + 3.1), col = hxH(vec3(floor(vHW.xz * sc), 7.0));
-      float top = vHS.y - vHL.y, endD = vHS.x * .5 - abs(vHL.x);
+      float top = vHS.y - vHL.y, isEnd = vHL.x < 0.0 ? mod(vHE, 2.0) : step(1.5, vHE), endD = isEnd > .5 ? vHS.x * .5 - abs(vHL.x) : 9.0; // Runde 225: ragged only at the real ends
       if (vHN < .5 && top < .14 * col) discard;                                                   // ragged top edge
       if (vHN > .5 && min(vHS.z * .5 - abs(vHL.z), endD) < .1 * col) discard;
       if (endD < .1 * hxH(vec3(floor(vHL.yz * sc), 2.0))) discard;                               // ragged ends
@@ -1550,14 +1550,14 @@ HEDGE_MAT.onBeforeCompile = sh => {
 };
 function addHedges(key, g) {
   dropChunks(key + ':heck'); if (!g || !g.length) return;
-  const cells = new Map(); for (let i = 0; i < g.length; i += 9) { const k = Math.floor(g[i] / 40) * 100003 + Math.floor(g[i + 2] / 40); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
+  const cells = new Map(); for (let i = 0; i < g.length; i += 10) { const k = Math.floor(g[i] / 40) * 100003 + Math.floor(g[i + 2] / 40); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), C = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0), keys = [];
   const HCOL = [[.26, .42, .18], [.12, .25, .13], [.33, .45, .15], [.36, .17, .15], [.3, .48, .22], [.3, .38, .16]];
   const HK2 = key + ':heck', gen = CHGEN.get(HK2); CHUNKS.set(HK2, keys);
-  for (const list of cells.values()) JOBQ[2].push(() => { if (CHGEN.get(HK2) !== gen) return; const geo = GRAVE_BOX.clone(), ak = new Float32Array(list.length); geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(ak, 1));
+  for (const list of cells.values()) JOBQ[2].push(() => { if (CHGEN.get(HK2) !== gen) return; const geo = GRAVE_BOX.clone(), ak = new Float32Array(list.length), ae = new Float32Array(list.length); geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(ak, 1)); geo.setAttribute('aEnd', new THREE.InstancedBufferAttribute(ae, 1));
     const m = new THREE.InstancedMesh(geo, HEDGE_MAT, list.length); m.frustumCulled = false; m.matrixAutoUpdate = false; let cx = 0, cz = 0;
     list.forEach((i, j) => { const x = g[i], y = g[i + 1], z = g[i + 2]; cx += x; cz += z; Q.setFromAxisAngle(Y, Math.atan2(-g[i + 4], g[i + 3])); M.compose(V.set(x, y - .3, z), Q, S.set(g[i + 5], g[i + 7] + .3, g[i + 6])); m.setMatrixAt(j, M);
-      const r = Math.abs(Math.sin(x * 12.9 + z * 78.2)) % 1, kk = g[i + 8] | 0, hc = HCOL[kk] || HCOL[0]; ak[j] = kk; m.setColorAt(j, C.setRGB(hc[0] * (.94 + r * .12), hc[1] * (.94 + r * .12), hc[2] * (.94 + r * .12))); });
+      const r = Math.abs(Math.sin(x * 12.9 + z * 78.2)) % 1, kk = g[i + 8] | 0, hc = HCOL[kk] || HCOL[0]; ak[j] = kk; ae[j] = g[i + 9]; m.setColorAt(j, C.setRGB(hc[0] * (.94 + r * .12), hc[1] * (.94 + r * .12), hc[2] * (.94 + r * .12))); });
     m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
     m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx / list.length, g[list[0] + 1], cz / list.length), 32); m.userData.maxD = 320;
     const k = key + ':heck#' + keys.length; scene.add(m); meshes.set(k, m); keys.push(k); });
@@ -1710,7 +1710,7 @@ function drawTileMap(md, sc) {
   g.lineCap = 'round'; g.lineJoin = 'round';
   for (const r of md.roads) { g.strokeStyle = r.k === 'r' ? '#6b6258' : r.k === 'p' ? '#b8a888' : '#e2d4ad'; g.lineWidth = Math.max(1, r.w * MS * 1.4); g.beginPath(); path(r.p); g.stroke(); }
   if (md.graves) { g.fillStyle = '#9fa592'; const gs = Math.max(1, 2 * MS); for (let i = 0; i < md.graves.length; i += 12) g.fillRect(X(md.graves[i]) - gs / 2, Y(md.graves[i + 2]) - gs / 2, gs, gs); } // Runde 221: grave fields
-  if (md.hedges) { g.strokeStyle = '#1f3a1c'; g.lineCap = 'butt'; const h = md.hedges; for (let i = 0; i < h.length; i += 9) { g.lineWidth = Math.max(1.2, h[i + 6] * MS * 1.6); const dx = h[i + 3] * h[i + 5] / 2, dz = h[i + 4] * h[i + 5] / 2;
+  if (md.hedges) { g.strokeStyle = '#1f3a1c'; g.lineCap = 'butt'; const h = md.hedges; for (let i = 0; i < h.length; i += 10) { g.lineWidth = Math.max(1.2, h[i + 6] * MS * 1.6); const dx = h[i + 3] * h[i + 5] / 2, dz = h[i + 4] * h[i + 5] / 2;
     g.beginPath(); g.moveTo(X(h[i] - dx), Y(h[i + 2] - dz)); g.lineTo(X(h[i] + dx), Y(h[i + 2] + dz)); g.stroke(); } g.lineCap = 'round'; } // hedges, so one finds the way through
   g.fillStyle = '#8a7462'; for (const bl of md.blds) { g.beginPath(); path(bl); g.closePath(); g.fill(); }
   return { cv, x0: a, z0: c, s: MS };

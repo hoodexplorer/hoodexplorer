@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=667'); importScripts('sonderbau.js?v=667'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=668'); importScripts('sonderbau.js?v=668'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2392,9 +2392,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
          instanced boxes with a leaf shader, solid for the figure. Only inside the cemetery, never on a road. */
       let HK = 0; // Runde 223: kind of hedge (0 hornbeam, 1 yew, 2 thuja, 3 copper beech, 4 privet, 5 hornbeam in autumn)
       const hedge = (u0, v0, u1, v1, h, th) => { const L = Math.hypot(u1 - u0, v1 - v0); if (L < 1) return; const n = Math.ceil(L / 6);
-        for (let i = 0; i < n; i++) { const a = (i + .5) / n, [x, z] = W2(u0 + (u1 - u0) * a, v0 + (v1 - v0) * a), du = (u1 - u0) / L, dv = (v1 - v0) / L, hx = du * ux + dv * vx, hz = du * uz + dv * vz, l = L / n + .05;
-          if (!inside(x, z) || nearRoad(x, z) || !inside(x + hx * l / 2, z + hz * l / 2) || !inside(x - hx * l / 2, z - hz * l / 2)) continue;
-          HG.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, hx, hz, l, th, h + R() * .15, HK); solid(x, z, l, th, h, [hx, hz], [-hz, hx], 1); roadCells.add(rc(x, z)); } };
+        /* Runde 225 (phone test: hedges open at the joints): the pieces overlap by 30 cm, one height for the whole hedge, and only the real
+           ends of a hedge (start, end, beside a gap) get the ragged end in the shader (flag: 1 = start side, 2 = end side) */
+        const hh = h + R() * .15, ok = [];
+        for (let i = 0; i < n; i++) { const a = (i + .5) / n, [x, z] = W2(u0 + (u1 - u0) * a, v0 + (v1 - v0) * a), du = (u1 - u0) / L, dv = (v1 - v0) / L, hx = du * ux + dv * vx, hz = du * uz + dv * vz, l = L / n;
+          ok.push(inside(x, z) && !nearRoad(x, z) && inside(x + hx * l / 2, z + hz * l / 2) && inside(x - hx * l / 2, z - hz * l / 2) ? [x, z, hx, hz, l] : null); }
+        for (let i = 0; i < n; i++) { const p = ok[i]; if (!p) continue; const [x, z, hx, hz, l] = p, ends = (i === 0 || !ok[i - 1] ? 1 : 0) | (i === n - 1 || !ok[i + 1] ? 2 : 0);
+          const L2 = l + (ends & 1 ? 0 : .3) + (ends & 2 ? 0 : .3), sh = ((ends & 2 ? 0 : .15) - (ends & 1 ? 0 : .15)), xc = x + hx * sh, zc = z + hz * sh;
+          HG.push(xc, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, zc, hx, hz, L2, th, hh, HK, ends); solid(xc, zc, L2, th, h, [hx, hz], [-hz, hx], 1); roadCells.add(rc(x, z)); } };
       const side = (u0, v0, u1, v1, h, th) => { if (R() < .15) return; const L = Math.hypot(u1 - u0, v1 - v0), g0 = .2 + R() * .6, gw = 3.2 / L; // one opening of 3.2 m somewhere along it
         hedge(u0, v0, u0 + (u1 - u0) * g0, v0 + (v1 - v0) * g0, h, th); hedge(u0 + (u1 - u0) * (g0 + gw), v0 + (v1 - v0) * (g0 + gw), u1, v1, h, th); };
       // a chapel for big cemeteries with no building at all inside (otherwise the mapped chapel or hall is there already)
@@ -2463,7 +2468,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
              a low hedge along the path, or none. Mostly taller than the figure; never closed all round. */
           { const r = R(); HK = r < .3 ? 0 : r < .55 ? 1 : r < .75 ? 2 : r < .81 ? 3 : r < .93 ? 4 : 5; }
           const s = R(), tall = R() < .8, H = tall ? 2.3 + R() * .7 : 1.2 + R() * .3, th = tall ? .9 : .6, U1 = bu + BU * PW, V1 = bv + BV * RW;
-          if (s < .42 && !spec && !turn) { hedge(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); for (const j of [2, 4]) if (R() < .85) hedge(bu - .4, bv + j * RW, U1 + .4, bv + j * RW, H, th); }
+          if (s < .42 && !spec && !turn) { hedge(bu - .4 - (R() < .45 ? 2.6 : 0), bv - .6, U1 + .4 + (R() < .45 ? 2.6 : 0), bv - .6, H, th); /* Runde 225: may run on across the walkway and meet the neighbour's */ for (const j of [2, 4]) if (R() < .85) hedge(bu - .4, bv + j * RW, U1 + .4, bv + j * RW, H, th); }
           else if (s < .74) { side(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); side(bu - .4, V1 + .6, U1 + .4, V1 + .6, H, th); side(bu - 1.2, bv - .2, bu - 1.2, V1 + .2, H, th); side(U1 + 1.2, bv - .2, U1 + 1.2, V1 + .2, H, th); }
           else if (s < .88) hedge(bu - .4, bv - .6, U1 + .4, bv - .6, 1.1, .6); } }
       map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
