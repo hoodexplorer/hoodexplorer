@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=765'); importScripts('sonderbau.js?v=765'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=768'); importScripts('sonderbau.js?v=768'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2616,7 +2616,15 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           for (const sd of [-1, 1]) { const [px, pz] = at(sd * (Math.min(Lg * .8, 10) / 2 - .3), 2.5); obox2(ground, px, 0, pz, .15, 2.35, .15, ux, uz, DARK, true); } }
         { const [sx, sz] = at(0, o + (kind === 'H' ? .02 : 0)); obox2(ground, sx, y0, sz, sw, sh, .12, ux, uz, kind === 'P' ? BLUE : kind === 'H' ? RED : WHITE, true);
           const pw = Math.min(.13, sw * .9 / pxRuns(word).W); pxWall(ground, word, sx + nx * .06, y0 + sh / 2, sz + nz * .06, nz, -nx, nx, nz, pw, kind === 'F' ? RED : WHITE); /* reading direction: to the right of someone facing the wall */
-          if (kind === 'P') { const [qx, qz] = at(-sw / 2 + .45, o + .1); obox2(ground, qx, y0 + .2, qz, .4, .4, .05, ux, uz, hex('#f2c230'), true); } }
+          if (kind === 'P') { const [qx, qz] = at(-sw / 2 + .45, o + .1); obox2(ground, qx, y0 + .2, qz, .4, .4, .05, ux, uz, hex('#f2c230'), true); }
+          /* Runde 251 (Nutzer: readable from the 3rd person view): beside the sign a short blade sign sticks out into the street, symbol on both
+             faces - fire station: white flame on red, police: white star on blue, hospital: red cross on white; 1.4 m panel from 2.6 m (fire station 3.5 m) on an arm, 1.7 m out */
+          { let bu = sw / 2 + 1.0; if (bu > Lg / 2 - .4) bu = -bu; if (Math.abs(bu) <= Lg / 2 - .4) { const [bx, bz] = at(bu, o), by = Math.max(2.6, y0), bg = kind === 'F' ? hex('#c9302c') : kind === 'P' ? BLUE : WHITE, fg = kind === 'H' ? RED : WHITE;
+              const SYM = kind === 'F' ? ['00100', '01100', '01110', '11111', '01110'] : kind === 'P' ? ['00100', '11111', '01110', '01010', '10001'] : ['00100', '00100', '11111', '00100', '00100'];
+              obox2(ground, bx + nx * .85, by + 1.45, bz + nz * .85, 1.7, .08, .08, nx, nz, DARK, true); const cx = bx + nx * 1.0, cz = bz + nz * 1.0;
+              obox2(ground, cx, by, cz, 1.4, 1.4, .1, nx, nz, bg, true); if (kind === 'H') obox2(ground, cx, by - .03, cz, 1.46, 1.46, .08, nx, nz, RED, true);
+              const pw = .24; for (let r2 = 0; r2 < 5; r2++) for (let c2 = 0; c2 < 5; c2++) { if (SYM[r2][c2] !== '1') continue; const t = (c2 - 2) * pw, yy = by + .7 + (2 - r2) * pw - pw / 2;
+                for (const sd of [-1, 1]) obox2(ground, cx + nx * t + ux * sd * .065, yy, cz + nz * t + uz * sd * .065, pw, pw, .03, nx, nz, fg, true); } } } }
         /* Runde 250, street variant A: on the lane in front of that wall - fire station: yellow zig-zag (sign 299) and FEUERWEHR, police: bays
            with POLIZEI, hospital: red-edged bay with a white zig-zag and NOTAUFNAHME; no parked cars there */
         if (wi === 0) { let q = null; for (let d = 1; d <= 30 && !q; d += 1) { const x = mx + nx * d, z = mz + nz * d, r = roadAt(x, z); if (r && r[4] >= 5 && Math.hypot(r[0] - x, r[1] - z) < r[4] / 2) q = r; }
