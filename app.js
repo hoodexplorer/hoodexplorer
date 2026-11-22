@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=675' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=676' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -270,9 +270,9 @@ function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); i
   for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
   const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Liste leeren'; c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
 function recentOn(inp, box, pick) { const f = () => { if (!inp.value.trim()) showRecent(box, pick); }; inp.addEventListener('focus', f); inp.addEventListener('input', f);
-  /* Runde 232: an x at the front of the field empties it (only shown while there is text), then the recent places show */
+  /* Runde 232/233: an x at the right end of the field empties it (only shown while there is text), then the recent places show */
   const w = document.createElement('span'); w.className = 'pwrap'; inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
-  const x = document.createElement('button'); x.type = 'button'; x.className = 'pclr'; x.setAttribute('aria-label', 'Suchfeld leeren'); x.textContent = '×'; w.insertBefore(x, inp);
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'pclr'; x.setAttribute('aria-label', 'Suchfeld leeren'); x.textContent = '×'; w.appendChild(x); // Runde 233: right end of the field
   const upd = () => w.classList.toggle('has', !!inp.value); inp.addEventListener('input', upd); upd();
   x.addEventListener('pointerdown', e => e.preventDefault()); // keep the keyboard open
   x.addEventListener('click', () => { inp.value = ''; upd(); inp.focus(); showRecent(box, pick); }); }

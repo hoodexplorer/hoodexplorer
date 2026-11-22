@@ -322,9 +322,9 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .tog[hidden]{display:none}
 /* Runde 229: recent searches */
 .pclear{opacity:.65;font-size:12px}
-/* Runde 232: clear button at the front of the search fields */
+/* Runde 232/233: clear button inside the search fields, at the right end (as Google/Apple maps do) */
 .pwrap{position:relative;flex:1;min-width:0;display:flex}
 .pwrap .pin{flex:1;min-width:0}
-.pwrap.has .pin{padding-left:38px}
-.pclr{display:none;position:absolute;left:4px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:0;border-radius:50%;background:#2a3346;color:var(--ink);font-size:20px;line-height:30px;padding:0;cursor:pointer;z-index:1}
+.pwrap.has .pin{padding-right:38px}
+.pclr{display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:0;border-radius:50%;background:#2a3346;color:var(--ink);font-size:20px;line-height:30px;padding:0;cursor:pointer;z-index:1}
 .pwrap.has .pclr{display:block}
