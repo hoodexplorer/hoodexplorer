@@ -214,6 +214,10 @@ const spriteMat = new THREE.ShaderMaterial({
       // vertex bending: the foot stands upright, only the upper part leans towards the isometric camera,
       // so trees don't poke into houses behind them (in the street view uUp is vertical and nothing bends)
       float hs = 1.0; if (vPerson > 0.5) { float r = fract(sin(seed * 91.7) * 4375.85); hs = r > 0.9 ? 0.66 : 0.9 + 0.16 * fract(r * 13.7); } // people: own height, now and then a child
+      /* Runde 212 (foliage trick, scaled + fewer): small plants and grave lights thin out with distance - from 22 m only a share is drawn
+         (by the instance's own hash, so always the same ones), the rest grow a little so the bed looks as full; beyond 80 m none */
+      if (iB.x > 41.5 && iB.x < 47.5) { float dc = isOrthographic ? 30.0 : distance(cameraPosition.xz, vec2(iA.x, iA.y)), keep = 1.0 - smoothstep(22.0, 80.0, dc) * 0.85;
+        if (fract(seed * 7.13 + iA.x * .37) > keep || dc > 80.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; } hs *= min(1.8, inversesqrt(max(keep, .3))); }
       vec3 p = vec3(iA.x, y0, iA.y) + uRight * ((position.x + sway) * iA.z * hs) + vec3(0.0, h * iA.w * hs, 0.0) + (uUp - vec3(0.0, 1.0, 0.0)) * (h * h * iA.w * hs);
       vMirror = 0.0;
       if (abs(iB.x - 28.0) < 0.5) { p.x += sin(uTime * .13 + seed * 40.0) * 2.5; p.z += cos(uTime * .11 + seed * 31.0) * 2.5; p.y += sin(uTime * 2.0 + seed * 9.0) * .04; // ducks drift about
