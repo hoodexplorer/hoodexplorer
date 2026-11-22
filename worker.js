@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=666'); importScripts('sonderbau.js?v=666'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=667'); importScripts('sonderbau.js?v=667'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -81,9 +81,12 @@ let dbP = null;
 function db() {
   if (!dbP) dbP = new Promise(res => {
     try {
-      const r = indexedDB.open('hoodexplorer', 2);
-      r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('files')) d.createObjectStore('files'); };
-      r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null);
+      const r = indexedDB.open('hoodexplorer', 3);
+      r.onupgradeneeded = e => { const d = r.result; if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');
+        /* Runde 224: 'meta' holds time of last use and size per entry, so the cache can be kept small without reading the data itself.
+           Entries from before (no size known) are dropped once - they are fetched again when needed. */
+        if (!d.objectStoreNames.contains('meta')) { d.createObjectStore('meta'); if (e.oldVersion) r.transaction.objectStore('files').clear(); } };
+      r.onsuccess = () => { const d = r.result; d.onversionchange = () => { d.close(); dbP = null; }; res(d); }; r.onerror = () => res(null); r.onblocked = () => res(null); // Runde 224: a newer tab may upgrade
     } catch (e) { res(null); }
     setTimeout(() => res(null), 4000); // Runde 77: a cache that never answers must not stop the loading
   });
@@ -95,12 +98,36 @@ async function cget(k, ttl) {
     setTimeout(() => res(null), 3000); // Runde 77: phone with a full or stuck storage - fetch it from the net instead of waiting for ever
     try {
       const q = d.transaction('files').objectStore('files').get(k);
-      q.onsuccess = () => { const v = q.result; res(v && Date.now() - v.t < (ttl || 14 * 864e5) ? v.d : null); };
+      q.onsuccess = () => { const v = q.result, ok = v && Date.now() - v.t < (ttl || 14 * 864e5); res(ok ? v.d : null); if (ok) touch(k); };
       q.onerror = () => res(null);
     } catch (e) { res(null); }
   });
 }
-async function cput(k, v) { const d = await db(); if (!d) return; try { d.transaction('files', 'readwrite').objectStore('files').put({ t: Date.now(), d: v }, k); } catch (e) { } }
+async function cput(k, v) { const d = await db(); if (!d) return; const s = csize(v);
+  try { const tx = d.transaction(['files', 'meta'], 'readwrite'); tx.objectStore('files').put({ t: Date.now(), d: v }, k); tx.objectStore('meta').put({ t: Date.now(), s }, k);
+    tx.onerror = e => { if (e.target && e.target.error && e.target.error.name === 'QuotaExceededError') tidy(true); };
+    CW += s; if (CW > 25e6) tidy(); } catch (e) { tidy(true); } }
+/* Runde 224: the browser cache is kept small - at most 5 % of what the browser allows this site, between 40 and 250 MB (a phone with
+   little free space gets less). Tidied 20 s after the start and after every 25 MB written (at most every 2 minutes): entries not used
+   for 60 days go, then the longest unused ones until it is under three quarters of the limit. Data only - never anything of the user. */
+let CW = 0, tidyAt = 0, tidyRun = false;
+function csize(v, n = { c: 0 }) { if (v == null) return 8; if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) return v.byteLength; if (typeof v === 'string') return v.length * 2; if (typeof v !== 'object') return 8;
+  if (++n.c > 200000) return 64; let s = 16; if (Array.isArray(v)) for (const x of v) s += csize(x, n); else for (const k in v) s += k.length * 2 + csize(v[k], n); return s; }
+const touched = new Set();
+async function touch(k) { if (touched.has(k)) return; touched.add(k); const d = await db(); if (!d) return; // last use, once per session and entry
+  try { const st = d.transaction('meta', 'readwrite').objectStore('meta'), q = st.get(k); q.onsuccess = () => { if (q.result) st.put({ t: Date.now(), s: q.result.s }, k); }; } catch (e) { } }
+async function tidy(force) {
+  if (tidyRun || (!force && Date.now() - tidyAt < 120000)) return; tidyRun = true; tidyAt = Date.now(); CW = 0;
+  try { const d = await db(); if (!d) return;
+    let quota = 0; try { quota = (await navigator.storage.estimate()).quota || 0; } catch (e) { }
+    const LIMIT = Math.max(40e6, Math.min(250e6, quota ? quota * .05 : 100e6)) * (force ? .6 : 1);
+    const all = await new Promise(res => { const out = []; try { const c = d.transaction('meta').objectStore('meta').openCursor(); c.onsuccess = () => { const r = c.result; if (!r) return res(out); out.push([r.key, r.value.t, r.value.s || 0]); r.continue(); }; c.onerror = () => res(out); } catch (e) { res(out); } });
+    let sum = 0; for (const e of all) sum += e[2]; all.sort((a, b) => a[1] - b[1]);
+    const old = Date.now() - 60 * 864e5, del = [], trim = sum > LIMIT; for (const e of all) if (e[1] < old || (trim && sum > LIMIT * .75)) { del.push(e[0]); sum -= e[2]; }
+    if (del.length) await new Promise(res => { try { const tx = d.transaction(['files', 'meta'], 'readwrite'), f = tx.objectStore('files'), m = tx.objectStore('meta'); for (const k of del) { f.delete(k); m.delete(k); } tx.oncomplete = tx.onerror = tx.onabort = () => res(); } catch (e) { res(); } });
+    post({ type: 'info', msg: 'Cache ' + Math.round(sum / 1e6) + ' MB von ' + Math.round(LIMIT / 1e6) + ' MB, ' + del.length + ' alte Eintraege entfernt' });
+  } catch (e) { } finally { tidyRun = false; } }
+setTimeout(() => tidy(), 20000);
 /* Runde 60 (phone: no streets after walking on, "Lade Daten" for ever): a request that never answers held one of the 3 load slots for
    good - every fetch of the worker gives up after 45 s */
 { const _f = self.fetch.bind(self); self.fetch = (url, opt = {}) => { if (opt.signal || typeof AbortController === 'undefined') return _f(url, opt); const ac = new AbortController(), t = setTimeout(() => ac.abort(), 45000);
@@ -666,7 +693,10 @@ class Geo {
     for (let i = 0; i < P.length; i += 3) { if (P[i] < x0) x0 = P[i]; if (P[i] > x1) x1 = P[i]; if (P[i + 2] < z0) z0 = P[i + 2]; if (P[i + 2] > z1) z1 = P[i + 2]; }
     let lo = Infinity, hi = -Infinity; for (let a = 0; a <= 8; a++) for (let b = 0; b <= 8; b++) { const h = hf(x0 + (x1 - x0) * a / 8, z0 + (z1 - z0) * b / 8); lo = Math.min(lo, h); hi = Math.max(hi, h); }
     const S = this.forceS || (hi - lo < 3 ? 48 : 16), gh = new Map(); this.S = S; // bridges reuse the ground's grid, else deck and road below disagree by decimetres
-    const G = (i, j) => { const k = i * 100003 + j; let h = gh.get(k); if (h === undefined) { h = hf(i * S, j * S); gh.set(k, h); } return h; };
+    /* Runde 224 (loading speed): grid heights in a typed array over this piece (a Map before - millions of lookups per tile); same values */
+    const GI0 = Math.floor(x0 / S) - 3, GJ0 = Math.floor(z0 / S) - 3, GNI = Math.max(1, Math.floor(x1 / S) + 4 - GI0), GNJ = Math.max(1, Math.floor(z1 / S) + 4 - GJ0), GA = GNI * GNJ < 4e6 ? new Float64Array(GNI * GNJ).fill(NaN) : null;
+    const G = (i, j) => { const a = i - GI0, b = j - GJ0; if (GA && a >= 0 && b >= 0 && a < GNI && b < GNJ) { const o = b * GNI + a; let h = GA[o]; if (h !== h) { h = hf(i * S, j * S); GA[o] = h; } return h; }
+      const k = i * 100003 + j; let h = gh.get(k); if (h === undefined) { h = hf(i * S, j * S); gh.set(k, h); } return h; };
     const tH = (x, z) => { // piecewise flat terrain: each grid cell split along the diagonal
       const i = Math.floor(x / S), j = Math.floor(z / S), u = x / S - i, v = z / S - j;
       if (u + v <= 1) { const h00 = G(i, j); return h00 + (G(i + 1, j) - h00) * u + (G(i, j + 1) - h00) * v; }
@@ -815,7 +845,8 @@ class Geo {
       // hillshade in 6 % steps (like the sprite shading); slopes towards the light at most 15 % brighter, away at most 30 % darker
       // hill shading per corner from a smooth terrain normal (phone test: per-triangle steps showed the terrain grid as light and dark
       // triangles across roads and meadows); shared corners get the same value, so the shading runs on without edges
-      const shade = v => { if (this.noShade) return [1, 0, 1, 0];
+      const shade = v => { if (this.noShade) return [1, 0, 1, 0]; return shadeM(v[0], v[2]); };
+      const shade0 = v => { if (this.noShade) return [1, 0, 1, 0];
         const d = S * .5, gx = sH(v[0] + d, v[2]) - sH(v[0] - d, v[2]), gz = sH(v[0], v[2] + d) - sH(v[0], v[2] - d), l2 = Math.hypot(gx, 2 * d, gz);
         const mx = -gx / l2, my = 2 * d / l2, mz = -gz / l2, lit = mx * SUN_L[0] + my * SUN_L[1] + mz * SUN_L[2] - SUN_L[1];
         return [Math.max(0.7, Math.min(1.15, 1 + lit * 2.6)), mx, my, mz]; };
@@ -831,26 +862,35 @@ class Geo {
        raster leave many slivers: half of all ground triangles were smaller than 0.5 m^2). Inner edges cancel, the outline is traced,
        points on straight lines dropped, then triangulated again. Heights stay exact: inside one cell the ground is one plane. */
     const MG = MERGE && !this.noShade && !this.elev ? new Map() : null;
-    const mergeLoops = polys => { const E = new Map(), PT = new Map(), K = q => Math.round(q[0] * 1000) + ',' + Math.round(q[1] * 1000);
+    /* Runde 224: hill shade and ground height per corner remembered (key: position to 1/256 m) - the same corners come back many times */
+    const SHM = new Map(), THM = new Map(), mkK = (x, z) => (Math.round(x * 256) + 2097152) * 4194304 + (Math.round(z * 256) + 2097152);
+    const shadeM = (x, z) => { const k = mkK(x, z); let r = SHM.get(k); if (r) return r;
+      const d = S * .5, gx = sH(x + d, z) - sH(x - d, z), gz = sH(x, z + d) - sH(x, z - d), l2 = Math.hypot(gx, 2 * d, gz);
+      const mx = -gx / l2, my = 2 * d / l2, mz = -gz / l2, lit = mx * SUN_L[0] + my * SUN_L[1] + mz * SUN_L[2] - SUN_L[1];
+      r = [Math.max(0.7, Math.min(1.15, 1 + lit * 2.6)), mx, my, mz]; SHM.set(k, r); return r; };
+    const tHzM = (x, z) => { const k = mkK(x, z); let h = THM.get(k); if (h === undefined) { h = tHz(x, z); THM.set(k, h); } return h; };
+    /* Runde 224 (loading speed, ~3x faster here): number keys instead of strings - each corner (to 1 mm) gets a small index, an edge is
+       index * 2^24 + index; insertion order and results exactly as before (checked against the old version on 4 tiles) */
+    const mergeLoops = polys => { const E = new Map(), PI = new Map(), PTS = [];
+      const K = q => { const k = (Math.round(q[0] * 1000) + 4194304) * 8388608 + (Math.round(q[1] * 1000) + 4194304); let i = PI.get(k); if (i === undefined) { i = PTS.length; PI.set(k, i); PTS.push(q); } return i; };
       for (let p of polys) { let A = 0; for (let k = 0; k < p.length; k++) { const q = p[(k + 1) % p.length]; A += p[k][0] * q[1] - q[0] * p[k][1]; } if (A < 0) p = p.slice().reverse();
-        for (let k = 0; k < p.length; k++) { const a = K(p[k]), b = K(p[(k + 1) % p.length]); if (a === b) continue; PT.set(a, p[k]); PT.set(b, p[(k + 1) % p.length]);
-          const r = b + '|' + a, f = a + '|' + b; if (E.has(r)) E.delete(r); else if (E.has(f)) return null; else E.set(f, [a, b]); } }
+        for (let k = 0; k < p.length; k++) { const a = K(p[k]), b = K(p[(k + 1) % p.length]); if (a === b) continue; PTS[a] = p[k]; PTS[b] = p[(k + 1) % p.length];
+          const r = b * 16777216 + a, f = a * 16777216 + b; if (E.has(r)) E.delete(r); else if (E.has(f)) return null; else E.set(f, [a, b]); } }
       const out = new Map(); for (const [a, b] of E.values()) { if (out.has(a)) return null; out.set(a, b); }
       const loops = []; let guard = 0;
       while (out.size) { const st = out.keys().next().value; const lp = []; let cur = st;
-        do { lp.push(PT.get(cur)); const nx = out.get(cur); out.delete(cur); if (nx === undefined || ++guard > 100000) return null; cur = nx; } while (cur !== st);
+        do { lp.push(PTS[cur]); const nx = out.get(cur); out.delete(cur); if (nx === undefined || ++guard > 100000) return null; cur = nx; } while (cur !== st);
         let A = 0; for (let k = 0; k < lp.length; k++) { const q = lp[(k + 1) % lp.length]; A += lp[k][0] * q[1] - q[0] * lp[k][1]; } if (A <= 0) return null; // a hole: keep the pieces
         for (let k = 0; k < lp.length && lp.length > 3;) { const p = lp[(k + lp.length - 1) % lp.length], q = lp[k], r = lp[(k + 1) % lp.length], cr = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]), dt2 = (q[0] - p[0]) * (r[0] - q[0]) + (q[1] - p[1]) * (r[1] - q[1]);
           if (Math.abs(cr) < 2e-5 && dt2 > 0) lp.splice(k, 1); else k++; }
         loops.push(lp); }
       return loops; };
     const putTri = (a, b, c, g) => { // one triangle of a joined group: exact height, smooth hill shade, facing up
-      let A = [a[0], g.y + tHz(a[0], a[1]) - g.sink, a[1]], B = [b[0], g.y + tHz(b[0], b[1]) - g.sink, b[1]], Cc = [c[0], g.y + tHz(c[0], c[1]) - g.sink, c[1]];
+      let A = [a[0], g.y + tHzM(a[0], a[1]) - g.sink, a[1]], B = [b[0], g.y + tHzM(b[0], b[1]) - g.sink, b[1]], Cc = [c[0], g.y + tHzM(c[0], c[1]) - g.sink, c[1]];
       if ((B[2] - A[2]) * (Cc[0] - A[0]) - (B[0] - A[0]) * (Cc[2] - A[2]) < 0) { const t = B; B = Cc; Cc = t; }
       const ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2], vx = Cc[0] - A[0], vy = Cc[1] - A[1], vz = Cc[2] - A[2], cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx, cl = Math.hypot(cx, cy, cz); if (cl < 1e-9) return;
       np.push(...A, ...B, ...Cc); gf.push(1); if (g.y > -.05 && cl < 1) dt.push(gf.length - 1);
-      for (const v of [A, B, Cc]) { const d = S * .5, gx = sH(v[0] + d, v[2]) - sH(v[0] - d, v[2]), gz = sH(v[0], v[2] + d) - sH(v[0], v[2] - d), l2 = Math.hypot(gx, 2 * d, gz);
-        const mx = -gx / l2, my = 2 * d / l2, mz = -gz / l2, lit = mx * SUN_L[0] + my * SUN_L[1] + mz * SUN_L[2] - SUN_L[1], q = Math.max(0.7, Math.min(1.15, 1 + lit * 2.6));
+      for (const v of [A, B, Cc]) { const sv = shadeM(v[0], v[2]), mx = sv[1], my = sv[2], mz = sv[3], q = sv[0];
         nn.push(mx, my, mz); { const s = g.col[2] > .005 && g.col[2] < .016 ? 1 : q; nc.push(g.col[0] * s, g.col[1] * s, g.col[2] * s); } } };
     for (let i = 0; i < P.length; i += 9) {
       const a = [P[i], P[i + 1], P[i + 2]], b = [P[i + 3], P[i + 4], P[i + 5]], c = [P[i + 6], P[i + 7], P[i + 8]], col = [C[i], C[i + 1], C[i + 2]];

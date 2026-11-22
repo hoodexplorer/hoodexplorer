@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=666' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=667' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1553,21 +1553,23 @@ function addHedges(key, g) {
   const cells = new Map(); for (let i = 0; i < g.length; i += 9) { const k = Math.floor(g[i] / 40) * 100003 + Math.floor(g[i + 2] / 40); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), C = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0), keys = [];
   const HCOL = [[.26, .42, .18], [.12, .25, .13], [.33, .45, .15], [.36, .17, .15], [.3, .48, .22], [.3, .38, .16]];
-  for (const list of cells.values()) { const geo = GRAVE_BOX.clone(), ak = new Float32Array(list.length); geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(ak, 1));
+  const HK2 = key + ':heck', gen = CHGEN.get(HK2); CHUNKS.set(HK2, keys);
+  for (const list of cells.values()) JOBQ[2].push(() => { if (CHGEN.get(HK2) !== gen) return; const geo = GRAVE_BOX.clone(), ak = new Float32Array(list.length); geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(ak, 1));
     const m = new THREE.InstancedMesh(geo, HEDGE_MAT, list.length); m.frustumCulled = false; m.matrixAutoUpdate = false; let cx = 0, cz = 0;
     list.forEach((i, j) => { const x = g[i], y = g[i + 1], z = g[i + 2]; cx += x; cz += z; Q.setFromAxisAngle(Y, Math.atan2(-g[i + 4], g[i + 3])); M.compose(V.set(x, y - .3, z), Q, S.set(g[i + 5], g[i + 7] + .3, g[i + 6])); m.setMatrixAt(j, M);
       const r = Math.abs(Math.sin(x * 12.9 + z * 78.2)) % 1, kk = g[i + 8] | 0, hc = HCOL[kk] || HCOL[0]; ak[j] = kk; m.setColorAt(j, C.setRGB(hc[0] * (.94 + r * .12), hc[1] * (.94 + r * .12), hc[2] * (.94 + r * .12))); });
     m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
     m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx / list.length, g[list[0] + 1], cz / list.length), 32); m.userData.maxD = 320;
-    const k = key + ':heck#' + keys.length; scene.add(m); meshes.set(k, m); keys.push(k); }
-  CHUNKS.set(key + ':heck', keys);
+    const k = key + ':heck#' + keys.length; scene.add(m); meshes.set(k, m); keys.push(k); });
 }
 function addGraves(key, g) {
   dropChunks(key + ':grab'); if (!g || !g.length) return;
   const cells = new Map(); for (let i = 0; i < g.length; i += 12) { const k = Math.floor(g[i] / 32) * 100003 + Math.floor(g[i + 2] / 32); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), C = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0), keys = [];
   const col = v => C.setRGB((v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255);
-  for (const list of cells.values()) {
+  /* Runde 224: one 32 m block per job (the queue of small things, ~3 ms per frame) - no jolt when a cemetery arrives */
+  const GK = key + ':grab', gen = CHGEN.get(GK); CHUNKS.set(GK, keys);
+  for (const list of cells.values()) JOBQ[2].push(() => { if (CHGEN.get(GK) !== gen) return;
     const flat = [], stones = []; let cx = 0, cz = 0;
     for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * 2.4, hz = z - vz * 2.4; /* Runde 218: ~1.7x */
       cx += x; cz += z; const rot = Math.atan2(-uz, ux);
@@ -1589,8 +1591,7 @@ function addGraves(key, g) {
       arr.forEach(([x, y, z, r, a, b, c2, cc], j) => { Q.setFromAxisAngle(Y, r); M.compose(V.set(x, y, z), Q, S.set(a, b, c2)); m.setMatrixAt(j, M); m.setColorAt(j, col(cc)); });
       m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
       m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx, list.length ? g[list[0] + 1] : 0, cz), 26); m.userData.maxD = maxD; m.userData.minD = minD;
-      const k = key + ':grab#' + keys.length + suf; scene.add(m); meshes.set(k, m); keys.push(k); } }
-  CHUNKS.set(key + ':grab', keys);
+      const k = key + ':grab#' + keys.length + suf; scene.add(m); meshes.set(k, m); keys.push(k); } });
 }
 function dropChunks(key) { CHGEN.set(key, (CHGEN.get(key) || 0) + 1); const l = CHUNKS.get(key); if (!l) return; for (const k of l) { const o = meshes.get(k); if (o) { scene.remove(o); o.geometry.dispose(); meshes.delete(k); } } CHUNKS.delete(key); }
 /* blocks are made a few per frame (at most ~3 ms), not all in the frame the tile arrives (Runde 56) */
