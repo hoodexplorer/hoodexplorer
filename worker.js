@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=722'); importScripts('sonderbau.js?v=722'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=730'); importScripts('sonderbau.js?v=730'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2536,6 +2536,12 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (a.kind === 3 || a.kind === 5) { const o = obb(a.ring); if (!o || o.w < 15) continue; w = Math.min(12, Math.max(2.5, o.d)); line = [o.cx - o.c * o.w / 2, o.cz - o.s * o.w / 2, o.cx + o.c * o.w / 2, o.cz + o.s * o.w / 2]; ground.flat([a.ring], .55, PLAT); }
       else { line = Array.from(a.ring); w = 4; ribbon(ground, line, w, .55, PLAT); }
       let L = 0; const segL = []; for (let i = 0; i + 3 < line.length; i += 2) { const l = Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]); segL.push(l); L += l; } if (L < 20) continue;
+      /* Runde 247: a platform beside a railway in a trough sinks with it (lower level of a Kreuzbahnhof) - same depth, its own flat trough */
+      { const bb = bbox(line), near = dipsIn(bb.minx - 12, bb.minz - 12, bb.maxx + 12, bb.maxz + 12); let D = 0;
+        if (near.length) for (let i = 0; i + 3 < line.length; i += 2) { const ex = line[i + 2] - line[i], ez = line[i + 3] - line[i + 1], l = Math.hypot(ex, ez) || 1, nx = -ez / l, nz = ex / l;
+          for (const t of [.1, .5, .9]) for (const sd of [-1, 1]) { const x = line[i] + ex * t + nx * sd * (w / 2 + 2), z = line[i + 1] + ez * t + nz * sd * (w / 2 + 2); D = Math.max(D, dipAtList(near, x, z)); } }
+        if (D > 1.5) for (let i = 0; i + 3 < line.length; i += 2) { const ex = line[i + 2] - line[i], ez = line[i + 3] - line[i + 1], l = Math.hypot(ex, ez); if (l < 1) continue;
+          addDip({ x: (line[i] + line[i + 2]) / 2, z: (line[i + 1] + line[i + 3]) / 2, ux: ex / l, uz: ez / l, hw: w / 2 + .6, F: l / 2 + .5, R: 2, D }); } }
       const at = t => { let r2 = t; for (let i = 0; i < segL.length; i++) { if (r2 <= segL[i] || i === segL.length - 1) { const f = segL[i] ? Math.min(1, r2 / segL[i]) : 0, j = i * 2; return [line[j] + (line[j + 2] - line[j]) * f, line[j + 1] + (line[j + 3] - line[j + 1]) * f, (line[j + 2] - line[j]) / (segL[i] || 1), (line[j + 3] - line[j + 1]) / (segL[i] || 1)]; } r2 -= segL[i]; } };
       const mid = at(L / 2), st = stations.find(sp => Math.hypot(sp.x - mid[0], sp.z - mid[1]) < 300 && !sp.v);
       let t0, t1; if (a.kind >= 5) { t0 = 0; t1 = L; } else if (st) { const len = Math.min(120, L * .5); t0 = L / 2 - len / 2; t1 = L / 2 + len / 2; } else if (L > 40) { t0 = L / 2 - 4; t1 = L / 2 + 4; } else continue;
@@ -3858,24 +3864,30 @@ function detectDips(layers, tx, ty) {
         const whole = mem.every(a => en(bl[a].line).every(inTile)); // (a group cut at the tile's edge may go on: never counted as short)
         const fastG = mem.some(a => /^(motorway|trunk)$/.test(bl[a].cls)); // (motorway/trunk: the length - two carriageway bridges meeting in a V are long, not a cluster; Bielefeld OWD)
         for (const a of mem) { bl[a].chain = fastG ? tot : Math.min(tot, ext); bl[a].whole = whole; } ng++; } }
-    for (const { f, cls, line, len, chain, whole } of bl) { { if (chain > 150) continue;
+    /* Runde 247 (Kreuzbahnhöfe Ostkreuz, Südkreuz, Westkreuz, Osnabrück, Löhne: the upper railway crosses on bridges longer than 150 m
+       with platforms on them - no trough, both levels at the same height): near a station a railway bridge group up to 700 m still makes
+       the line below it sink */
+    const stns = []; { const P = layers.poi; if (P) { const toP = mk(P.extent || 4096); for (const rng of P.feats) { const f = readFeature(P, rng); if (f.type !== 1 || f.props.class !== 'railway') continue; for (const q of pointsOf(f, toP)) stns.push(q); } } }
+    const nearStn = line => stns.some(([sx, sz]) => { for (let i = 0; i < line.length; i += 2) if (Math.hypot(line[i] - sx, line[i + 1] - sz) < 350) return true; return false; });
+    for (const { f, cls, line, len, chain, whole } of bl) { { const stnB = chain > 150; if (stnB && !(chain <= 700 && /^(rail|transit)$/.test(cls) && nearStn(line))) continue;
         const hE = Math.min(hAt(line[0], line[1]), hAt(line[line.length - 2], line[line.length - 1]));
         const low = (cls !== 'motorway' && cls !== 'trunk') || (chain <= 30 && whole); /* Runde 87 (Bremen A27 over the Bultenweg, A27 over the railway at the Bremer Kreuz: 8 m motorway bridges on the dam were never lifted - every crossing is within 8 m of an end - and nothing was dug): under a short motorway bridge the street or railway below is dug in (lifting the motorway would put a 180 m hump into it) */ /* (bridges > 150 m never get here) a street bridge that stays at street level (Runde 52); Runde 83: railway bridges too - they are never lifted, so a motorway under one is dug in (Berlin A100 under the Ringbahn at Halensee lay on the tracks) */
-        for (let i = 0; i + 3 < line.length; i += 2) bsegs.push(line[i], line[i + 1], line[i + 2], line[i + 3], ROAD[cls][0] / 2 + 1, hE, low ? 1 : 0); } }
+        for (let i = 0; i + 3 < line.length; i += 2) bsegs.push(line[i], line[i + 1], line[i + 2], line[i + 3], ROAD[cls][0] / 2 + 1, hE, stnB ? 2 : low ? 1 : 0); } } /* 2: long station bridge - the whole lower level under it sinks to the railway depth */
     const underpass = (line, cls, w, walk) => { // crossings of this street with the bridges -> one trough per group of neighbouring bridges
       if (!bsegs.length) return; const path = /^(path|track|bridleway)$/.test(cls), cut = /^(rail|transit|motorway|trunk)$/.test(cls);
       /* Runde 53: railways and motorways under a street bridge that stays at street level lie in a cutting (Hamburg Altmannbruecke,
          Berlin Kaiserdamm): deeper (overhead wires, lorries), long gentle ramps; only under those bridges */
-      const D = path ? 3.2 : cut ? 5.5 : 4.6, R = D / (path ? .14 : cut ? .04 : .1), hw = w / 2 + (walk ? 2.6 : path ? .6 : cut ? 1.6 : 1);
-      const cr = []; let acc = 0;
+      let D = path ? 3.2 : cut ? 5.5 : 4.6, R = D / (path ? .14 : cut ? .04 : .1); const hw = w / 2 + (walk ? 2.6 : path ? .6 : cut ? 1.6 : 1);
+      const cr = []; let acc = 0, stnHit = false;
       for (let i = 0; i + 3 < line.length; i += 2) { const px = line[i], pz = line[i + 1], qx = line[i + 2], qz = line[i + 3], ex = qx - px, ez = qz - pz, sl = Math.hypot(ex, ez); if (sl < 1e-6) continue;
         for (let j = 0; j < bsegs.length; j += 7) { if (cut && !bsegs[j + 6]) continue; const ax = bsegs[j], az = bsegs[j + 1], fx = bsegs[j + 2] - ax, fz = bsegs[j + 3] - az, den = ex * fz - ez * fx; if (Math.abs(den) < 1e-9) continue;
           const t = ((ax - px) * fz - (az - pz) * fx) / den, u = ((ax - px) * ez - (az - pz) * ex) / den; if (t < 0 || t > 1 || u < 0 || u > 1) continue;
           const cx = px + ex * t, cz = pz + ez * t; if (bsegs[j + 5] - hAt(cx, cz) > 3) continue; // valley under a viaduct
           if (Math.hypot(cx - line[0], cz - line[1]) < 1.5 || Math.hypot(cx - line[line.length - 2], cz - line[line.length - 1]) < 1.5) continue; // Runde 87 (Bremen-Vegesack): a street that ENDS at the bridge goes on onto it - it does not pass under (it was dug 4.6 m)
-          const sin = Math.abs(den) / (sl * Math.hypot(fx, fz)); cr.push(acc + sl * t, Math.min(40, bsegs[j + 4] / Math.max(.3, sin) + 2)); }
+          if (bsegs[j + 6] === 2) stnHit = true; const sin = Math.abs(den) / (sl * Math.hypot(fx, fz)); cr.push(acc + sl * t, Math.min(40, bsegs[j + 4] / Math.max(.3, sin) + 2)); }
         acc += sl; }
       if (!cr.length) return;
+      if (stnHit && D < 5.5) { D = 5.5; R = D / (path ? .14 : .1); } /* Runde 247: paths and streets on the lower level of a Kreuzbahnhof lie as deep as its tracks (no 2 m steps) */
       const at = s => { s = Math.max(0, Math.min(acc, s)); let a = 0; for (let i = 0; i + 3 < line.length; i += 2) { const sl = Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]); if (a + sl >= s || i + 4 >= line.length) { const t = sl > 0 ? Math.min(1, (s - a) / sl) : 0; return [line[i] + (line[i + 2] - line[i]) * t, line[i + 1] + (line[i + 3] - line[i + 1]) * t]; } a += sl; } return [line[0], line[1]]; };
       const idx = []; for (let k = 0; k < cr.length; k += 2) idx.push(k); idx.sort((a, b) => cr[a] - cr[b]);
       const groups = []; for (const k of idx) { const lo = cr[k] - cr[k + 1], hi = cr[k] + cr[k + 1], g = groups[groups.length - 1]; if (g && lo - g[1] < R) g[1] = Math.max(g[1], hi); else groups.push([lo, hi]); }

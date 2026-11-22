@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=722' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=730' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -911,8 +911,9 @@ bldMat.onBeforeCompile = sh => {
       } else if (fd > 0.0 && nn.y >= 0.3) {
         vec2 sd = length(nn.xz) > 0.05 ? normalize(nn.xz) : vec2(0.0, 1.0);
         vec2 uv = vRoof;
-        vec4 tx = uSimple > 0.5 ? vec4(0.0, (vFac.y < 0.5 || vFac.y > 4.5) ? (mod(floor(uv.y * 3.0), 2.0) > 0.5 ? 0.5 : 0.46) : 0.5, 0.0, 1.0) // calm tile rows
-                                : texture2D(uAtlas, (vec2(vFac.y, 0.0) + fract(uv)) / 8.0);
+        float rT = vFac.y < 7.5 ? vFac.y : 2.0; /* Runde 247 (Berlin Ostkreuz: the hall roof comes as wall faces and carries the wall code 2003 - the atlas was read far outside and the roof turned black): flat faces with a wall code get the flat-roof tile */
+        vec4 tx = uSimple > 0.5 ? vec4(0.0, (rT < 0.5 || rT > 4.5) ? (mod(floor(uv.y * 3.0), 2.0) > 0.5 ? 0.5 : 0.46) : 0.5, 0.0, 1.0) // calm tile rows
+                                : texture2D(uAtlas, (vec2(rT, 0.0) + fract(uv)) / 8.0);
         vec3 rc = diffuseColor.rgb * (tx.g * 2.0);
         rc = mix(rc, mix(diffuseColor.rgb, vec3(0.85), 0.5), tx.b);
         diffuseColor.rgb = mix(diffuseColor.rgb, rc, fd);
