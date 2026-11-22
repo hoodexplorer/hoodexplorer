@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=771'); importScripts('sonderbau.js?v=771'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=772'); importScripts('sonderbau.js?v=772'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -3125,8 +3125,9 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   if (WELT === 'heute') { const L = layers.poi, TB = ground.tileBox, seen = [], inT = (x, z) => !TB || (x >= TB[0] && x <= TB[2] && z >= TB[1] && z <= TB[3]);
     const add = (k, x, z, nm) => { if (!inT(x, z)) return; if (seen.some(q => q[0] === k && Math.abs(q[1] - x) < 60 && Math.abs(q[2] - z) < 60)) return; seen.push([k, x, z]); einr.push([k, Math.round(x * 10) / 10, Math.round(z * 10) / 10, nm || '']); };
     if (L) { const toP = mk(L.extent || ext0); for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1) continue; const cls = f.props.class || '', sub = f.props.subclass || cls, nm = f.props.name || f.props['name:de'] || '';
-        const k = sub === 'police' ? 'P' : sub === 'hospital' ? 'H' : sub === 'fire_station' ? 'F' : (cls === 'railway' && /^(station|halt)$/.test(sub)) ? 'B' : sub === 'stadium' ? 'S' : sub === 'water_park' ? 'W' : null; if (!k) continue;
+        const k = sub === 'police' ? 'P' : sub === 'hospital' ? 'H' : sub === 'fire_station' ? 'F' : (cls === 'railway' && /^(station|halt)$/.test(sub)) ? 'B' : sub === 'stadium' ? 'S' : sub === 'water_park' ? 'W' : sub === 'lighthouse' ? 'L' : null; if (!k) continue;
         for (const [x, z] of pointsOf(f, toP)) add(k, x, z, nm); } }
+    if (LHS) for (const Lh of LHS) add('L', lx(Lh.X), lz(Lh.Y), ''); /* Runde 253: lighthouses (own list; names from the map where it has one) */
     for (const a of (osm && osm.areas) || []) { if (a.kind !== 7 && a.kind !== 8) continue; let x = 0, z = 0; const n = a.ring.length / 2; for (let i = 0; i < a.ring.length; i += 2) { x += a.ring[i]; z += a.ring[i + 1]; } add(a.kind === 7 ? 'S' : 'W', x / n, z / n, ''); } }
   return { einr, pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }

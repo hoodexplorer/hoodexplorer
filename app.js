@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=771' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=772' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1299,11 +1299,11 @@ $('bMood').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 $('bMood').addEventListener('click', () => { $('sheet').hidden = !$('sheet').hidden; });
 $('bClose').addEventListener('click', () => { $('sheet').hidden = true; });
 /* Runde 144: map layers (Einstellungen → Karte): what the minimap and the big map show */
-const LAYERS = Object.assign({ sights: true, zellen: true, burgen: true, einrP: true, einrH: true, einrF: true, einrB: true, einrS: true, einrW: true }, store.get('hx.layers') || {}); /* Runde 252c: one switch per kind of public place */
+const LAYERS = Object.assign({ sights: true, zellen: true, burgen: true, einrP: true, einrH: true, einrF: true, einrB: true, einrS: true, einrW: true, einrL: true }, store.get('hx.layers') || {}); /* Runde 252c: one switch per kind of public place */
 /* Runde 252: public places per map tile (police, hospital, fire station, station, stadium, outdoor pool) - drawn like the castles */
 const EINR = new Map();
 function einrIcon(g, k, x, y, r) { const L = Math.max(1.5, r * .22); g.lineWidth = L; g.strokeStyle = '#1a1206';
-  const bg = k === 'P' ? '#2b5fb4' : k === 'H' ? '#ffffff' : k === 'F' ? '#d0342c' : k === 'B' ? '#3d4650' : k === 'S' ? '#3f8f4a' : '#3aaed0';
+  const bg = k === 'P' ? '#2b5fb4' : k === 'H' ? '#ffffff' : k === 'F' ? '#d0342c' : k === 'B' ? '#3d4650' : k === 'S' ? '#3f8f4a' : k === 'L' ? '#1f3550' : '#3aaed0';
   g.fillStyle = bg; g.beginPath(); g.roundRect ? g.roundRect(x - r, y - r, r * 2, r * 2, r * .3) : g.rect(x - r, y - r, r * 2, r * 2); g.fill(); g.stroke();
   const W = '#ffffff', R = '#d0342c', u = r / 5, px = (cx, cy, w = 1, h = 1, c = W) => { g.fillStyle = c; g.fillRect(x + cx * u, y + cy * u, w * u, h * u); };
   if (k === 'H') { px(-.8, -3.2, 1.6, 6.4, R); px(-3.2, -.8, 6.4, 1.6, R); }
@@ -1311,8 +1311,9 @@ function einrIcon(g, k, x, y, r) { const L = Math.max(1.5, r * .22); g.lineWidth
   else if (k === 'F') { px(-.6, -3.4, 1.2, 1.4); px(-1.4, -2, 2.4, 1.4); px(-2, -.6, 3.6, 1.4); px(-2.8, .8, 5.6, 1.6); px(-2, 2.4, 4, 1.2); px(-.6, .9, 1.2, 1.4, R); }
   else if (k === 'B') { px(-2.6, -3.2, 5.2, 4.8); px(-1.8, -2.4, 3.6, 1.6, '#3d4650'); px(-2, 2, 1.2, 1.2); px(.8, 2, 1.2, 1.2); }
   else if (k === 'S') { g.strokeStyle = W; g.lineWidth = u * 1.1; g.beginPath(); g.ellipse(x, y, r * .62, r * .42, 0, 0, 7); g.stroke(); px(-.4, -2.1, .8, 4.2); }
+  else if (k === 'L') { px(-.7, -3.6, 1.4, 1, '#ffd23f'); px(-1.1, -2.6, 2.2, 1.2, R); px(-1.3, -1.4, 2.6, 1.2); px(-1.5, -.2, 3, 1.2, R); px(-1.7, 1, 3.4, 1.2); px(-1.9, 2.2, 3.8, 1.2, R); px(.8, -3.6, 2.4, .5, '#ffd23f'); px(-3.2, -3.6, 2.4, .5, '#ffd23f'); }
   else { for (const dy of [-1.6, .2, 2]) { g.strokeStyle = W; g.lineWidth = u * .9; g.beginPath(); for (let i = 0; i <= 8; i++) { const xx = x + (-3 + i * .75) * u, yy = y + dy * u + (i % 2 ? -.6 : .6) * u; i ? g.lineTo(xx, yy) : g.moveTo(xx, yy); } g.stroke(); } } }
-const EINR_NAME = { P: 'Polizei', H: 'Krankenhaus', F: 'Feuerwehr', B: 'Bahnhof', S: 'Stadion', W: 'Freibad' };
+const EINR_NAME = { P: 'Polizei', H: 'Krankenhaus', F: 'Feuerwehr', B: 'Bahnhof', S: 'Stadion', W: 'Freibad', L: 'Leuchtturm' };
 /* Runde 154: in the medieval world there are castles (layer "Burgen") and no sights; the switches show only where they apply */
 const MITTEL = (window.HX_WELT || 'heute') === 'mittel';
 document.querySelectorAll('.lyMittel').forEach(el => { el.hidden = !MITTEL; }); document.querySelectorAll('.lyHeute').forEach(el => { el.hidden = MITTEL; });
