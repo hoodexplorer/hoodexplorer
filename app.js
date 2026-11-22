@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=669' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=670' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1538,8 +1538,8 @@ HEDGE_MAT.onBeforeCompile = sh => {
       float n = hxH(cell), m = hxH(floor(vHW * 1.3) + 3.1), col = hxH(vec3(floor(vHW.xz * sc), 7.0));
       float top = vHS.y - vHL.y, isEnd = vHL.x < 0.0 ? mod(vHE, 2.0) : step(1.5, vHE), endD = isEnd > .5 ? vHS.x * .5 - abs(vHL.x) : 9.0; // Runde 225: ragged only at the real ends
       if (vHN < .5 && top < .14 * col) discard;                                                   // ragged top edge
-      if (vHN > .5 && min(vHS.z * .5 - abs(vHL.z), endD) < .1 * col) discard;
-      if (vHX < .5 && endD < .1 * hxH(vec3(floor(vHL.yz * sc), 2.0))) discard;   // Runde 226: not on the end face itself (it was cut away whole - hedges open at the ends)                               // ragged ends
+      if (vHN > .5 && vHS.z * .5 - abs(vHL.z) < .1 * col) discard;
+      /* Runde 227: no ragged ends any more - the cut pixels let one see through the hedge (slits on the phone) */   // Runde 226: not on the end face itself (it was cut away whole - hedges open at the ends)                               // ragged ends
       float bulge = .9 + .14 * sin(vHW.x * .9 + vHW.z * .7) * sin(vHW.x * .37 - vHW.z * .53);   // slow bulges along the hedge
       diffuseColor.rgb *= (.74 + .44 * n) * (.86 + .22 * m) * bulge * (vHN > .5 ? 1.18 : .62 + .38 * smoothstep(.3, 1.0, vHL.y));
       if (n < .1) diffuseColor.rgb *= .5; if (n > .94) diffuseColor.rgb *= 1.3;
@@ -1557,7 +1557,7 @@ function addHedges(key, g) {
   for (const list of cells.values()) JOBQ[2].push(() => { if (CHGEN.get(HK2) !== gen) return; const geo = GRAVE_BOX.clone(), ak = new Float32Array(list.length), ae = new Float32Array(list.length); geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(ak, 1)); geo.setAttribute('aEnd', new THREE.InstancedBufferAttribute(ae, 1));
     const m = new THREE.InstancedMesh(geo, HEDGE_MAT, list.length); m.frustumCulled = false; m.matrixAutoUpdate = false; let cx = 0, cz = 0;
     list.forEach((i, j) => { const x = g[i], y = g[i + 1], z = g[i + 2]; cx += x; cz += z; Q.setFromAxisAngle(Y, Math.atan2(-g[i + 4], g[i + 3])); M.compose(V.set(x, y - .3, z), Q, S.set(g[i + 5], g[i + 7] + .3, g[i + 6])); m.setMatrixAt(j, M);
-      const r = Math.abs(Math.sin(x * 12.9 + z * 78.2)) % 1, kk = g[i + 8] | 0, hc = HCOL[kk] || HCOL[0]; ak[j] = kk; ae[j] = g[i + 9]; m.setColorAt(j, C.setRGB(hc[0] * (.94 + r * .12), hc[1] * (.94 + r * .12), hc[2] * (.94 + r * .12))); });
+      const r = Math.abs(Math.sin(g[i + 7] * 917.3 + g[i + 8] * 13.1)) % 1, kk = g[i + 8] | 0, /* Runde 227: one colour per hedge (its height is the same for all pieces) - overlapping pieces flickered */ hc = HCOL[kk] || HCOL[0]; ak[j] = kk; ae[j] = g[i + 9]; m.setColorAt(j, C.setRGB(hc[0] * (.94 + r * .12), hc[1] * (.94 + r * .12), hc[2] * (.94 + r * .12))); });
     m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
     m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx / list.length, g[list[0] + 1], cz / list.length), 32); m.userData.maxD = 320;
     const k = key + ':heck#' + keys.length; scene.add(m); meshes.set(k, m); keys.push(k); });
