@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=684'); importScripts('sonderbau.js?v=684'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=687'); importScripts('sonderbau.js?v=687'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -312,8 +312,8 @@ function osmTile(k) {
   if (!osmFiles.has(k)) osmFiles.set(k, (async () => {
     let buf = null;
     try {
-      buf = await cget('o6:' + k, 30 * 864e5);
-      if (!buf) { const r = await tileGet(OPFAD, k, OPFAD + k + '.bin?v=3'); /* ?v: new tile version (castle grounds), never the old file from the browser cache */ buf = r.ok ? r.buf : new ArrayBuffer(0); if (r.ok || r.status === 404) cput('o6:' + k, buf) /* Runde 238: read and write under the same key (wrote o5, read o6 - never hit) */; }
+      buf = await cget('o7:' + k, 30 * 864e5);
+      if (!buf) { const r = await tileGet(OPFAD, k, OPFAD + k + '.bin?v=4'); /* ?v: new tile version (castle grounds), never the old file from the browser cache */ buf = r.ok ? r.buf : new ArrayBuffer(0); if (r.ok || r.status === 404) cput('o7:' + k, buf) /* Runde 238/240 (new tiles: ruins, halls, sport): read and write under the same key (wrote o5, read o6 - never hit) */; }
     } catch (e) { buf = new ArrayBuffer(0); }
     const out = { blds: [], pts: [], parts: [], areas: [] };
     if (buf.byteLength >= 8) {
@@ -1264,6 +1264,15 @@ function fallbackBuilding(G, poly, H, minH, wall, roof, seed, type, code, own) {
   /* Runde 238: special buildings get their own roofs instead of a flat box. Church: gable along the long axis, walls no higher than the nave
      needs (a tall height value belongs to the tower), a west tower with a helm if no tower stands there, a dome on a round or polygonal plan.
      Castle / civic: hipped roof on compact plans. Halls: light flat roof with rows of skylights. */
+  if (own && own.btype === 7) { /* Runde 240: ruin - open walls with a broken crown in 2 m steps, seen from both sides, no roof, no windows */
+    for (const p of poly) for (let i = 0; i < p.length; i += 2) { const j = (i + 2) % p.length, ax = p[i], az = p[i + 1], bx = p[j], bz = p[j + 1], L = Math.hypot(bx - ax, bz - az); if (L < .05) continue;
+      const nx = (bz - az) / L, nz = -(bx - ax) / L, m = Math.max(1, Math.round(L / 2));
+      for (let k = 0; k < m; k++) { const t0 = k / m, t1 = (k + 1) / m, x0 = ax + (bx - ax) * t0, z0 = az + (bz - az) * t0, x1 = ax + (bx - ax) * t1, z1 = az + (bz - az) * t1;
+        const hk = minH + (H - minH) * (0.3 + 0.7 * hashStr('ru' + Math.round(x0 * 2) + ',' + Math.round(z0 * 2))); if (hashStr('rg' + Math.round(x1) + Math.round(z1)) < .12) continue; // some gaps
+        G.quad([x0, minH, z0], [x1, minH, z1], [x1, hk, z1], [x0, hk, z0], wall, nx, 0, nz, (code % 512) + 8, hk, 0, 0, hk);
+        G.quad([x1, minH, z1], [x0, minH, z0], [x0, hk, z0], [x1, hk, z1], wall, -nx, 0, -nz, (code % 512) + 8, hk, 0, 0, hk);
+        G.quad([x0, hk, z0], [x1, hk, z1], [x1 - nx * .6, hk, z1 - nz * .6], [x0 - nx * .6, hk, z0 - nz * .6], wall, 0, 1, 0, (code % 512) + 8, hk, 0, 0, hk); } }
+    return; }
   const bt = own && own.btype, ob = (bt === 1 || bt === 3 || bt === 6) && area >= 40 && area < 9000 && poly.length === 1 ? obb(outer) : null;
   const special = ob && area / ob.a > (bt === 1 ? 0.62 : 0.75) && ob.d > 4;
   if (special && bt === 1) H = Math.min(Math.max(H, minH + Math.min(16, 6 + ob.d * 0.45)), minH + Math.max(7, Math.min(24, ob.d * 0.75 + 5))); // no height in OSM (Bardowick: 5 m) -> eaves from the nave width
@@ -1306,6 +1315,13 @@ function fallbackBuilding(G, poly, H, minH, wall, roof, seed, type, code, own) {
           for (let i = 0; i < 4; i++) { const a = k[i], b = k[(i + 1) % 4]; G.tri(a[0], th, a[1], b[0], th, b[1], tx, th + hh, tz, helm, (a[0] + b[0]) / 2 - tx, 0.5, (a[1] + b[1]) / 2 - tz, 0, 0, 0, 0); } } }
     }
   }
+  if (!pitched && own && own.hall && own.shape === 8 && poly.length === 1) { const o = obb(outer); // Runde 240: tennis hall - barrel roof across the short side
+    if (o && area / o.a > 0.75) { const rh = Math.min(10, o.d * 0.45), N = 8, P = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], ROOFB = hex('#d6d9da');
+      for (let k = 0; k < N; k++) { const a0 = k / N, a1 = (k + 1) / N, v0 = -o.d / 2 + o.d * a0, v1 = -o.d / 2 + o.d * a1, y0 = H + rh * Math.sin(Math.PI * a0), y1 = H + rh * Math.sin(Math.PI * a1);
+        const A = P(-o.w / 2, v0), B = P(o.w / 2, v0), C = P(o.w / 2, v1), Dd = P(-o.w / 2, v1), nv = (y1 - y0) / (o.d / N);
+        G.quad([A[0], y0, A[1]], [B[0], y0, B[1]], [C[0], y1, C[1]], [Dd[0], y1, Dd[1]], ROOFB, -nv * -o.s * 0, 1, 0);
+        for (const sg of [-1, 1]) { const E0 = P(sg * o.w / 2, v0), E1 = P(sg * o.w / 2, v1); G.tri(E0[0], H, E0[1], E1[0], H, E1[1], E1[0], y1, E1[1], wall, sg * o.c, 0, sg * o.s, (code % 512) + 8, H, 0, 0, H); G.tri(E0[0], H, E0[1], E1[0], y1, E1[1], E0[0], y0, E0[1], wall, sg * o.c, 0, sg * o.s, (code % 512) + 8, H, 0, 0, H); } }
+      return; } }
   if (!pitched && own && own.hall && area > 500 && poly.length === 1) { // hall: light flat roof, rows of skylights along the long axis
     const o = obb(outer);
     if (o && area / o.a > 0.7) { const SKY = hex('#9fb8c6'), rows = Math.max(1, Math.floor(o.d / 8)); let n = 0;
@@ -2078,7 +2094,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       const fp = fpAt(r.x, r.z); if (!fp) continue;
       if (r.year) fp.year = r.year;
       if (r.levels) fp.levels = r.levels;
-      if (r.btype) fp.btype = r.btype; if (r.landmark) fp.landmark = true; if (r.mat === 6) fp.btype = 5; // glass facade wins over the building type (new Memorial Church: blue glass)
+      if (r.btype) fp.btype = r.btype; if (r.shape) fp.shape = r.shape; if (r.landmark) fp.landmark = true; if (r.mat === 6) fp.btype = 5; // glass facade wins over the building type (new Memorial Church: blue glass)
       if (r.util) fp.util = true;
       if (r.wall || r.roof || r.mat) {
         const brick = r.mat === 1 && !r.wall, wall = r.wall || (brick ? BRICK[Math.floor(hashStr('m' + r.x) * BRICK.length)] : r.mat === 3 ? stoneWall(hashStr('m' + r.x), r.x, r.z) : r.mat && MATCOL[r.mat] ? MATCOL[r.mat] : null);
@@ -2097,6 +2113,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
     for (const it of items) {
       const ar = Math.abs(ringArea(it.p)); let cx = 0, cz = 0; for (let i = 0; i < it.p.length; i += 2) { cx += it.p[i]; cz += it.p[i + 1]; } cx /= it.p.length / 2; cz /= it.p.length / 2;
       const ind = hallPolys.some(q => inPoly(cx, cz, q)); // Runde 64: only industrial land - retail/commercial land is the shopping street in the old town (Bielefeld Breite Strasse)
+      if (it.btype === 4 && ar > 250 && it.h < 25) it.hall = true; /* Runde 240: sports, riding, ice halls from OSM */
       if (!it.util && !it.landmark && !(it.year && it.year < 1950) && !it.btype && !(it.levels > 3) && ((ar > 1200 && it.h < 16) || (ind && ar > 250 && it.h < 22))) it.hall = true; // listed or old warehouses are no sheet-metal halls (Hamburg Speicherstadt)
     }
     if (WELT !== 'heute') { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0); weltBauten(items.filter(it => it.minH < 2), map.roads, collide, map, plazaPolys, [Math.min(c0[0], c1[0]), Math.min(c0[1], c1[1]), Math.max(c0[0], c1[0]), Math.max(c0[1], c1[1])], (x, z) => waterRings.some(q => inPoly(x, z, q))); gRemove(fpgrid, i => i.tile === tkey); fpItems = []; }
@@ -2117,7 +2134,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       for (const t of l2tiles) if (Math.abs(X - t.cx) <= 500 && Math.abs(Y - t.cy) <= 500) { owner = t.id; break; }
       let G = buckets.get(owner); if (!G) buckets.set(owner, G = new Geo(true));
       const era = it.hall ? 6 : (eraFromYear(it.year) || eraAt(cx, cz, seed) || eraGuess(H, area));
-      let wall = (osrc && osrc.wall) || wallTag || (it.btype === 3 ? castleWall(era, seed, cx, cz, area) : it.btype === 1 || it.btype === 2 ? sacredWall(era, seed, cx, cz) : it.btype === 6 ? civicWall(era, seed, cx, cz) : wallFor(era, seed, cx, cz));
+      let wall = (osrc && osrc.wall) || wallTag || (it.btype === 7 ? stoneWall(seed, cx, cz) : it.btype === 3 ? castleWall(era, seed, cx, cz, area) : it.btype === 1 || it.btype === 2 ? sacredWall(era, seed, cx, cz) : it.btype === 6 ? civicWall(era, seed, cx, cz) : wallFor(era, seed, cx, cz));
       if (osrc && osrc.wall) { wall = wall.slice(); wall.brick = !!osrc.brick; }
       const roof = (osrc && osrc.roof) || roofGuess(cx, cz, seed, H, it.btype);
       const from = G.p.length;
@@ -2548,17 +2565,24 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
      pitches; an oval pitch outline (rounded ends) or a mapped track is a running track - red tartan ring; floodlight masts on many club
      pitches; stands by size (one main stand from 1 ha, four sides as an open bowl with a roof ring from 3 ha), never on a building. */
   const RED = hex('#b4523e');
-  for (const q of trackPolys) ribbon(ground, q.concat([q[0], q[1]]), 6.5, .02, RED);
+  /* Runde 240: pitches and tracks from OSM - surface colour (artificial turf, clay/tennis, sand, tartan, hard court, cinder), floodlight
+     where lit=yes; running tracks as red rings */
+  const SURFC = [null, hex('#4f9a4a'), hex('#b5603e'), hex('#cdb48a'), hex('#b4523e'), hex('#7c7f83'), hex('#a07a5a'), null], osmPitch = [];
+  if (WELT === 'heute') for (const a of (osm && osm.areas) || []) {
+    if (a.kind === 2) trackPolys.push(Array.from(a.ring)); // plain array: the ring is closed with concat below (a Float32Array has none - tiles failed)
+    else if (a.kind >= 16 && a.kind < 32) { osmPitch.push(a); const c = SURFC[a.kind & 7]; if (c && Math.abs(ringArea(a.ring)) > 30) ground.flat([a.ring], .017, c); } }
+  for (const q0 of trackPolys) { const q = Array.from(q0); ribbon(ground, q.concat([q[0], q[1]]), 6.5, .02, RED); }
   for (const q of pitchPolys) {
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
     const ar = Math.abs(ringArea(q)), oval = WELT === 'heute' && o.w > 80 && ar / o.a > 0.72 && ar / o.a < 0.93 && !trackPolys.some(t => inPoly(o.cx, o.cz, t));
     const ins = oval ? 7.5 : 1, L2 = o.w / 2 - ins - (oval ? o.d * 0.25 : 0), D2 = o.d / 2 - ins, P2 = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], Wt = hex('#f2f2ee');
-    if (oval) ribbon(ground, q.concat([q[0], q[1]]).map((v, i) => i % 2 ? v + (o.cz - v) * (3.6 / (o.d / 2)) : v + (o.cx - v) * (3.6 / (o.w / 2))), 6.5, .02, RED);
+    if (oval) ribbon(ground, Array.from(q).concat([q[0], q[1]]).map((v, i) => i % 2 ? v + (o.cz - v) * (3.6 / (o.d / 2)) : v + (o.cx - v) * (3.6 / (o.w / 2))), 6.5, .02, RED);
     const line = (u0, v0, u1, v1) => { const a = P2(u0, v0), b = P2(u1, v1); ribbon(ground, [a[0], a[1], b[0], b[1]], 0.35, .03, Wt); };
     line(-L2, -D2, L2, -D2); line(-L2, D2, L2, D2); line(-L2, -D2, -L2, D2); line(L2, -D2, L2, D2); line(0, -D2, 0, D2);
     if (L2 > 30) { const cr = Math.min(9.15, D2 * 0.3), ring = []; for (let k = 0; k <= 16; k++) { const a = k / 16 * Math.PI * 2, p = P2(Math.cos(a) * cr, Math.sin(a) * cr); ring.push(p[0], p[1]); } ribbon(ground, ring, 0.35, .03, Wt);
       const bd = Math.min(20, D2 * 0.6), bl = Math.min(16.5, L2 * 0.3); for (const sg of [-1, 1]) { line(sg * L2, -bd, sg * (L2 - bl), -bd); line(sg * (L2 - bl), -bd, sg * (L2 - bl), bd); line(sg * (L2 - bl), bd, sg * L2, bd); } }
-    if (WELT === 'heute' && o.w > 55 && hashStr('fl' + Math.round(o.cx) + ',' + Math.round(o.cz)) < 0.6) for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { // floodlight masts at the corners
+    const op = osmPitch.find(a => o.cx >= a.minx && o.cx <= a.maxx && o.cz >= a.minz && o.cz <= a.maxz && inPoly(o.cx, o.cz, a.ring));
+    if (WELT === 'heute' && o.w > 40 && (op ? (op.kind & 8) : o.w > 55 && hashStr('fl' + Math.round(o.cx) + ',' + Math.round(o.cz)) < 0.4)) for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { // floodlight masts at the corners
       const [mx, mz] = P2(su * (o.w / 2 + 1.5), sv * (o.d / 2 + 1.5)); if (fpAt(mx, mz)) continue; ground.box(mx, 0, mz, .35, 17, .35, hex('#8c9096')); obox2(ground, mx, 17, mz, 2.2, 1.2, .5, o.c, o.s, hex('#e8e8e0'), true); }
     if (o.w > 40) for (const sg of [-1, 1]) { // football goals at both ends
       const a = P2(sg * L2, -3.6), b = P2(sg * L2, 3.6), m = P2(sg * L2, 0), ux = o.c, uz = o.s;
@@ -2567,6 +2591,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   }
   if (WELT === 'heute') for (const q of stadPolys) { // stands
     const o = obb(q), ar = Math.abs(ringArea(q)); if (!o || ar < 10000 || o.w < 60) continue;
+    { let built = 0; for (let k = 0; k < 8; k++) { const a2 = k / 8 * Math.PI * 2, uu = Math.cos(a2) * o.w * .42, vv = Math.sin(a2) * o.d * .42; if (fpAt(o.cx + uu * o.c - vv * o.s, o.cz + uu * o.s + vv * o.c)) built++; } if (built >= 2) continue; } // real stands already there (MHPArena: one floated inside)
     const CON = hex('#a7a49c'), SEAT = [hex('#3f5f8f'), hex('#a03a32'), hex('#6d6f72')][Math.floor(hashStr('st' + Math.round(o.cx)) * 3)], ROOFS2 = hex('#d9dbdc');
     // a stand: centre (u, v) in stadium coordinates, length along the side, depth outwards (nu, nv), three tiers stepping back, roof slab
     const stand = (u, v, len, dep, h, alongV, nu, nv) => { const ax = alongV ? -o.s : o.c, az = alongV ? o.c : o.s, W = (uu, vv) => [o.cx + uu * o.c - vv * o.s, o.cz + uu * o.s + vv * o.c];
@@ -3265,8 +3290,8 @@ function blockGroups(d, prev) {
      castle footprint under a flat LoD2 top, it is drawn from OSM (with gable roof and tower) instead. */
   for (const [g, t] of all) { if (set.has(g)) continue;
     let sx = 0, sz = 0, flatA = 0, allA = 0; for (let k = 0; k < t.length; k += 7) { const ar = Math.abs((t[k + 2] - t[k]) * (t[k + 5] - t[k + 1]) - (t[k + 4] - t[k]) * (t[k + 3] - t[k + 1])) / 2; allA += ar; sx += (t[k] + t[k + 2] + t[k + 4]) / 3 * ar; sz += (t[k + 1] + t[k + 3] + t[k + 5]) / 3 * ar; if (t[k + 6] > top[g] - 1) flatA += ar; }
-    if (allA < 150 || flatA < 0.85 * allA) continue;
-    const fp = fpAt(sx / allA, sz / allA); if (!fp || !(fp.btype === 1 || fp.btype === 3)) continue;
+    if (allA < 60) continue;
+    const fp = fpAt(sx / allA, sz / allA); if (!fp || !(fp.btype === 7 || (fp.btype === 1 && flatA >= 0.85 * allA))) continue; /* castles keep LoD2: OSM often lacks their height (Montfort became a stump) */ // ruins: always from OSM (open walls)
     set.add(g); tris.set(g, t); if (!prev || !prev.has(g)) post({ type: 'info', msg: 'LoD2-Flachblock ' + (fp.btype === 1 ? 'Kirche' : 'Burg') + ' durch OSM ersetzt: ' + allA.toFixed(0) + ' m²' }); }
   for (const [g, t] of all) {
     if (top[g] < 12 || set.has(g)) continue;
