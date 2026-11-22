@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=775' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=777' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -642,7 +642,7 @@ function updateOccluders(dt) {
       for (const off of [-W, 0, W]) {
         const qx = ox0 + dx * s - dz * off, qz = oz0 + dz * s + dx * off, b = buildingAt(qx, qz);
         /* Runde 68 ("no hole - whole buildings away"): LoD2 buildings are found by their own number, footprint in OSM or not */
-        { const ck = Math.floor(qx / 2) * 100003 + Math.floor(qz / 2); let r = cache.get(ck); if (!r) cache.set(ck, r = lod2At(ck));
+        if (s >= 3 && b) { const ck = Math.floor(qx / 2) * 100003 + Math.floor(qz / 2); /* Runde 256b (phone: looking along a wall made that house see-through - the 2 m cells reach beside the wall): only where the ray point lies inside a real outline */ let r = cache.get(ck); if (!r) cache.set(ck, r = lod2At(ck)); /* Runde 256 (phone, Nuernberg Feuerwache: the house the figure stands beside went see-through - its 2 m cells reach the first metres of the ray): LoD2 houses count from 3 m on */
           if (r[1] && r[0] + 0.6 > y && r[0] > P.y + 1.5) foundG.add(r[1]); }
         if (b && Math.max(b.base + (b.h - b.base) * 1.3, lod2Top(qx, qz)) + 0.6 > y && b.h - b.base > CUT_Y + 0.5 && !found.has(b)) { found.add(b); hits.add(b); } // ×1.3: the footprint height often leaves out the roof
       }
