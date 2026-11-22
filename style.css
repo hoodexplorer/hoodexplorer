@@ -320,3 +320,5 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 /* Runde 154: castle layer swatch; hidden labels stay hidden */
 .lyBurg{width:13px;height:11px;background:#c9bca2;border:2px solid #1a1206;flex:0 0 auto;clip-path:polygon(0 0,25% 0,25% 30%,40% 30%,40% 0,60% 0,60% 30%,75% 30%,75% 0,100% 0,100% 100%,0 100%)}
 .tog[hidden]{display:none}
+/* Runde 229: recent searches */
+.pclear{opacity:.65;font-size:12px}

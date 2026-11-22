@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=671' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=672' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -260,6 +260,16 @@ async function geocode(q, near) {
     const name = [p.name, [p.street, p.housenumber].filter(Boolean).join(' '), [p.postcode, p.city || p.town || p.village].filter(Boolean).join(' '), p.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ');
     return { name: name || q, lat: c[1], lon: c[0] }; });
 }
+/* Runde 229: the last 8 places picked in a search are remembered (only on this device, localStorage 'hx.recent') and shown while
+   the search field is empty - in the start dialog and on the big map. A tap picks the place like a search result. */
+const RECENT = { get: () => (store.get('hx.recent') || []).filter(r => r && r.name && isFinite(r.lat) && isFinite(r.lon)),
+  add(name, lat, lon) { if (!name || !isFinite(lat) || !isFinite(lon)) return; const a = RECENT.get().filter(r => r.name !== name); a.unshift({ name, lat: +(+lat).toFixed(6), lon: +(+lon).toFixed(6) }); store.set('hx.recent', a.slice(0, 8)); } };
+function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); if (!a.length) return; boxMsg(box, 'Zuletzt gesucht');
+  for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
+  const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Liste leeren'; c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
+function recentOn(inp, box, pick) { const f = () => { if (!inp.value.trim()) showRecent(box, pick); }; inp.addEventListener('focus', f); inp.addEventListener('input', f); }
+const pickP = it => { chosen = { lat: +(+it.lat).toFixed(6), lon: +(+it.lon).toFixed(6), label: it.name.split(',').slice(0, 3).join(',') }; $('pResults').textContent = ''; RECENT.add(it.name, it.lat, it.lon); showChosen(); };
+recentOn($('pQuery'), $('pResults'), pickP);
 $('pSearch').addEventListener('submit', async e => {
   e.preventDefault(); const q = $('pQuery').value.trim(); if (!q) return;
   const box = $('pResults'); box.textContent = 'Suche …';
@@ -268,7 +278,7 @@ $('pSearch').addEventListener('submit', async e => {
     if (!j.length) { box.textContent = 'Nichts gefunden.'; return; }
     for (const it of j) {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name;
-      b.addEventListener('click', () => { chosen = { lat: +it.lat.toFixed(6), lon: +it.lon.toFixed(6), label: it.name.split(',').slice(0, 3).join(',') }; box.textContent = ''; showChosen(); });
+      b.addEventListener('click', () => pickP(it));
       box.appendChild(b);
     }
   } catch (err) { box.textContent = ''; boxMsg(box, 'Suche gerade nicht erreichbar.'); }
@@ -1897,14 +1907,16 @@ $('bmSearch').addEventListener('submit', async e => {
     if (!j.length) { box.textContent = 'Nichts gefunden.'; return; }
     for (const it of j) {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name;
-      b.addEventListener('click', () => { box.textContent = ''; const t = toLocal(it.lat, it.lon); bm.cx = t.x; bm.cz = t.z; bm.s = Math.max(bm.s, 0.6); selectAt(t.x, t.z, it.name.split(',').slice(0, 2).join(',')); });
+      b.addEventListener('click', () => pickBM(it));
       box.appendChild(b);
     }
   } catch (err) { // Runde 120 (simulated outage of Nominatim and Photon): search what the game already knows - loaded streets and sights
     const loc = localSearch(q); box.textContent = ''; boxMsg(box, loc.length ? 'Suchdienst gerade nicht erreichbar – Treffer aus der geladenen Umgebung:' : 'Suchdienst gerade nicht erreichbar, in der geladenen Umgebung nichts gefunden.');
     for (const it of loc) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name;
-      b.addEventListener('click', () => { box.textContent = ''; bm.cx = it.x; bm.cz = it.z; bm.s = Math.max(bm.s, 0.6); selectAt(it.x, it.z, it.name); }); box.appendChild(b); } }
+      b.addEventListener('click', () => { box.textContent = ''; bm.cx = it.x; bm.cz = it.z; bm.s = Math.max(bm.s, 0.6); selectAt(it.x, it.z, it.name); const ll = toLatLon(it.x, it.z); RECENT.add(it.name, ll[0], ll[1]); }); box.appendChild(b); } }
 });
+function pickBM(it) { $('bmRes').textContent = ''; const t = toLocal(it.lat, it.lon); bm.cx = t.x; bm.cz = t.z; bm.s = Math.max(bm.s, 0.6); selectAt(t.x, t.z, it.name.split(',').slice(0, 2).join(',')); RECENT.add(it.name, it.lat, it.lon); }
+recentOn($('bmQuery'), $('bmRes'), pickBM); // Runde 229
 function boxMsg(box, t) { const d = document.createElement('div'); d.className = 'pmsg'; d.textContent = t; box.appendChild(d); }
 function localSearch(q) { // loaded sights and street names that contain the words, nearest first
   const w = q.toLowerCase().replace(/str(\.|a(ss|ß)e)/g, 'str').split(/[\s,]+/).filter(Boolean), ok = n => { const s = n.toLowerCase().replace(/stra(ss|ß)e/g, 'str'); return w.every(x => s.includes(x)); }, out = new Map();
