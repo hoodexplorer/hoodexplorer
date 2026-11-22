@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=772' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=775' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1313,6 +1313,28 @@ function einrIcon(g, k, x, y, r) { const L = Math.max(1.5, r * .22); g.lineWidth
   else if (k === 'S') { g.strokeStyle = W; g.lineWidth = u * 1.1; g.beginPath(); g.ellipse(x, y, r * .62, r * .42, 0, 0, 7); g.stroke(); px(-.4, -2.1, .8, 4.2); }
   else if (k === 'L') { px(-.7, -3.6, 1.4, 1, '#ffd23f'); px(-1.1, -2.6, 2.2, 1.2, R); px(-1.3, -1.4, 2.6, 1.2); px(-1.5, -.2, 3, 1.2, R); px(-1.7, 1, 3.4, 1.2); px(-1.9, 2.2, 3.8, 1.2, R); px(.8, -3.6, 2.4, .5, '#ffd23f'); px(-3.2, -3.6, 2.4, .5, '#ffd23f'); }
   else { for (const dy of [-1.6, .2, 2]) { g.strokeStyle = W; g.lineWidth = u * .9; g.beginPath(); for (let i = 0; i <= 8; i++) { const xx = x + (-3 + i * .75) * u, yy = y + dy * u + (i % 2 ? -.6 : .6) * u; i ? g.lineTo(xx, yy) : g.moveTo(xx, yy); } g.stroke(); } } }
+/* Runde 255 (Nutzer: lettering and logos smooth, not pixel-like - the pixel look comes from the shader): signs of fire stations, police and
+   hospitals are planes with a canvas texture (one per kind and word), laid onto the sign boards the worker builds */
+const SIGNG = new Map(), SIGNTEX = new Map();
+function signTex(id, w, h) { const k = id + '|' + Math.round(w / h * 10); let t = SIGNTEX.get(k); if (t) return t;
+  const [kind, word] = id.split(':'), sym = kind === 'sym', K = sym ? word : kind, H = 128, W = sym ? 128 : Math.max(128, Math.round(H * w / h)), c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+  const BG = { F: '#c9302c', P: '#2b4f9e', H: '#cf2b2b' }[K], FG = '#ffffff';
+  const symbol = (x, y, s, col) => { g.fillStyle = col; g.beginPath();
+    if (K === 'H') { g.fillRect(x - s * .16, y - s * .5, s * .32, s); g.fillRect(x - s * .5, y - s * .16, s, s * .32); return; }
+    if (K === 'P') { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? s * .22 : s * .52; g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } g.closePath(); g.fill(); return; }
+    g.moveTo(x, y - s * .55); g.bezierCurveTo(x + s * .15, y - s * .25, x + s * .48, y - s * .1, x + s * .42, y + s * .18); g.bezierCurveTo(x + s * .38, y + s * .45, x + s * .15, y + s * .55, x, y + s * .55);
+    g.bezierCurveTo(x - s * .15, y + s * .55, x - s * .4, y + s * .45, x - s * .42, y + s * .18); g.bezierCurveTo(x - s * .45, y - s * .05, x - s * .25, y - s * .2, x - s * .12, y - s * .38); g.bezierCurveTo(x - s * .05, y - s * .2, x, y - s * .3, x, y - s * .55); g.fill();
+    g.fillStyle = BG; g.beginPath(); g.ellipse(x, y + s * .28, s * .14, s * .2, 0, 0, 7); g.fill(); };
+  if (sym) { g.fillStyle = K === 'H' ? '#ffffff' : BG; g.fillRect(0, 0, W, H); if (K === 'H') { g.strokeStyle = '#cf2b2b'; g.lineWidth = 10; g.strokeRect(5, 5, W - 10, H - 10); } symbol(W / 2, H / 2, 80, K === 'H' ? '#cf2b2b' : FG); }
+  else { g.fillStyle = K === 'F' ? '#f4f4f0' : BG; g.fillRect(0, 0, W, H); let x0 = W / 2;
+    if (K !== 'F') { symbol(H * .55, H / 2, H * .62, K === 'P' ? '#f2c230' : FG); x0 = (W + H * .9) / 2; }
+    let fs = H * .62; g.font = '700 ' + fs + 'px "Arial Narrow", Arial, sans-serif'; const avail = W - (K === 'F' ? H * .3 : H * 1.1); while (g.measureText(word).width > avail && fs > 20) { fs -= 4; g.font = '700 ' + fs + 'px "Arial Narrow", Arial, sans-serif'; }
+    g.fillStyle = K === 'F' ? '#c9302c' : FG; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(word, x0, H / 2 + fs * .04); }
+  t = new THREE.CanvasTexture(c); t.anisotropy = 4; SIGNTEX.set(k, t); return t; }
+function setSigns(key, list) { const old = SIGNG.get(key); if (old) { scene.remove(old); old.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); SIGNG.delete(key); }
+  if (!list || !list.length) return; const grp = new THREE.Group();
+  for (const [id, x, y, z, w, h, fx, fz] of list) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: signTex(id, w, h) })); m.position.set(x, y, z); m.rotation.y = Math.atan2(fx, fz); grp.add(m); }
+  scene.add(grp); SIGNG.set(key, grp); }
 const EINR_NAME = { P: 'Polizei', H: 'Krankenhaus', F: 'Feuerwehr', B: 'Bahnhof', S: 'Stadion', W: 'Freibad', L: 'Leuchtturm' };
 /* Runde 154: in the medieval world there are castles (layer "Burgen") and no sights; the switches show only where they apply */
 const MITTEL = (window.HX_WELT || 'heute') === 'mittel';
@@ -1507,7 +1529,8 @@ function onData(e) {
   }
   else if (m.type === 'lod2') { addL2H(m.key, m.pos, m.gid); if (m.collide) addCollide(m.key, m.collide, true); addMesh(m.key, m, bldMat); addSprites(m.key, m.spr); loaded.bld = true; checkReady(); }
   else if (m.type === 'recolour') { const o = meshes.get(m.key); if (o) { const a = o.geometry.attributes; a.color.array.set(m.col); a.color.needsUpdate = true; if (m.fac && a.aFac) { a.aFac.array.set(m.fac); a.aFac.needsUpdate = true; } if (m.wal && a.aWall) { a.aWall.array.set(m.wal); a.aWall.needsUpdate = true; } } }
-  else if (m.type === 'drop') {
+  else if (m.type === 'signs') setSigns(m.key, m.list); /* Runde 255 */
+  else if (m.type === 'drop') { for (const k of [...SIGNG.keys()]) if (k.startsWith(m.prefix)) setSigns(k, null);
     if (m.prefix.startsWith('l:') || [...bgrid.values()].some(a => a.some(i => i.l2 && i.tile.startsWith(m.prefix)))) for (const [gkey, arr] of bgrid) { const b = arr.filter(i => !(i.l2 && i.tile.startsWith(m.prefix))); if (b.length !== arr.length) { if (b.length) bgrid.set(gkey, b); else bgrid.delete(gkey); } }
     for (const k of [...L2B.keys()]) if (k.startsWith(m.prefix)) { L2B.delete(k); L2VER++; }
     for (const k of [...L2H.keys()]) if (k.startsWith(m.prefix)) { L2H.delete(k); const gm = L2G.get(k); if (gm) for (const g of new Set(gm.values())) L2GC.delete(g); L2G.delete(k); }

@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=772'); importScripts('sonderbau.js?v=772'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=775'); importScripts('sonderbau.js?v=775'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2579,6 +2579,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   /* Runde 243: hospitals, police and fire stations get a sign on the facade towards the street - hospital: white band with a red cross,
      police: blue band with a white line, fire brigade: red band with a white line. The map POI is matched to the building under it (or the
      nearest one within 25 m); the band sits at three quarters of the wall height, as ground geometry (lifted with the terrain). */
+  const facs = [];
   if (WELT === 'heute') { const L = layers.poi; if (L) { const toP = mk(L.extent || ext0), done = new Set(), TBs = ground.tileBox;
     for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1) continue; const cls = (f.props.class || '') + ' ' + (f.props.subclass || '');
       const sub = f.props.subclass || f.props.class || '', kind = sub === 'hospital' ? 'H' : sub === 'police' ? 'P' : sub === 'fire_station' ? 'F' : null; if (!kind) continue; /* Runde 250: only the exact kinds - clinics and doctors' practices are no hospital */
@@ -2598,33 +2599,8 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         const { mx, mz, nx, nz, ux, uz, Lg } = walls[wi], h = (fp.minH || 0) + Math.max(2.6, Math.min(fp.h - 1.4, fp.h * 0.75)), o = .3; /* (LoD2 walls often stand a little in front of the map outline - Stuttgart-Bad Cannstatt: the gates were inside) */
         const WHITE = hex('#f4f4f0'), RED = hex('#cf2b2b'), BLUE = hex('#2b4f9e'), GLASS = hex('#9db5c8'), GREY = hex('#b7bcc0'), DARK = hex('#5d6266');
         const at = (u, off) => [mx + ux * u + nx * off, mz + uz * u + nz * off];
-        /* Runde 250 (Nutzer: signs a little above head height, marked towards the street): sign band at 2.6-3.4 m (fire station: above the
-           gates at 3.5-4.3 m), pixel lettering, below it the typical front - fire station: red roll gates, police: glass entrance with canopy,
-           hospital: canopy over the emergency entrance (the red cross stays high up) */
-        if (kind === 'H' && wi === 0) { obox2(ground, mx + nx * o, h - 1.6, mz + nz * o, 3.4, 3.2, .12, ux, uz, RED, true); obox2(ground, mx + nx * (o + .08), h - 1.4, mz + nz * (o + .08), 3.0, 2.8, .08, ux, uz, WHITE, true);
-          obox2(ground, mx + nx * (o + .14), h - 1.2, mz + nz * (o + .14), .8, 2.4, .08, ux, uz, RED, true); obox2(ground, mx + nx * (o + .14), h - .4, mz + nz * (o + .14), 2.4, .8, .08, ux, uz, RED, true); }
-        const sw = Math.min(Lg * .8, kind === 'H' ? 9 : kind === 'P' ? 7 : 10), word = kind === 'H' ? 'NOTAUFNAHME' : kind === 'P' ? 'POLIZEI' : 'FEUERWEHR', y0 = kind === 'F' && wi === 0 ? 3.5 : 2.6, sh = .8;
-        if (wi > 0) { }
-        else if (kind === 'F') { const ng = Math.max(1, Math.min(4, Math.floor(Lg * .85 / 5))), gw = 4;
-          for (let g = 0; g < ng; g++) { const u = (g - (ng - 1) / 2) * 5, [gx, gz] = at(u, o);
-            obox2(ground, gx, 0, gz, gw, 3.3, .1, ux, uz, hex('#c9302c'), true); obox2(ground, gx + nx * .06, 2.6, gz + nz * .06, gw * .8, .35, .04, ux, uz, GLASS, true);
-            for (let k = 1; k <= 5; k++) obox2(ground, gx + nx * .06, k * .42, gz + nz * .06, gw, .05, .04, ux, uz, hex('#7a1d1a'), true); } }
-        else if (kind === 'P') { const [gx, gz] = at(0, o); obox2(ground, gx, 0, gz, 2.4, 2.4, .08, ux, uz, GLASS, true); obox2(ground, gx + nx * .05, 0, gz + nz * .05, .12, 2.4, .04, ux, uz, DARK, true);
-          const [cx, cz] = at(0, 1.0); obox2(ground, cx, 2.42, cz, 4, .14, 1.8, ux, uz, GREY, true); }
-        else if (kind === 'H') { const [gx, gz] = at(0, o); obox2(ground, gx, 0, gz, 3.2, 2.3, .08, ux, uz, GLASS, true); obox2(ground, gx + nx * .05, 0, gz + nz * .05, .12, 2.3, .04, ux, uz, DARK, true);
-          const [cx, cz] = at(0, 1.4); obox2(ground, cx, 2.35, cz, Math.min(Lg * .8, 10), .16, 2.6, ux, uz, GREY, true);
-          for (const sd of [-1, 1]) { const [px, pz] = at(sd * (Math.min(Lg * .8, 10) / 2 - .3), 2.5); obox2(ground, px, 0, pz, .15, 2.35, .15, ux, uz, DARK, true); } }
-        { const [sx, sz] = at(0, o + (kind === 'H' ? .02 : 0)); obox2(ground, sx, y0, sz, sw, sh, .12, ux, uz, kind === 'P' ? BLUE : kind === 'H' ? RED : WHITE, true);
-          const pw = Math.min(.13, sw * .9 / pxRuns(word).W); pxWall(ground, word, sx + nx * .06, y0 + sh / 2, sz + nz * .06, nz, -nx, nx, nz, pw, kind === 'F' ? RED : WHITE); /* reading direction: to the right of someone facing the wall */
-          if (kind === 'P') { const [qx, qz] = at(-sw / 2 + .45, o + .1); obox2(ground, qx, y0 + .2, qz, .4, .4, .05, ux, uz, hex('#f2c230'), true); }
-          /* Runde 251 (Nutzer: readable from the 3rd person view): beside the sign a short blade sign sticks out into the street, symbol on both
-             faces - fire station: white flame on red, police: white star on blue, hospital: red cross on white; 1.4 m panel from 2.6 m (fire station 3.5 m) on an arm, 1.7 m out */
-          { let bu = sw / 2 + 1.0; if (bu > Lg / 2 - .4) bu = -bu; if (Math.abs(bu) <= Lg / 2 - .4) { const [bx, bz] = at(bu, o), by = Math.max(2.6, y0), bg = kind === 'F' ? hex('#c9302c') : kind === 'P' ? BLUE : WHITE, fg = kind === 'H' ? RED : WHITE;
-              const SYM = kind === 'F' ? ['00100', '01100', '01110', '11111', '01110'] : kind === 'P' ? ['00100', '11111', '01110', '01010', '10001'] : ['00100', '00100', '11111', '00100', '00100'];
-              obox2(ground, bx + nx * .85, by + 1.45, bz + nz * .85, 1.7, .08, .08, nx, nz, DARK, true); const cx = bx + nx * 1.0, cz = bz + nz * 1.0;
-              obox2(ground, cx, by, cz, 1.4, 1.4, .1, nx, nz, bg, true); if (kind === 'H') obox2(ground, cx, by - .03, cz, 1.46, 1.46, .08, nx, nz, RED, true);
-              const pw = .24; for (let r2 = 0; r2 < 5; r2++) for (let c2 = 0; c2 < 5; c2++) { if (SYM[r2][c2] !== '1') continue; const t = (c2 - 2) * pw, yy = by + .7 + (2 - r2) * pw - pw / 2;
-                for (const sd of [-1, 1]) obox2(ground, cx + nx * t + ux * sd * .065, yy, cz + nz * t + uz * sd * .065, pw, pw, .03, nx, nz, fg, true); } } } }
+        facs.push({ kind, wi, w: walls[wi], fh: fp.h, fm: fp.minH || 0 }); /* Runde 254: facade parts are built apart and snapped onto the drawn (LoD2) wall */
+        const sw = Math.min(Lg * .8, kind === 'H' ? 9 : kind === 'P' ? 7 : 10), word = kind === 'H' ? 'NOTAUFNAHME' : kind === 'P' ? 'POLIZEI' : 'FEUERWEHR';
         /* Runde 250, street variant A: on the lane in front of that wall - fire station: yellow zig-zag (sign 299) and FEUERWEHR, police: bays
            with POLIZEI, hospital: red-edged bay with a white zig-zag and NOTAUFNAHME; no parked cars there */
         if (wi === 0) { let q = null; for (let d = 1; d <= 30 && !q; d += 1) { const x = mx + nx * d, z = mz + nz * d, r = roadAt(x, z); if (r && r[4] >= 5 && Math.hypot(r[0] - x, r[1] - z) < r[4] / 2) q = r; }
@@ -3129,7 +3105,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         for (const [x, z] of pointsOf(f, toP)) add(k, x, z, nm); } }
     if (LHS) for (const Lh of LHS) add('L', lx(Lh.X), lz(Lh.Y), ''); /* Runde 253: lighthouses (own list; names from the map where it has one) */
     for (const a of (osm && osm.areas) || []) { if (a.kind !== 7 && a.kind !== 8) continue; let x = 0, z = 0; const n = a.ring.length / 2; for (let i = 0; i < a.ring.length; i += 2) { x += a.ring[i]; z += a.ring[i + 1]; } add(a.kind === 7 ? 'S' : 'W', x / n, z / n, ''); } }
-  return { einr, pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
+  return { facs, einr, pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }
 /* Runde 204: an oriented box whose sides face outwards (obox below winds them inwards - seen from outside they were culled) and with a lid */
 function obox2(G, x, y, z, len, h, wid, dx, dz, col, lid) {
@@ -3206,6 +3182,62 @@ function pxWall(G, str, x, yc, z, ux, uz, nx, nz, pw, col) { const { runs, W } =
 function pxFlat(G, str, x, z, y, ux, uz, vx, vz, pw, col) { const { runs, W } = pxRuns(str);
   for (const [c, r, n] of runs) { const u0 = (c - W / 2) * pw, u1 = (c + n - W / 2) * pw, v0 = (2.5 - r - 1) * pw, v1 = v0 + pw, P = (u, v) => [x + ux * u + vx * v, y, z + uz * u + vz * v];
     const a = P(u0, v0), b = P(u1, v0), c2 = P(u1, v1), d = P(u0, v1); G.quad(a, d, c2, b, col, 0, 1, 0); G.quad(a, b, c2, d, col, 0, 1, 0); } }
+/* Runde 254 (Nutzer, Nuernberg Feuerwache 5: gates and signs stood in the air - they followed the map outline, the drawn LoD2 wall stands
+   metres away): the facade parts of fire stations, police and hospitals are a mesh of their own per map tile; each wall is moved along its
+   normal onto the nearest drawn LoD2 wall (ray 5 m in, 6 m out), and the mesh is built again whenever LoD2 tiles arrive */
+const FACS = new Map();
+function lodWalls(rec) { if (rec.wallG || !rec.data || !rec.data.idx) return rec.wallG; const d = rec.data, P = d.pos, I = d.idx, G = new Map();
+  for (let i = 0; i < I.length; i += 3) { const a = I[i], b = I[i + 1], c = I[i + 2]; if (d.kind[a] !== 0) continue; const q = [[P[a * 3], P[a * 3 + 2]], [P[b * 3], P[b * 3 + 2]], [P[c * 3], P[c * 3 + 2]]];
+    let best = null, bl = 0; for (const [u, v] of [[0, 1], [1, 2], [0, 2]]) { const l = Math.hypot(q[u][0] - q[v][0], q[u][1] - q[v][1]); if (l > bl) { bl = l; best = [q[u], q[v]]; } } if (bl < .5) continue;
+    const s4 = [best[0][0], best[0][1], best[1][0], best[1][1]];
+    for (let x = Math.floor(Math.min(s4[0], s4[2]) / 8); x <= Math.floor(Math.max(s4[0], s4[2]) / 8); x++) for (let z = Math.floor(Math.min(s4[1], s4[3]) / 8); z <= Math.floor(Math.max(s4[1], s4[3]) / 8); z++) { const k = x * 100003 + z; let l = G.get(k); if (!l) G.set(k, l = []); l.push(s4); } }
+  return rec.wallG = G; }
+function facSnap(mx, mz, nx, nz) { const ax = mx - nx * 5, az = mz - nz * 5; let best = null;
+  { const ix = mx - nx * 2.5, iz = mz - nz * 2.5, k = Math.floor(ix / 16) * 100003 + Math.floor(iz / 16); let roof = false; /* only where a LoD2 roof lies over the inside - a building drawn from the map keeps its own wall (Kassel-Wolfsanger) */
+    for (const rec of lod2.values()) { const l = rec.coverG && rec.coverG.get(k); if (l) for (let i = 0; i < l.length && !roof; i += 2) roof = inTri(ix, iz, l[i], l[i + 1]); if (roof) break; }
+    if (!roof) return 0; }
+  for (const rec of lod2.values()) { const G = lodWalls(rec); if (!G || !G.size) continue; const seen = new Set();
+    for (let t = 0; t <= 11; t += 2) { const k = Math.floor((ax + nx * t) / 8) * 100003 + Math.floor((az + nz * t) / 8), l = G.get(k); if (!l) continue;
+      for (const sg of l) { if (seen.has(sg)) continue; seen.add(sg); const fx = sg[2] - sg[0], fz = sg[3] - sg[1], fl = Math.hypot(fx, fz) || 1; if (Math.abs((fx * nx + fz * nz) / fl) > .4) continue;
+        const den = nx * fz - nz * fx; if (Math.abs(den) < 1e-6) continue; const tt = ((sg[0] - ax) * fz - (sg[1] - az) * fx) / den, uu = ((sg[0] - ax) * nz - (sg[1] - az) * nx) / den;
+        if (tt < 0 || tt > 11 || uu < -.02 || uu > 1.02) continue; if (best === null || Math.abs(tt - 5) < Math.abs(best - 5)) best = tt; } } }
+  return best === null ? 0 : best - 5; }
+function facadeGeo(G, kind, W0, wi, fh, fm, S) {
+  const sn = facSnap(W0.mx, W0.mz, W0.nx, W0.nz), W = Object.assign({}, W0, { mx: W0.mx + W0.nx * sn, mz: W0.mz + W0.nz * sn });
+  const { mx, mz, nx, nz, ux, uz, Lg } = W, fp = { h: fh, minH: fm }, h = fm + Math.max(2.6, Math.min(fh - 1.4, fh * 0.75)), o = .3;
+  const WHITE = hex('#f4f4f0'), RED = hex('#cf2b2b'), BLUE = hex('#2b4f9e'), GLASS = hex('#9db5c8'), GREY = hex('#b7bcc0'), DARK = hex('#5d6266');
+  const at = (u, off) => [mx + ux * u + nx * off, mz + uz * u + nz * off];
+        /* Runde 250 (Nutzer: signs a little above head height, marked towards the street): sign band at 2.6-3.4 m (fire station: above the
+           gates at 3.5-4.3 m), pixel lettering, below it the typical front - fire station: red roll gates, police: glass entrance with canopy,
+           hospital: canopy over the emergency entrance (the red cross stays high up) */
+        if (kind === 'H' && wi === 0) { obox2(G, mx + nx * o, h - 1.6, mz + nz * o, 3.4, 3.2, .12, ux, uz, RED, true); obox2(G, mx + nx * (o + .08), h - 1.4, mz + nz * (o + .08), 3.0, 2.8, .08, ux, uz, WHITE, true);
+          obox2(G, mx + nx * (o + .14), h - 1.2, mz + nz * (o + .14), .8, 2.4, .08, ux, uz, RED, true); obox2(G, mx + nx * (o + .14), h - .4, mz + nz * (o + .14), 2.4, .8, .08, ux, uz, RED, true); }
+        const sw = Math.min(Lg * .8, kind === 'H' ? 9 : kind === 'P' ? 7 : 10), word = kind === 'H' ? 'NOTAUFNAHME' : kind === 'P' ? 'POLIZEI' : 'FEUERWEHR', y0 = kind === 'F' && wi === 0 ? 3.5 : 2.6, sh = .8;
+        if (wi > 0) { }
+        else if (kind === 'F') { const ng = Math.max(1, Math.min(4, Math.floor(Lg * .85 / 5))), gw = 4;
+          for (let g = 0; g < ng; g++) { const u = (g - (ng - 1) / 2) * 5, [gx, gz] = at(u, o);
+            obox2(G, gx, 0, gz, gw, 3.3, .1, ux, uz, hex('#c9302c'), true); obox2(G, gx + nx * .06, 2.6, gz + nz * .06, gw * .8, .35, .04, ux, uz, GLASS, true);
+            for (let k = 1; k <= 5; k++) obox2(G, gx + nx * .06, k * .42, gz + nz * .06, gw, .05, .04, ux, uz, hex('#7a1d1a'), true); } }
+        else if (kind === 'P') { const [gx, gz] = at(0, o); obox2(G, gx, 0, gz, 2.4, 2.4, .08, ux, uz, GLASS, true); obox2(G, gx + nx * .05, 0, gz + nz * .05, .12, 2.4, .04, ux, uz, DARK, true);
+          const [cx, cz] = at(0, 1.0); obox2(G, cx, 2.42, cz, 4, .14, 1.8, ux, uz, GREY, true); }
+        else if (kind === 'H') { const [gx, gz] = at(0, o); obox2(G, gx, 0, gz, 3.2, 2.3, .08, ux, uz, GLASS, true); obox2(G, gx + nx * .05, 0, gz + nz * .05, .12, 2.3, .04, ux, uz, DARK, true);
+          const [cx, cz] = at(0, 1.4); obox2(G, cx, 2.35, cz, Math.min(Lg * .8, 10), .16, 2.6, ux, uz, GREY, true);
+          for (const sd of [-1, 1]) { const [px, pz] = at(sd * (Math.min(Lg * .8, 10) / 2 - .3), 2.5); obox2(G, px, 0, pz, .15, 2.35, .15, ux, uz, DARK, true); } }
+        { const [sx, sz] = at(0, o + (kind === 'H' ? .02 : 0)); obox2(G, sx, y0, sz, sw, sh, .12, ux, uz, kind === 'P' ? BLUE : kind === 'H' ? RED : WHITE, true);
+          S.push([kind + ':' + word, sx + nx * .075, y0 + sh / 2, sz + nz * .075, sw, sh, nx, nz]); /* Runde 255 (Nutzer: lettering not pixel-like - the shader makes the pixels): drawn by the app as a texture */
+          /* Runde 251 (Nutzer: readable from the 3rd person view): beside the sign a short blade sign sticks out into the street, symbol on both
+             faces - fire station: white flame on red, police: white star on blue, hospital: red cross on white; 1.4 m panel from 2.6 m (fire station 3.5 m) on an arm, 1.7 m out */
+          { let bu = sw / 2 + 1.0; if (bu > Lg / 2 - .4) bu = -bu; if (Math.abs(bu) <= Lg / 2 - .4) { const [bx, bz] = at(bu, o), by = Math.max(2.6, y0), bg = kind === 'F' ? hex('#c9302c') : kind === 'P' ? BLUE : WHITE, fg = kind === 'H' ? RED : WHITE;
+              const SYM = kind === 'F' ? ['00100', '01100', '01110', '11111', '01110'] : kind === 'P' ? ['00100', '11111', '01110', '01010', '10001'] : ['00100', '00100', '11111', '00100', '00100'];
+              obox2(G, bx + nx * .85, by + 1.45, bz + nz * .85, 1.7, .08, .08, nx, nz, DARK, true); const cx = bx + nx * 1.0, cz = bz + nz * 1.0;
+              obox2(G, cx, by, cz, 1.4, 1.4, .1, nx, nz, bg, true); if (kind === 'H') obox2(G, cx, by - .03, cz, 1.46, 1.46, .08, nx, nz, RED, true);
+              for (const sd of [-1, 1]) S.push(['sym:' + kind, cx + ux * sd * .065, by + .7, cz + uz * sd * .065, 1.3, 1.3, ux * sd, uz * sd]); } } }
+}
+function postFac(key) { const L = FACS.get(key); if (!L || !L.length) return; const G = new Geo(true), signs = [];
+  for (const f of L) { const from = G.p.length, base = TERRAIN_ON ? dzLift(f.w.mx, f.w.mz, hAt(f.w.mx, f.w.mz)) : 0, S = []; facadeGeo(G, f.kind, f.w, f.wi, f.fh, f.fm, S); G.lift(from, base); for (const q of S) { q[2] += base; signs.push(q); } }
+  post({ type: 'signs', key: 'm:' + key + ':fac', list: signs }); /* Runde 255 */
+  if (!G.p.length) return; const o = G.out(); post({ type: 'bld', key: 'm:' + key + ':fac', pos: o.pos, nor: o.nor, col: o.col, fac: o.fac, wal: o.wal, base: o.base }, [o.pos.buffer, o.nor.buffer, o.col.buffer, o.fac.buffer, o.wal.buffer, o.base.buffer]); }
+function refreshFacs() { for (const k of FACS.keys()) postFac(k); }
 function ribbon(G, l, w, y, col) { // l: polyline [x, z, …]
   const h = w / 2;
   for (let i = 0; i + 3 < l.length; i += 2) {
@@ -3779,7 +3811,7 @@ function recheckBlock(rec) {
     post({ type: 'lod2idx', key: 'l:' + rec.tile.id, idx, spr }, [idx.buffer, spr.buffer]); postRoofThings('l:' + rec.tile.id, rp.geo);
   }
   if (rec.block) rec.block.all = b.set.all; /* Runde 250: the roof list for the gap rescue, also when the chosen groups stayed the same */
-  rescueFor(rec);
+  rescueFor(rec); refreshFacs(); /* Runde 254: snap the facade parts onto the walls of this LoD2 tile */
 }
 /* ------------------------------------------------------------ roofs measured from aerial photos (features only, never shown) */
 function roofTypeOf(r, g, b, flat) {
@@ -4230,6 +4262,7 @@ async function loadMVT(rec, key) {
     post({ type: 'water', key: 'm:' + key + ':water', pos: w.pos, nor: w.nor, col: w.col, field: f }, tr); } }
   if (out.parts) { const g2 = out.parts; post({ type: 'bld', key: 'm:' + key + ':parts', pos: g2.pos, nor: g2.nor, col: g2.col, fac: g2.fac, wal: g2.wal, base: g2.base }, [g2.pos.buffer, g2.nor.buffer, g2.col.buffer, g2.fac.buffer, g2.wal.buffer, g2.base.buffer]); }
   if (out.sights.length) post({ type: 'sights', key: 'm:' + key, sights: out.sights });
+  if (out.facs && out.facs.length) { FACS.set(key, out.facs); postFac(key); } else FACS.delete(key); /* Runde 254 */
   if (out.lights && out.lights.length) post({ type: 'lights', key: 'm:' + key, lights: out.lights }); /* Runde 244 */
   for (const [owner] of out.buckets) sendBucket(rec, key, owner);
   // LoD2 tiles already shown get another pass now that footprints, shops and colours are known
@@ -4313,7 +4346,7 @@ async function loadLod2(rec) {
       collide.push(h.length, top[g], base); for (const p of h) collide.push(p[0], p[1]); } }
   const rp = lod2Props(d, t.id, idx2, tid), spr = rp.spr; postRoofThings('l:' + t.id, rp.geo);
   post({ type: 'lod2', key: 'l:' + t.id, pos: pos2, nor: nor2, col, fac, wal, base, idx: idx2, spr, gid, collide: Float32Array.from(collide) }, [pos2.buffer, nor2.buffer, col.buffer, fac.buffer, wal.buffer, base.buffer, idx2.buffer, spr.buffer, gid.buffer]);
-  rescueFor(rec);
+  rescueFor(rec); refreshFacs(); /* Runde 254 */
   enqueue({ kind: 'Dächer', prio: 2000, run: async () => { try { if (await measureRoofs(rec) && lod2.get(t.id) === rec) recolour(rec); } catch (e) { post({ type: 'warn', msg: 'Luftbild ' + t.id + ': ' + e.message }); } } });
   // colours and trees now come from own OSM tiles (daten/osm); the public Overpass servers were blocked or overloaded.
   // Overpass stays available only as an opt-in fallback for places outside the prepared tiles.
