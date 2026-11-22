@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=672' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=673' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -263,9 +263,9 @@ async function geocode(q, near) {
 /* Runde 229: the last 8 places picked in a search are remembered (only on this device, localStorage 'hx.recent') and shown while
    the search field is empty - in the start dialog and on the big map. A tap picks the place like a search result. */
 const RECENT = { get: () => (store.get('hx.recent') || []).filter(r => r && r.name && isFinite(r.lat) && isFinite(r.lon)),
-  add(name, lat, lon) { if (!name || !isFinite(lat) || !isFinite(lon)) return; const a = RECENT.get().filter(r => r.name !== name); a.unshift({ name, lat: +(+lat).toFixed(6), lon: +(+lon).toFixed(6) }); store.set('hx.recent', a.slice(0, 8)); } };
-function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); if (!a.length) return; boxMsg(box, 'Zuletzt gesucht');
-  for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
+  add(name, lat, lon, kind) { if (!name || !isFinite(lat) || !isFinite(lon)) return; const a = RECENT.get().filter(r => r.name !== name); a.unshift({ name, lat: +(+lat).toFixed(6), lon: +(+lon).toFixed(6), kind: kind || 's' }); store.set('hx.recent', a.slice(0, 10)); } }; // Runde 230: also places visited (kind 'b')
+function showRecent(box, pick) { box.textContent = ''; const a = RECENT.get(); if (!a.length) return; boxMsg(box, 'Zuletzt gesucht und besucht');
+  for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = (it.kind === 'b' ? '→ besucht: ' : '') + it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
   const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Liste leeren'; c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
 function recentOn(inp, box, pick) { const f = () => { if (!inp.value.trim()) showRecent(box, pick); }; inp.addEventListener('focus', f); inp.addEventListener('input', f); }
 const pickP = it => { chosen = { lat: +(+it.lat).toFixed(6), lon: +(+it.lon).toFixed(6), label: it.name.split(',').slice(0, 3).join(',') }; $('pResults').textContent = ''; RECENT.add(it.name, it.lat, it.lon); showChosen(); };
@@ -1881,7 +1881,7 @@ function toLatLon(x, z) { const X = x / O.c + O.X0, Y = -z / O.c + O.Y0; return 
 $('bMap').addEventListener('click', () => { if (started) openBig(false); });
 $('street').addEventListener('click', () => { if (started) openBig(true); });
 $('bmClose').addEventListener('click', () => { $('bigmap').hidden = true; });
-$('bmGo').addEventListener('click', () => { if (!bm.sel) return; if (bm.drive && DRV.on) { $('bigmap').hidden = true; driveTo(bm.sel.x, bm.sel.z, $('bmInfo').textContent.split(' · ')[0]); } else jumpTo(bm.sel.x, bm.sel.z); });
+$('bmGo').addEventListener('click', () => { if (!bm.sel) return; { const ll = toLatLon(bm.sel.x, bm.sel.z); RECENT.add($('bmInfo').textContent.split(' · ')[0], ll[0], ll[1], 'b'); } /* Runde 230: a place one goes to is remembered as visited */ if (bm.drive && DRV.on) { $('bigmap').hidden = true; driveTo(bm.sel.x, bm.sel.z, $('bmInfo').textContent.split(' · ')[0]); } else jumpTo(bm.sel.x, bm.sel.z); });
 $('bmIn').addEventListener('click', () => { bm.s = Math.min(8, bm.s * 1.6); drawBig(); });
 $('bmOut').addEventListener('click', () => { bm.s = Math.max(0.03, bm.s / 1.6); drawBig(); });
 $('bmMe').addEventListener('click', () => { bm.cx = P.x; bm.cz = P.z; drawBig(); });
