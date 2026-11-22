@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=716'); importScripts('sonderbau.js?v=716'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=718'); importScripts('sonderbau.js?v=718'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -3496,10 +3496,11 @@ function blockGroups(d, prev) {
       const cand = []; for (const [g, t] of all) { let hit = false; for (let k = 0; k < t.length && !hit; k += 7) hit = Math.abs(t[k] - cx) < R2 && Math.abs(t[k + 1] - cz) < R2; if (hit) cand.push([g, t]); }
       if (!cand.length) continue; const W = (u, v) => [cx + u * S.c - v * S.s, cz + u * S.s + v * S.c], U = (x, z) => [(x - cx) * S.c + (z - cz) * S.s, -(x - cx) * S.s + (z - cz) * S.c];
       const g0 = TERRAIN_ON ? hAt(cx, cz) : 0, hitG = new Set(); let full = 0, H = 0;
+      const cov = []; /* Runde 245b (Schwalmstadion: a pitch in a hollow - ordinary roofs up the slope counted as stands): heights against the ground under each sample, half of the strip built on three sides */
       for (const [su, sv] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { let n = 0, hit = 0;
-        for (let tt = -1; tt <= 1.001; tt += .1) for (let dd = 3; dd <= 25; dd += 4) { const [x, z] = W(su ? su * (iu + dd) : tt * iu, sv ? sv * (iv + dd) : tt * iv); n++;
-          for (const [g, t] of cand) { let on = false; for (let k = 0; k < t.length; k += 7) if (inTri(x, z, t, k) && t[k + 6] - g0 > 5) { on = true; H = Math.max(H, t[k + 6] - g0); break; } if (on) { hit++; hitG.add(g); break; } } }
-        if (hit / n >= .35) full++; }
+        for (let tt = -1; tt <= 1.001; tt += .1) for (let dd = 3; dd <= 25; dd += 4) { const [x, z] = W(su ? su * (iu + dd) : tt * iu, sv ? sv * (iv + dd) : tt * iv), gl = TERRAIN_ON ? hAt(x, z) : 0; n++;
+          for (const [g, t] of cand) { let on = false; for (let k = 0; k < t.length; k += 7) if (inTri(x, z, t, k) && t[k + 6] - gl > 5) { on = true; H = Math.max(H, t[k + 6] - gl); break; } if (on) { hit++; hitG.add(g); break; } } }
+        cov.push(+(hit / n).toFixed(2)); if (hit / n >= .5) full++; }
       if (full < 3) continue;
       let ou = iu + 8, ov = iv + 8; for (const [g, t] of cand) if (hitG.has(g)) for (let k = 0; k < t.length; k += 7) for (let m = 0; m < 6; m += 2) { const [pu, pv] = U(t[k + m], t[k + m + 1]); if (Math.abs(pu) < iu + 50 && Math.abs(pv) < iv + 50) { ou = Math.max(ou, Math.abs(pu)); ov = Math.max(ov, Math.abs(pv)); } }
       const A = { cx, cz, c: S.c, s: S.s, iu, iv, ou: Math.min(ou, iu + 50), ov: Math.min(ov, iv + 50), H: Math.max(12, Math.min(40, top[0] === undefined ? H : H)), seed: hashStr('ar' + Math.round(S.X) + ',' + Math.round(S.Y)) };
