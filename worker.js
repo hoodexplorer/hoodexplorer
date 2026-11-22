@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=751'); importScripts('sonderbau.js?v=751'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=752'); importScripts('sonderbau.js?v=752'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2548,9 +2548,17 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
     if (stations.length) for (const r of map.roads) { if (r.k !== 'r') continue; const p = r.p; for (let i = 0; i + 3 < p.length; i += 2) { const l = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]); if (l < .1) continue;
       for (let t = 0; t < l; t += 6) { const x = p[i] + (p[i + 2] - p[i]) * t / l, z = p[i + 1] + (p[i + 3] - p[i + 1]) * t / l; if (!stations.some(sp => Math.abs(sp.x - x) < 400 && Math.abs(sp.z - z) < 400)) continue;
         const k = Math.round(mX(x) / 3) + ',' + Math.round(mY(z) / 3); if (!RAILP.has(k)) RAILP.set(k, { X: mX(x), Y: mY(z) }); } } } /* Runde 248 */
+    /* Runde 249 (Hamburg Jungfernstieg: the platforms of the underground station stood on the square and out over the Alster): a platform
+       is only built where a track on the surface runs beside it (half of its length or more) - platforms of underground stations,
+       tunnels and stations under halls without mapped surface tracks are left out */
+    const RS = []; for (const r of map.roads) if (r.k === 'r') for (let i = 0; i + 3 < r.p.length; i += 2) RS.push(r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3]);
+    const trackBeside = (line, w) => { let n = 0, ok = 0; const lim = (w / 2 + 4) ** 2;
+      for (let i = 0; i + 3 < line.length; i += 2) { const l = Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]); for (let t = 0; t <= l; t += 8) { const x = line[i] + (line[i + 2] - line[i]) * (l ? t / l : 0), z = line[i + 1] + (line[i + 3] - line[i + 1]) * (l ? t / l : 0); n++;
+        for (let j = 0; j < RS.length; j += 4) { const ex = RS[j + 2] - RS[j], ez = RS[j + 3] - RS[j + 1], l2 = ex * ex + ez * ez || 1, u = Math.max(0, Math.min(1, ((x - RS[j]) * ex + (z - RS[j + 1]) * ez) / l2)); if ((RS[j] + ex * u - x) ** 2 + (RS[j + 1] + ez * u - z) ** 2 < lim) { ok++; break; } } } }
+      return n > 0 && ok * 2 >= n; };
     for (const a of osm.areas || []) { if (a.kind < 3 || a.kind > 6) continue; let line, w;
-      if (a.kind === 3 || a.kind === 5) { const o = obb(a.ring); if (!o || o.w < 15) continue; w = Math.min(12, Math.max(2.5, o.d)); line = [o.cx - o.c * o.w / 2, o.cz - o.s * o.w / 2, o.cx + o.c * o.w / 2, o.cz + o.s * o.w / 2]; ground.flat([a.ring], .55, PLAT); }
-      else { line = Array.from(a.ring); w = 4; ribbon(ground, line, w, .55, PLAT); }
+      if (a.kind === 3 || a.kind === 5) { const o = obb(a.ring); if (!o || o.w < 15) continue; w = Math.min(12, Math.max(2.5, o.d)); line = [o.cx - o.c * o.w / 2, o.cz - o.s * o.w / 2, o.cx + o.c * o.w / 2, o.cz + o.s * o.w / 2]; if (!trackBeside(line, w)) continue; ground.flat([a.ring], .55, PLAT); }
+      else { line = Array.from(a.ring); w = 4; if (!trackBeside(line, w)) continue; ribbon(ground, line, w, .55, PLAT); }
       let L = 0; const segL = []; for (let i = 0; i + 3 < line.length; i += 2) { const l = Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]); segL.push(l); L += l; } if (L < 20) continue;
       for (let i = 0; i + 3 < line.length; i += 2) { const l = segL[i / 2]; for (let t = 0; t < l; t += 6) { const x = line[i] + (line[i + 2] - line[i]) * t / l, z = line[i + 1] + (line[i + 3] - line[i + 1]) * t / l, k = Math.round(mX(x) / 3) + ',' + Math.round(mY(z) / 3); if (!PLATP.has(k)) PLATP.set(k, { X: mX(x), Y: mY(z) }); } }
       /* Runde 247: a platform beside a railway in a trough sinks with it (lower level of a Kreuzbahnhof) - same depth, its own flat trough */
