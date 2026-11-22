@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=769' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=770' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1907,8 +1907,8 @@ function drawBig() {
   const mark = (x, z, col, r) => { const [sx, sy] = toScr(x, z); g.fillStyle = col; g.strokeStyle = '#1a1206'; g.lineWidth = 2; g.beginPath(); g.arc(sx, sy, r, 0, 7); g.fill(); g.stroke(); };
   if (window.HXZ) HXZ.drawBig(g, toScr, W / bigCv.clientWidth, bm.s); // Runde 144
   if (window.HXGORE && HXGORE.scene) { const d = W / bigCv.clientWidth, [sx, sy] = toScr(HXGORE.scene.x, HXGORE.scene.z); einsatzIcon(g, sx, sy, 11 * d); g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText('Einsatz', sx, sy + 24 * d); g.fillText('Einsatz', sx, sy + 24 * d); g.textAlign = 'start'; } // Runde 171
-  if (LAYERS.einr && !MITTEL && bm.s >= .03) { const d = W / bigCv.clientWidth; for (const a of EINR.values()) for (const e of a) { const [sx, sy] = toScr(e[1], e[2]); g.fillStyle = 'rgba(255,248,224,.95)'; g.beginPath(); g.arc(sx, sy, 12 * d, 0, 7); g.fill(); einrIcon(g, e[0], sx, sy, 8 * d); /* Runde 252 */
-      if (bm.s >= .12) { const t = e[3] || EINR_NAME[e[0]]; g.font = '600 ' + (11 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(t, sx, sy + 22 * d); g.fillText(t, sx, sy + 22 * d); g.textAlign = 'start'; } } }
+  if (LAYERS.einr && !MITTEL && bm.s >= .03) { const d = W / bigCv.clientWidth; for (const a of EINR.values()) for (const e of a) { const [sx, sy] = toScr(e[1], e[2]); g.fillStyle = 'rgba(255,248,224,.95)'; g.beginPath(); g.arc(sx, sy, 17 * d, 0, 7); g.fill(); einrIcon(g, e[0], sx, sy, 12 * d); /* Runde 252: as big as the castles - small ones were lost between the telephone booths */
+      if (bm.s >= .12) { const t = e[3] || EINR_NAME[e[0]]; g.font = '600 ' + (11 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(t, sx, sy + 30 * d); g.fillText(t, sx, sy + 30 * d); g.textAlign = 'start'; } } }
   if (LAYERS.burgen) { const d = W / bigCv.clientWidth; for (const b of burgList()) { const [sx, sy] = toScr(b.x, b.z); burgIcon(g, sx, sy, 9 * d); // Runde 154: castles with their names
       if (bm.s >= .08 && b.t) { g.font = '600 ' + (12 * d) + 'px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3 * d; g.strokeStyle = '#1a1206'; g.fillStyle = '#f3ead6'; g.strokeText(b.t, sx, sy + 22 * d); g.fillText(b.t, sx, sy + 22 * d); g.textAlign = 'start'; } } }
   if (bm.s >= .05 && LAYERS.sights) { const r = 6 * Math.max(.5, Math.min(1, bm.s / .25)); for (const list of SIGHTS.values()) for (const s of list) if (!s.quiet) mark(s.x, s.z, seen.has(s.name) ? '#9ea6b8' : '#7fd3ff', r); } // Runde 162: visible far out too, smaller dots
