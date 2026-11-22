@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=653' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=657' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1397,7 +1397,7 @@ function onData(e) {
       const it = { p, h, base, minx: a, maxx: b, minz: cc, maxz: d, tile: m.key }; t.blds.push(it);
       for (let ix = Math.floor(a / CELL); ix <= Math.floor(b / CELL); ix++) for (let iz = Math.floor(cc / CELL); iz <= Math.floor(d / CELL); iz++) { const k = gk(ix, iz); let arr = bgrid.get(k); if (!arr) bgrid.set(k, arr = []); arr.push(it); }
     }
-    t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
+    t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);
@@ -1484,6 +1484,36 @@ function addMesh(key, m, mat) {
    was in view. Now each tile mesh is split into 128 m blocks that share the vertex buffers, each with its own index and bounding
    sphere - three.js skips blocks behind the camera and outside the picture, chunkCull() those lying entirely in the fog. */
 const BLOCKS = !/[?&]bloecke=0/.test(location.search), CHUNK = 128, CHUNKS = new Map(); // tile key -> block keys
+/* Runde 215: graves as instances (worker: map.graves, 12 floats each) in 32 m blocks: one mesh for curbs and beds (shown up to 45 m from
+   the figure), one for the stones (up to 85 m); the boxes share one geometry, colour per instance. Blocks go with their tile. */
+const GRAVE_BOX = new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), GRAVE_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
+function addGraves(key, g) {
+  dropChunks(key + ':grab'); if (!g || !g.length) return;
+  const cells = new Map(); for (let i = 0; i < g.length; i += 12) { const k = Math.floor(g[i] / 32) * 100003 + Math.floor(g[i + 2] / 32); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), C = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0), keys = [];
+  const col = v => C.setRGB((v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255);
+  for (const list of cells.values()) {
+    const flat = [], stones = []; let cx = 0, cz = 0;
+    for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * .95, hz = z - vz * .95;
+      cx += x; cz += z; const rot = Math.atan2(-uz, ux);
+      flat.push([x, y, z, rot, w + .14, .09, 1.94, g[i + 6]], [x, y, z, rot, w - .06, .11, 1.74, g[i + 7]]);
+      const st = (ox, oy, oz, a, b, c2, cc) => stones.push([ox, y + oy, oz, rot, a, b, c2, cc]), sc = g[i + 11], cu = g[i + 6];
+      if (kind === 0) st(hx, 0, hz, sw, sh, .14, sc);
+      else if (kind === 1) { st(hx, 0, hz, sw + .1, .16, .22, cu); st(hx, .16, hz, sw, sh, .13, sc); }
+      else if (kind === 2) { st(hx, 0, hz, sw, sh * .8, .14, sc); st(hx, sh * .8, hz, sw * .55, sh * .18, .14, sc); }
+      else if (kind === 3) { st(hx, 0, hz, .1, 1.05, .1, sc); st(hx, .62, hz, .55, .1, .1, sc); }
+      else if (kind === 4) st(hx + vx * .3, .08, hz + vz * .3, .5, .05, .38, sc);
+      else if (kind === 5) st(hx, 0, hz, .35, 1.7 + sh * .6, .35, sc);
+      else { st(hx, 0, hz, .5, .5, .4, cu); st(hx, .5, hz, .24, 1.0, .22, 0xe2e0da); } }
+    cx /= list.length; cz /= list.length;
+    for (const [arr, maxD, suf] of [[flat, 35, 'f'], [stones, 65, 's']]) { if (!arr.length) continue;
+      const m = new THREE.InstancedMesh(GRAVE_BOX.clone(), GRAVE_MAT, arr.length); m.frustumCulled = false; m.matrixAutoUpdate = false;
+      arr.forEach(([x, y, z, r, a, b, c2, cc], j) => { Q.setFromAxisAngle(Y, r); M.compose(V.set(x, y, z), Q, S.set(a, b, c2)); m.setMatrixAt(j, M); m.setColorAt(j, col(cc)); });
+      m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx, list.length ? g[list[0] + 1] : 0, cz), 26); m.userData.maxD = maxD;
+      const k = key + ':grab#' + keys.length + suf; scene.add(m); meshes.set(k, m); keys.push(k); } }
+  CHUNKS.set(key + ':grab', keys);
+}
 function dropChunks(key) { CHGEN.set(key, (CHGEN.get(key) || 0) + 1); const l = CHUNKS.get(key); if (!l) return; for (const k of l) { const o = meshes.get(k); if (o) { scene.remove(o); o.geometry.dispose(); meshes.delete(k); } } CHUNKS.delete(key); }
 /* blocks are made a few per frame (at most ~3 ms), not all in the frame the tile arrives (Runde 56) */
 /* Runde 58: the world fills in layers - ground and streets first (all tiles that arrived), then houses, then trees and the
@@ -1514,8 +1544,8 @@ function addChunks(key, g, mat, det, cidx, cinfo) {
 const LOD_NEAR = 120; // m from the camera to the nearest edge of a block: beyond, small pieces (< 0.5 m^2, sub-pixel there) are left out
 function chunkCull(cam) { // blocks lying entirely in the fog (> 99 %) are not drawn
   const d = scene.fog ? scene.fog.density : 0, far = d > 0 ? 2.3 / d : Infinity, cp = cam.position;
-  for (const l of CHUNKS.values()) for (const k of l) { const o = meshes.get(k); if (!o) continue; const s = o.geometry.boundingSphere;
-    const dd = Math.hypot(s.center.x - cp.x, s.center.z - cp.z) - s.radius; o.visible = dd < far;
+  for (const l of CHUNKS.values()) for (const k of l) { const o = meshes.get(k); if (!o) continue; const s = o.userData.bs || o.geometry.boundingSphere;
+    const dd = Math.hypot(s.center.x - cp.x, s.center.z - cp.z) - s.radius; o.visible = dd < far && (!o.userData.maxD || Math.hypot(s.center.x - P.x, s.center.z - P.z) - s.radius < o.userData.maxD); /* Runde 215: graves only near the figure */
     if (!o.userData.nAll) continue; const n = cam === camera && dd > LOD_NEAR ? o.userData.nBase : o.userData.nAll; /* isometric view: same scale everywhere, all details */ if (o.geometry.drawRange.count !== n) o.geometry.setDrawRange(0, n); } }
 function addCollide(key, c, l2) { // outlines for walls, standing and jumping: [n, roof height, ground, x,z ...]; l2: derived from LoD2 (Runde 75)
   for (let i = 0; i < c.length;) { const n = c[i], h = c[i + 1], base = c[i + 2], p = c.subarray(i + 3, i + 3 + n * 2); i += 3 + n * 2;
