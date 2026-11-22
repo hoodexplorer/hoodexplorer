@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=705' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=716' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -603,8 +603,12 @@ const L2H = new Map(); // LoD2 tile key -> Map(cell -> highest point)
    does not have (demolished, a low structure under 1.2 m left out) is not drawn - but its outline still blocked. Rule: such a
    footprint blocks only if LoD2 geometry stands on it (a LoD2 vertex cell at a corner or inside, higher than 1.2 m) */
 let L2VER = 0; const L2B = new Map();
+/* Runde 245: arenas (cx, cz, c, s, half length, half width per entry): LoD2 walls inside give way to the bowl and its entrances */
+const ARENA_R = new Map();
+function inArena(x, z) { for (const r of ARENA_R.values()) for (let i = 0; i < r.length; i += 6) { const u = (x - r[i]) * r[i + 2] + (z - r[i + 1]) * r[i + 3], v = -(x - r[i]) * r[i + 3] + (z - r[i + 1]) * r[i + 2]; if (Math.abs(u) < r[i + 4] && Math.abs(v) < r[i + 5]) return true; } return false; }
 function itemGhost(it) {
-  if (it.l2) return false; if (it.gv === L2VER) return it.ghost; it.gv = L2VER; it.ghost = false;
+  if (!it.keep && ARENA_R.size && inArena((it.minx + it.maxx) / 2, (it.minz + it.maxz) / 2)) return true; /* Runde 245: also the base-map outline of the whole stadium */
+  if (it.l2) { if (it.keep || !ARENA_R.size) return false; if (it.gv === L2VER) return it.ghost; it.gv = L2VER; return it.ghost = inArena((it.minx + it.maxx) / 2, (it.minz + it.maxz) / 2); } if (it.gv === L2VER) return it.ghost; it.gv = L2VER; it.ghost = false;
   const cx = (it.minx + it.maxx) / 2, cz = (it.minz + it.maxz) / 2; let inL2 = false;
   for (const b of L2B.values()) if (cx > b[0] && cx < b[1] && cz > b[2] && cz < b[3]) { inL2 = true; break; } if (!inL2) return false;
   const p = it.p; for (let i = 0; i < p.length; i += 2) for (const [u, v] of [[0, 0], [1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]]) if (lod2Top(p[i] + u, p[i + 1] + v) > it.base + 1.2) return false;
@@ -1341,6 +1345,7 @@ $('bRotR').addEventListener('click', () => rotateIso(1));
   view.addEventListener('pointerdown', e => { did = e.pointerId; x0 = tx0 = e.clientX; y0 = ty0 = e.clientY; tt0 = performance.now(); try { view.setPointerCapture(did); } catch (err) { } });
   view.addEventListener('pointermove', e => { if (e.pointerId !== did) return;
     if (camMode === 'dio') dioTarget -= (e.clientX - x0) * 0.008;
+    else if (camMode === 'chase' && !DRV.on && started && P.placed) P.yaw -= (e.clientX - x0) * 0.007; /* Runde 245: swipe sideways in the third-person view turns the figure (and the camera behind it) */
     tilt(-(e.clientY - y0) * 0.004); x0 = e.clientX; y0 = e.clientY; });
   const up = e => { if (e.pointerId !== did) return; did = null; if (camMode === 'dio') rotateIso(0);
     if (e.type === 'pointerup' && Math.hypot(e.clientX - tx0, e.clientY - ty0) < 12 && performance.now() - tt0 < 400 && worldReady) tapAt(e.clientX, e.clientY); }; // a tap, not a swipe
@@ -1489,6 +1494,7 @@ function onData(e) {
     for (const k of [...L2H.keys()]) if (k.startsWith(m.prefix)) { L2H.delete(k); const gm = L2G.get(k); if (gm) for (const g of new Set(gm.values())) L2GC.delete(g); L2G.delete(k); }
     for (const k of [...SIGHTS.keys()]) if (k.startsWith(m.prefix)) SIGHTS.delete(k);
     for (const k of [...LIGHTS.keys()]) if (k.startsWith(m.prefix)) dropLighthouses(k); /* Runde 244 */
+    for (const k of [...ARENA_R.keys()]) if (k.startsWith(m.prefix)) { ARENA_R.delete(k); L2VER++; } /* Runde 245 */
     farDirty = true;
     dropCarTiles(m.prefix);
     if (window.HXW) window.HXW.drop(m.prefix);
@@ -1504,6 +1510,7 @@ function onData(e) {
     for (const [k, t] of tiles) if (k.startsWith(m.prefix)) { tiles.delete(k); TILEVER++; for (const [gkey, arr] of bgrid) { const b = arr.filter(i => i.tile !== k); if (b.length) bgrid.set(gkey, b); else bgrid.delete(gkey); } }
   } else if (m.type === 'status') { /* Runde 122: while loading, the info panel shows the open requests */ $('net').hidden = !m.loading || !started || !worldReady; $('netText').textContent = 'Lade Daten (' + m.loading + ')'; }
   else if (m.type === 'lights') addLighthouses(m.key, m.lights); /* Runde 244 */
+  else if (m.type === 'arena') { ARENA_R.set(m.key, m.rects); L2VER++; for (const [gkey, arr] of bgrid) { const b = arr.filter(i => i.tile !== m.key); if (b.length !== arr.length) { if (b.length) bgrid.set(gkey, b); else bgrid.delete(gkey); } } addCollide(m.key, m.collide, true, true); } /* Runde 245 */
   else if (m.type === 'sights') { SIGHTS.set(m.key, MITTEL ? m.sights.filter(s => s.quiet) : m.sights); } // Runde 154: no sights in the medieval world
   else if (m.type === 'terrain') { if (m.z === TER.z) { TER.tiles.set(m.tx + '_' + m.ty, m.h); carDirty = true; } else TER.far.set(m.tx + '_' + m.ty, m.h); farDirty = true; }
   else if (m.type === 'terrainH0') { TER.h0 = m.h0; carDirty = true; }
@@ -1665,10 +1672,10 @@ function chunkCull(cam) { // blocks lying entirely in the fog (> 99 %) are not d
   for (const l of CHUNKS.values()) for (const k of l) { const o = meshes.get(k); if (!o) continue; const s = o.userData.bs || o.geometry.boundingSphere;
     const dd = Math.hypot(s.center.x - cp.x, s.center.z - cp.z) - s.radius; o.visible = dd < far && (!o.userData.maxD || ((dp => dp < o.userData.maxD && dp + 2 * s.radius >= (o.userData.minD || 0))(Math.hypot(s.center.x - P.x, s.center.z - P.z) - s.radius))); /* Runde 215: graves only near the figure */
     if (!o.userData.nAll) continue; const n = cam === camera && dd > LOD_NEAR ? o.userData.nBase : o.userData.nAll; /* isometric view: same scale everywhere, all details */ if (o.geometry.drawRange.count !== n) o.geometry.setDrawRange(0, n); } }
-function addCollide(key, c, l2) { // outlines for walls, standing and jumping: [n, roof height, ground, x,z ...]; l2: derived from LoD2 (Runde 75)
+function addCollide(key, c, l2, keep) { // outlines for walls, standing and jumping: [n, roof height, ground, x,z ...]; l2: derived from LoD2 (Runde 75)
   for (let i = 0; i < c.length;) { const n = c[i], h = c[i + 1], base = c[i + 2], p = c.subarray(i + 3, i + 3 + n * 2); i += 3 + n * 2;
     let a = Infinity, b = -Infinity, cc = Infinity, d = -Infinity; for (let k = 0; k < p.length; k += 2) { if (p[k] < a) a = p[k]; if (p[k] > b) b = p[k]; if (p[k + 1] < cc) cc = p[k + 1]; if (p[k + 1] > d) d = p[k + 1]; }
-    const it = { p, h, base, minx: a, maxx: b, minz: cc, maxz: d, tile: key, l2: !!l2 };
+    const it = { p, h, base, minx: a, maxx: b, minz: cc, maxz: d, tile: key, l2: !!l2, keep: !!keep };
     for (let ix = Math.floor(a / CELL); ix <= Math.floor(b / CELL); ix++) for (let iz = Math.floor(cc / CELL); iz <= Math.floor(d / CELL); iz++) { const k = gk(ix, iz); let arr = bgrid.get(k); if (!arr) bgrid.set(k, arr = []); arr.push(it); } } }
 function buildingAt(x, z) {
   const arr = bgrid.get(gk(Math.floor(x / CELL), Math.floor(z / CELL))); if (!arr) return null; let best = null;

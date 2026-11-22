@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=705'); importScripts('sonderbau.js?v=705'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=716'); importScripts('sonderbau.js?v=716'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -37,7 +37,7 @@ const PAKS = new Map();
 function pakOpen(dir, rk) {
   const key = dir + rk;
   if (!PAKS.has(key)) PAKS.set(key, (async () => {
-    const url = dir + 'pak/' + rk + '.pak?v=1';
+    const url = dir + 'pak/' + rk + '.pak?v=' + (/osm\/?$/.test(dir) ? 245 : 1); /* Runde 245: new OSM packs - never mix an old cached directory with new data */
     let r = await fetch(url, { headers: { Range: 'bytes=0-8191' } });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -312,8 +312,8 @@ function osmTile(k) {
   if (!osmFiles.has(k)) osmFiles.set(k, (async () => {
     let buf = null;
     try {
-      buf = await cget('o7:' + k, 30 * 864e5);
-      if (!buf) { const r = await tileGet(OPFAD, k, OPFAD + k + '.bin?v=4'); /* ?v: new tile version (castle grounds), never the old file from the browser cache */ buf = r.ok ? r.buf : new ArrayBuffer(0); if (r.ok || r.status === 404) cput('o7:' + k, buf) /* Runde 238/240 (new tiles: ruins, halls, sport): read and write under the same key (wrote o5, read o6 - never hit) */; }
+      buf = await cget('o8:' + k, 30 * 864e5);
+      if (!buf) { const r = await tileGet(OPFAD, k, OPFAD + k + '.bin?v=5'); /* ?v: new tile version (castle grounds), never the old file from the browser cache */ buf = r.ok ? r.buf : new ArrayBuffer(0); if (r.ok || r.status === 404) cput('o8:' + k, buf) /* Runde 238/240 (new tiles: ruins, halls, sport): read and write under the same key (wrote o5, read o6 - never hit) */; }
     } catch (e) { buf = new ArrayBuffer(0); }
     const out = { blds: [], pts: [], parts: [], areas: [] };
     if (buf.byteLength >= 8) {
@@ -1275,6 +1275,8 @@ function fallbackBuilding(G, poly, H, minH, wall, roof, seed, type, code, own) {
   const outer = poly[0], area = Math.abs(ringArea(outer));
   if (area < 6) return;
   if (own && own.lh) return; /* Runde 244: the lighthouse tower stands here */
+  if (own && own.mill) return; /* Runde 245: drawn as windmill model */
+  if (own && own.wt) { const ar = Math.sqrt(area); waterTower(G, outer, own.wt > 0 ? own.wt : Math.max(12, Math.min(38, H > 12 && H < 45 ? H : 10 + ar * 1.8)), seed, own.wallTag || own.wall || null); return; } /* Runde 245 */
   if (own && own.hall && own.btype === 4 && H - minH < 7) H = minH + 7; /* Runde 242: halls from OSM without height (they replace flat LoD2 blocks) */
   /* Runde 238: special buildings get their own roofs instead of a flat box. Church: gable along the long axis, walls no higher than the nave
      needs (a tall height value belongs to the tower), a west tower with a helm if no tower stands there, a dome on a round or polygonal plan.
@@ -1465,6 +1467,74 @@ function lhTower(G, x, z, y0, H, r0, cols, cap) {
   const yc = yg + .35 + hl, rc = rl + .25, ya = yc + rl * 1.1;
   for (let k = 0; k < 8; k++) { const a0 = k / 8 * 6.2832, a1 = (k + 1) / 8 * 6.2832, am = (a0 + a1) / 2, p0 = P(a0, rc, yc), p1 = P(a1, rc, yc); G.tri(p1[0], p1[1], p1[2], p0[0], p0[1], p0[2], x, ya, z, cap, Math.cos(am), .7, Math.sin(am)); }
   G.flat([circ(rc, 8)], yc, cap, 0, 0); return yg + .35 + hl * .55; }
+/* Runde 245: models from the comparison with aerial views and Google Earth (stations, water towers, windmills, stadiums).
+   MILLS / ARENAS persist (Mercator) so the LoD2 pass can give way to them as well. */
+let STADV = 0; const STADP = new Map(); /* full-size pitches in stadium areas (Mercator) */
+const MILLS = new Map(), ARENAS = new Map(), mX = x => x / O.c + O.X0, mY = z => -z / O.c + O.Y0;
+function ptModels() { const out = []; if (LHS) for (const L of LHS) out.push([lx(L.X), lz(L.Y)]); for (const m of MILLS.values()) out.push([lx(m.X), lz(m.Y)]); return out; }
+/* a flat blade (two faces) from point a along unit vector b (length L), width w across unit vector q */
+function blade(G, a, b, q, L, w, col) { const P0 = (t, s2) => [a[0] + b[0] * t + q[0] * s2, a[1] + b[1] * t + q[1] * s2, a[2] + b[2] * t + q[2] * s2];
+  const A = P0(.4, -w / 2), B = P0(.4, w / 2), C = P0(L, w / 2), D = P0(L, -w / 2), nx = b[1] * q[2] - b[2] * q[1], ny = b[2] * q[0] - b[0] * q[2], nz = b[0] * q[1] - b[1] * q[0];
+  G.quad(A, B, C, D, col, nx, ny, nz); G.quad(D, C, B, A, col, -nx, -ny, -nz); }
+/* tapered n-gon from radius r0 at y0 to r1 at y1 */
+function taper(G, x, z, n, r0, r1, y0, y1, col, a0) { for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.2832, b = a0 + (k + 1) / n * 6.2832, m = (a + b) / 2;
+  G.quad([x + Math.cos(b) * r0, y0, z + Math.sin(b) * r0], [x + Math.cos(a) * r0, y0, z + Math.sin(a) * r0], [x + Math.cos(a) * r1, y1, z + Math.sin(a) * r1], [x + Math.cos(b) * r1, y1, z + Math.sin(b) * r1], col, Math.cos(m), (r0 - r1) / Math.max(.1, y1 - y0), Math.sin(m)); } }
+function cone(G, x, z, n, r, y0, y1, col, a0) { for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.2832, b = a0 + (k + 1) / n * 6.2832, m = (a + b) / 2;
+  G.tri(x + Math.cos(b) * r, y0, z + Math.sin(b) * r, x + Math.cos(a) * r, y0, z + Math.sin(a) * r, x, y1, z, col, Math.cos(m), r / Math.max(.1, y1 - y0), Math.sin(m)); } }
+/* windmill: 1 tower mill (tapered octagon, gallery on tall ones, cap, four sails), 2 post mill (dark wooden box on a trestle, sails),
+   3 stump without sails. r and H from the footprint, else typical sizes. */
+function millModel(G, x, z, kind, r, H, seed) {
+  const SAIL = hex('#ddd6c6'), SPAR = hex('#5a4a3a'), CAP = hex('#4b4845'), WOOD = hex('#4a3b2e'), dirA = seed * 6.2832, dx = Math.cos(dirA), dz = Math.sin(dirA);
+  let hub, hubR;
+  if (kind === 2) { const w = 4.4, d = 5.6, y0 = 2.6, y1 = 8.2; ground.box(x, 0, z, 1.2, y0, 1.2, WOOD);
+    obox2(G, x, y0, z, d, y1 - y0, w, dx, dz, WOOD, true);
+    for (const sg of [-1, 1]) G.quad([x - dx * d / 2 + dz * sg * w / 2, y1, z - dz * d / 2 - dx * sg * w / 2], [x + dx * d / 2 + dz * sg * w / 2, y1, z + dz * d / 2 - dx * sg * w / 2], [x + dx * d / 2, y1 + 1.6, z + dz * d / 2], [x - dx * d / 2, y1 + 1.6, z - dz * d / 2], CAP, dz * sg, .8, -dx * sg);
+    hub = [x + dx * (d / 2 + .4), y1 - .6, z + dz * (d / 2 + .4)]; hubR = 9.5; }
+  else { const WALLS = [hex('#8e4b38'), hex('#ece8df'), hex('#3d3a36'), hex('#9a8f7e')], col = WALLS[Math.floor(hashStr('mw' + seed) * WALLS.length)], r1 = r * .62;
+    taper(G, x, z, 8, r, r1, 0, H, col, .39);
+    if (H > 11 && kind === 1) { taper(G, x, z, 8, r * 1.35, r * 1.35, H * .38, H * .38 + .3, WOOD, .39); G.flat([Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7].flatMap(k => [x + Math.cos(-k / 8 * 6.2832) * r * 1.35, z + Math.sin(-k / 8 * 6.2832) * r * 1.35]))], H * .38 + .3, WOOD, 0, 0); }
+    if (kind === 3) { G.flat([Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7].flatMap(k => [x + Math.cos(-k / 8 * 6.2832 + .39) * r1, z + Math.sin(-k / 8 * 6.2832 + .39) * r1]))], H, CAP, 0, 0); return; }
+    taper(G, x, z, 8, r1 + .3, r1 * .7, H, H + r1 * .7, CAP, .39); cone(G, x, z, 8, r1 * .7, H + r1 * .7, H + r1 * 1.1, CAP, .39);
+    hub = [x + dx * (r1 + .8), H + r1 * .45, z + dz * (r1 + .8)]; hubR = Math.min(14, Math.max(7, H * .62)); }
+  const up = [0, 1, 0], hz = [-dz, 0, dx];
+  for (let k = 0; k < 4; k++) { const a = Math.PI / 4 + k * Math.PI / 2, b = [hz[0] * Math.cos(a), Math.sin(a), hz[2] * Math.cos(a)], q = [hz[0] * -Math.sin(a), Math.cos(a), hz[2] * -Math.sin(a)];
+    blade(G, hub, b, q, hubR, .22, SPAR); blade(G, [hub[0] + dx * .05, hub[1], hub[2] + dz * .05], b, [q[0], q[1], q[2]].map(v => v), hubR * .97, 0, SPAR);
+    const off = [hub[0] + q[0] * .9 + dx * .05, hub[1] + q[1] * .9, hub[2] + q[2] * .9 + dz * .05]; blade(G, off, b, q, hubR, 1.6, SAIL); } }
+/* water tower: shaft (footprint shrunk to 80 %), wider head (the footprint) and a pointed roof - colour from the map, else brick,
+   render or concrete; height from the tag, else from the footprint (no 40 m chimneys on small rings) */
+function waterTower(G, outer, H, seed, wall) {
+  let cx = 0, cz = 0; const n = outer.length / 2; for (let i = 0; i < outer.length; i += 2) { cx += outer[i]; cz += outer[i + 1]; } cx /= n; cz /= n;
+  const sc = (f) => { const o = []; for (let i = 0; i < outer.length; i += 2) o.push(cx + (outer[i] - cx) * f, cz + (outer[i + 1] - cz) * f); return o; };
+  const WT = [hex('#9b5b43'), hex('#d8cdb5'), hex('#a4a6a3')], col = wall || WT[Math.floor(hashStr('wt' + seed) * 3)], ROOF = hex(hashStr('wr' + seed) < .5 ? '#4b4f55' : '#8a4a3a');
+  const prism = (ring, y0, y1, c) => { for (let i = 0; i < ring.length; i += 2) { const j = (i + 2) % ring.length, mx = (ring[i] + ring[j]) / 2 - cx, mz = (ring[i + 1] + ring[j + 1]) / 2 - cz;
+    G.quad([ring[j], y0, ring[j + 1]], [ring[i], y0, ring[i + 1]], [ring[i], y1, ring[i + 1]], [ring[j], y1, ring[j + 1]], c, mx, 0, mz); } };
+  const shaft = sc(.78), y1 = H * .72, y2 = H * .9; prism(shaft, 0, y1, col); G.flat([Float32Array.from(outer)], y1, col, 0, 0); prism(Array.from(outer), y1, y2, col);
+  for (let i = 0; i < outer.length; i += 2) { const j = (i + 2) % outer.length, mx = (outer[i] + outer[j]) / 2 - cx, mz = (outer[i + 1] + outer[j + 1]) / 2 - cz; G.tri(outer[j], y2, outer[j + 1], outer[i], y2, outer[i + 1], cx, H, cz, ROOF, mx, .6, mz); } }
+/* arena bowl in the pitch frame: raked stands on four sides (trapezoids mitred at the corners), front wall, outer wall with a light band,
+   a light roof ring over the stands, the pitch open */
+function arenaBowl(G, A) { const W2 = (u, v, y) => [A.cx + u * A.c - v * A.s, y, A.cz + u * A.s + v * A.c];
+  const SEATS = [hex('#2f4f8f'), hex('#a33a32'), hex('#3a3c40'), hex('#2f4f8f'), hex('#c9a227')], seat = SEATS[Math.floor(A.seed * SEATS.length)], seat2 = seat.map(v => v * .8);
+  const WALL = hex('#4a4d52'), BAND = hex('#d9dcdd'), ROOF = hex('#e3e5e5'), CON = hex('#a7a49c'), UNDER = hex('#9a9c9e'), H = A.H, ou = A.ou, ov = A.ov, iu = A.iu, iv = A.iv;
+  const Q = (a, b, c, d, col) => { const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2]; G.quad(a, b, c, d, col, uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx); };
+  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([sv, su]) => (t, f, y) => { const in0 = su ? [su * iu, -iv + 2 * iv * t] : [-iu + 2 * iu * t, sv * iv], out0 = su ? [su * ou, -ov + 2 * ov * t] : [-ou + 2 * ou * t, sv * ov];
+    return W2(in0[0] + (out0[0] - in0[0]) * f, in0[1] + (out0[1] - in0[1]) * f, y); });
+  const rows = 6, yIn = 1.4, yOut = H - 5, gate = 3.5; /* Runde 245: an entrance (7 m) in the middle of every side, through stands and wall onto the pitch */
+  const yAt = f => f <= .92 ? yIn + (yOut - yIn) * f / .92 : yOut + (H - yOut) * (f - .92) / .08;
+  sides.forEach((P, si) => { const half = (si < 2 ? ou : ov), g = gate / (2 * half);
+    for (const [ta, tb] of [[0, .5 - g], [.5 + g, 1]]) { const S2 = (t, f, y) => P(ta + (tb - ta) * t, f, y);
+      for (let r2 = 0; r2 < rows; r2++) { const f0 = r2 / rows * .92, f1 = (r2 + 1) / rows * .92; Q(S2(0, f0, yAt(f0)), S2(1, f0, yAt(f0)), S2(1, f1, yAt(f1)), S2(0, f1, yAt(f1)), r2 % 2 ? seat : seat2); }
+      Q(S2(0, 0, 0), S2(1, 0, 0), S2(1, 0, yIn), S2(0, 0, yIn), BAND);
+      Q(S2(1, 1, 0), S2(0, 1, 0), S2(0, 1, H), S2(1, 1, H), WALL); Q(S2(1, 1.002, H - 3), S2(0, 1.002, H - 3), S2(0, 1.002, H - 2.4), S2(1, 1.002, H - 2.4), BAND);
+      Q(S2(0, .92, yOut), S2(1, .92, yOut), S2(1, 1, H), S2(0, 1, H), CON); }
+    for (const t of [.5 - g, .5 + g]) { const a = P(t, 0, 0), b = P(t, 1, 0), c = P(t, 1, H), d2 = P(t, .92, yOut), e = P(t, 0, yIn); Q(a, b, c, d2, CON); Q(a, d2, d2, e, CON); } // the cut faces of the passage
+    const r0 = P(0, .3, H + .6), r1 = P(1, .3, H + .6), r3 = P(1, 1, H + .2), r4 = P(0, 1, H + .2); Q(r4, r3, r1, r0, ROOF); Q(r0, r1, r3, r4, UNDER); }); }
+/* collision of a bowl: per side two blocks, the entrance free */
+function arenaCollide(A, out, base) { const W2 = (u, v) => [A.cx + u * A.c - v * A.s, A.cz + u * A.s + v * A.c];
+  for (const [sv, su] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const half = su ? A.ov : A.ou, g = 3.5 / (2 * half);
+    for (const [ta, tb] of [[0, .5 - g], [.5 + g, 1]]) { const R = []; for (const [t, f] of [[ta, 0], [tb, 0], [tb, 1], [ta, 1]]) {
+        const in0 = su ? [su * A.iu, -A.iv + 2 * A.iv * t] : [-A.iu + 2 * A.iu * t, sv * A.iv], out0 = su ? [su * A.ou, -A.ov + 2 * A.ov * t] : [-A.ou + 2 * A.ou * t, sv * A.ov];
+        const [x, z] = W2(in0[0] + (out0[0] - in0[0]) * f, in0[1] + (out0[1] - in0[1]) * f); R.push(x, z); }
+      out.push(4, base + A.H, base - 1, ...R); } } }
 const REAL_CELLS = new Map(), REAL = [];
 async function realLoad(lat, lon) {
   const k = Math.floor(lat) + '_' + Math.floor(lon); if (REAL_CELLS.has(k)) return REAL_CELLS.get(k);
@@ -2104,6 +2174,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (f.props.subclass === 'pedestrian' || f.props.class === 'pedestrian') pedNames.add(id);
       for (const line of geomLines(f, toL)) sampleLine(line, 12, (x, z) => { if (!tunCells.has(Math.floor(x / 4) * 100003 + Math.floor(z / 4))) samples.push(x, z, id); }); // the name layer has no tunnel flag: points on a tunnel line are left out
     } } }
+  const millsHere = []; /* Runde 245 */
   // buildings: first all footprints (needed for party walls and shops), then geometry
   { const L = layers.building; if (L) { const toL = mk(L.extent || ext0), tkey = tx + '/' + ty;
     const feats = L.feats.map(r => readFeature(L, r)).filter(f => f.type === 3 && !f.props.hide_3d);
@@ -2169,6 +2240,19 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (it.btype === 4 && ar > 250 && it.h < 25) it.hall = true; /* Runde 240: sports, riding, ice halls from OSM */
       if (!it.util && !it.landmark && !(it.year && it.year < 1950) && !it.btype && !(it.levels > 3) && ((ar > 1200 && it.h < 16) || (ind && ar > 250 && it.h < 22))) it.hall = true; // listed or old warehouses are no sheet-metal halls (Hamburg Speicherstadt)
     }
+    /* Runde 245: point models - water towers and windmills take over the footprint at their point (or within 6 m, small ones only) */
+    if (WELT === 'heute') for (const pt of osm.pts) { if (pt.t !== 9 && pt.t !== 10) continue; let best = null, bd = 6;
+      for (const it of items) { if (pt.x < it.minx - 6 || pt.x > it.maxx + 6 || pt.z < it.minz - 6 || pt.z > it.maxz + 6) continue; const ar = Math.abs(ringArea(it.p)); if (ar > (pt.t === 9 ? 900 : 300)) continue;
+        if (inPoly(pt.x, pt.z, it.p)) { best = it; break; } let cx = 0, cz = 0; for (let i = 0; i < it.p.length; i += 2) { cx += it.p[i]; cz += it.p[i + 1]; } const d = Math.hypot(cx / (it.p.length / 2) - pt.x, cz / (it.p.length / 2) - pt.z); if (d < bd) { bd = d; best = it; } }
+      if (pt.t === 9) { if (best) best.wt = pt.v || -1; continue; }
+      const big = !best && items.find(it => pt.x >= it.minx && pt.x <= it.maxx && pt.z >= it.minz && pt.z <= it.maxz && inPoly(pt.x, pt.z, it.p)); if (big) continue; // a mill point on a farm building: leave the building
+      if (best) best.mill = pt.v; millsHere.push({ x: pt.x, z: pt.z, v: pt.v, fp: best }); MILLS.set(Math.round(mX(pt.x)) + ',' + Math.round(mY(pt.z)), { X: mX(pt.x), Y: mY(pt.z) }); }
+    /* Runde 245 (SchücoArena: a closed grey block with house windows over the pitch): full-size pitches inside stadium areas are kept;
+       the LoD2 pass measures the stands round them (the base map has no stand outlines, only LoD2 knows them) and builds the bowl */
+    if (WELT === 'heute') { const pq = pitchPolys.slice(); for (const a of osm.areas || []) if (a.kind >= 16 && a.kind < 32) pq.push(a.ring);
+      for (const q of pq) { const o = obb(q); if (!o || o.w < 85 || o.d < 50) continue;
+        if (!stadPolys.some(sq => inPoly(o.cx, o.cz, sq)) && !(osm.areas || []).some(a2 => a2.kind === 7 && inPoly(o.cx, o.cz, a2.ring))) continue;
+        const k = Math.round(mX(o.cx) / 20) + ',' + Math.round(mY(o.cz) / 20); if (!STADP.has(k)) { STADP.set(k, { X: mX(o.cx), Y: mY(o.cz), c: o.c, s: o.s, w: o.w, d: o.d }); STADV++; } } }
     if (WELT === 'heute' && LHS) for (const L of LHS) { const x = lx(L.X), z = lz(L.Y); let best = null, bd = 15; /* Runde 244: the footprint under the lighthouse point, or the nearest one within 15 m (under 400 m²), is drawn as the tower */
       for (const it of items) { if (x < it.minx - 15 || x > it.maxx + 15 || z < it.minz - 15 || z > it.maxz + 15 || Math.abs(ringArea(it.p)) >= 400) continue; if (inPoly(x, z, it.p)) { best = it; break; }
         let cx = 0, cz = 0; for (let i = 0; i < it.p.length; i += 2) { cx += it.p[i]; cz += it.p[i + 1]; } const d = Math.hypot(cx / (it.p.length / 2) - x, cz / (it.p.length / 2) - z); if (d < bd) { bd = d; best = it; } }
@@ -2232,6 +2316,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         cars.push(x, z, Math.floor(rnd() * 8) * Math.PI / 4, 11, 3, rnd()); np++; } } } }
   // street furniture from own OSM tiles
   for (const p of osm.pts) {
+    if (p.t >= 9) continue; /* Runde 245: water towers, windmills, stations are drawn elsewhere */
     if ((WELT === 'west' || WELT === 'mittel') && p.t !== 1) continue; // Runde 93: no traffic lights, crossings, bus stops, lamps
     let { x, z } = p;
     if (p.t >= 4 || p.t === 1) { // bus stops, lamps, benches, fountains - and trees (phone test Rheinstrasse: street trees stood in the lane;
@@ -2437,6 +2522,26 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (!/attraction|place_of_worship|monument|memorial|castle|museum|town_hall|theatre|viewpoint|ruins|fort|zoo|artwork|church|cathedral/.test(cls)) continue;
       for (const pt of pointsOf(f, toP)) if (!sights.some(q => q.name === nm && Math.hypot(q.x - pt[0], q.z - pt[1]) < 80)) sights.push({ name: nm, cls: (f.props.subclass || f.props.class || ''), x: pt[0], z: pt[1], rank: +f.props.rank || 99 });
     } } }
+  /* Runde 245: windmills */
+  if (WELT === 'heute') for (const m of (typeof millsHere !== 'undefined' ? millsHere : [])) { const fp = m.fp, ar = fp ? Math.abs(ringArea(fp.p)) : 0;
+    let x = m.x, z = m.z; if (fp) { let sx = 0, sz = 0; for (let i = 0; i < fp.p.length; i += 2) { sx += fp.p[i]; sz += fp.p[i + 1]; } x = sx / (fp.p.length / 2); z = sz / (fp.p.length / 2); }
+    const r = fp ? Math.max(2.5, Math.min(6.5, Math.sqrt(ar / Math.PI))) : 3.6, H = fp && fp.h > 6 && fp.h < 30 ? fp.h : 7 + r * 1.6, sd = hashStr('mi' + Math.round(x) + ',' + Math.round(z));
+    millModel(ground, x, z, m.v || 1, r, H, sd); const yb = TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0;
+    if (!fp) { const Rr = []; for (let k = 0; k < 8; k++) Rr.push(x + Math.cos(k / 8 * 6.2832) * r, z + Math.sin(k / 8 * 6.2832) * r); collide.push(8, yb + H, yb - 1, ...Rr); } }
+  /* Runde 245: railway platforms (OSM): raised light grey strip; a roof on posts - over the whole length where covered, else over the
+     middle of platforms near a station (half the length, at most 120 m), a small shelter on long platforms elsewhere */
+  if (WELT === 'heute') { const stations = osm.pts.filter(p => p.t === 12), PLAT = hex('#b9b6ad'), PROOF = hex('#cfd2d4'), POST = hex('#7b8085');
+    for (const a of osm.areas || []) { if (a.kind < 3 || a.kind > 6) continue; let line, w;
+      if (a.kind === 3 || a.kind === 5) { const o = obb(a.ring); if (!o || o.w < 15) continue; w = Math.min(12, Math.max(2.5, o.d)); line = [o.cx - o.c * o.w / 2, o.cz - o.s * o.w / 2, o.cx + o.c * o.w / 2, o.cz + o.s * o.w / 2]; ground.flat([a.ring], .55, PLAT); }
+      else { line = Array.from(a.ring); w = 4; ribbon(ground, line, w, .55, PLAT); }
+      let L = 0; const segL = []; for (let i = 0; i + 3 < line.length; i += 2) { const l = Math.hypot(line[i + 2] - line[i], line[i + 3] - line[i + 1]); segL.push(l); L += l; } if (L < 20) continue;
+      const at = t => { let r2 = t; for (let i = 0; i < segL.length; i++) { if (r2 <= segL[i] || i === segL.length - 1) { const f = segL[i] ? Math.min(1, r2 / segL[i]) : 0, j = i * 2; return [line[j] + (line[j + 2] - line[j]) * f, line[j + 1] + (line[j + 3] - line[j + 1]) * f, (line[j + 2] - line[j]) / (segL[i] || 1), (line[j + 3] - line[j + 1]) / (segL[i] || 1)]; } r2 -= segL[i]; } };
+      const mid = at(L / 2), st = stations.find(sp => Math.hypot(sp.x - mid[0], sp.z - mid[1]) < 300 && !sp.v);
+      let t0, t1; if (a.kind >= 5) { t0 = 0; t1 = L; } else if (st) { const len = Math.min(120, L * .5); t0 = L / 2 - len / 2; t1 = L / 2 + len / 2; } else if (L > 40) { t0 = L / 2 - 4; t1 = L / 2 + 4; } else continue;
+      const rw = Math.min(7, w + .8);
+      for (let t = t0; t < t1 - .5; t += 6) { const e = Math.min(t1, t + 6), [x0, z0, dx, dz] = at(t), [x1, z1] = at(e), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, sl = Math.hypot(x1 - x0, z1 - z0); if (sl < .5) continue;
+        obox2(ground, mx, 3.7, mz, sl + .05, .28, rw, dx, dz, PROOF, true); }
+      for (let t = t0 + 2; t <= t1 - 2; t += 9) { const [x0, z0] = at(t); ground.box(x0, .55, z0, .22, 3.2, .22, POST); } } }
   /* Runde 243: hospitals, police and fire stations get a sign on the facade towards the street - hospital: white band with a red cross,
      police: blue band with a white line, fire brigade: red band with a white line. The map POI is matched to the building under it (or the
      nearest one within 25 m); the band sits at three quarters of the wall height, as ground geometry (lifted with the terrain). */
@@ -2665,7 +2770,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   if (WELT === 'heute') for (const a of (osm && osm.areas) || []) {
     if (a.kind === 2) trackPolys.push(Array.from(a.ring)); // plain array: the ring is closed with concat below (a Float32Array has none - tiles failed)
     else if (a.kind >= 16 && a.kind < 32) { osmPitch.push(a); const c = SURFC[a.kind & 7]; if (c && Math.abs(ringArea(a.ring)) > 30) ground.flat([a.ring], .021, c) /* above the map's pitch layer: no green flecks */; } }
-  const CINDER = hex('#a8835f'), bigStad = (x, z) => stadPolys.some(sq => Math.abs(ringArea(sq)) > 20000 && inPoly(x, z, sq)); // Runde 241: cinder tracks outside big stadiums
+  const CINDER = hex('#a8835f'), bigStad = (x, z) => !osmPitch.some(a => (a.kind & 7) === 6 && x >= a.minx && x <= a.maxx && z >= a.minz && z <= a.maxz && inPoly(x, z, a.ring)); /* Runde 245 (Earth: tartan at the Alm training ground): red unless OSM says cinder */ // Runde 241: cinder tracks outside big stadiums
   for (const q0 of trackPolys) { const q = Array.from(q0), tb = bbox(q); if (Math.max(tb.maxx - tb.minx, tb.maxz - tb.minz) < 80) continue; ribbon(ground, q.concat([q[0], q[1]]), 6.5, .02, bigStad((tb.minx + tb.maxx) / 2, (tb.minz + tb.maxz) / 2) ? RED : CINDER); }
   for (const q of pitchPolys) {
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
@@ -3384,10 +3489,31 @@ function blockGroups(d, prev) {
   }
   /* Runde 244: a LoD2 building of at most 60 m whose extent (all its surfaces, also towers without a roof surface like Norderney) holds a
      lighthouse point gives way to the tower model */
-  if (LHS && LHS.length) { const ng = d.ng, x0 = new Float32Array(ng).fill(1e9), x1 = new Float32Array(ng).fill(-1e9), z0 = new Float32Array(ng).fill(1e9), z1 = new Float32Array(ng).fill(-1e9);
+  /* Runde 245: arenas - per full-size pitch in a stadium area: how densely the 25 m strip round it is covered by LoD2 roofs (5 m above the
+     ground or more), per side; three sides at 35 % or more = arena. Its LoD2 buildings give way to the bowl (height from the stands). */
+  if (STADP.size && d.tid !== undefined) { let ai = 0; const G = new Geo(true), acol = [], arects = [];
+    for (const S of STADP.values()) { const cx = lx(S.X), cz = lz(S.Y), iu = S.w / 2 + 4, iv = S.d / 2 + 4, R2 = Math.max(iu, iv) + 55;
+      const cand = []; for (const [g, t] of all) { let hit = false; for (let k = 0; k < t.length && !hit; k += 7) hit = Math.abs(t[k] - cx) < R2 && Math.abs(t[k + 1] - cz) < R2; if (hit) cand.push([g, t]); }
+      if (!cand.length) continue; const W = (u, v) => [cx + u * S.c - v * S.s, cz + u * S.s + v * S.c], U = (x, z) => [(x - cx) * S.c + (z - cz) * S.s, -(x - cx) * S.s + (z - cz) * S.c];
+      const g0 = TERRAIN_ON ? hAt(cx, cz) : 0, hitG = new Set(); let full = 0, H = 0;
+      for (const [su, sv] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { let n = 0, hit = 0;
+        for (let tt = -1; tt <= 1.001; tt += .1) for (let dd = 3; dd <= 25; dd += 4) { const [x, z] = W(su ? su * (iu + dd) : tt * iu, sv ? sv * (iv + dd) : tt * iv); n++;
+          for (const [g, t] of cand) { let on = false; for (let k = 0; k < t.length; k += 7) if (inTri(x, z, t, k) && t[k + 6] - g0 > 5) { on = true; H = Math.max(H, t[k + 6] - g0); break; } if (on) { hit++; hitG.add(g); break; } } }
+        if (hit / n >= .35) full++; }
+      if (full < 3) continue;
+      let ou = iu + 8, ov = iv + 8; for (const [g, t] of cand) if (hitG.has(g)) for (let k = 0; k < t.length; k += 7) for (let m = 0; m < 6; m += 2) { const [pu, pv] = U(t[k + m], t[k + m + 1]); if (Math.abs(pu) < iu + 50 && Math.abs(pv) < iv + 50) { ou = Math.max(ou, Math.abs(pu)); ov = Math.max(ov, Math.abs(pv)); } }
+      const A = { cx, cz, c: S.c, s: S.s, iu, iv, ou: Math.min(ou, iu + 50), ov: Math.min(ov, iv + 50), H: Math.max(12, Math.min(40, top[0] === undefined ? H : H)), seed: hashStr('ar' + Math.round(S.X) + ',' + Math.round(S.Y)) };
+      ARENAS.set(Math.round(S.X) + ',' + Math.round(S.Y), { X: S.X, Y: S.Y, c: S.c, s: S.s, ou: A.ou, ov: A.ov });
+      const from = G.p.length, base = TERRAIN_ON ? dzLift(cx, cz, g0) : 0; arenaBowl(G, A); G.lift(from, base); arenaCollide(A, acol, base); arects.push(cx, cz, S.c, S.s, A.ou + 3, A.ov + 3); ai++; }
+    if (ai) post({ type: 'arena', key: 'l:' + d.tid + ':arena', rects: arects, collide: Float32Array.from(acol) }); /* the app ignores LoD2 walls inside, the bowl blocks except at its entrances */
+    if (ai) { const o = G.out(); post({ type: 'bld', key: 'l:' + d.tid + ':arena', pos: o.pos, nor: o.nor, col: o.col, fac: o.fac, wal: o.wal, base: o.base }, [o.pos.buffer, o.nor.buffer, o.col.buffer, o.fac.buffer, o.wal.buffer, o.base.buffer]); } }
+  const PM = ptModels(); /* Runde 245: lighthouses and windmills; arenas below */
+  if (PM.length || ARENAS.size) { const ng = d.ng, x0 = new Float32Array(ng).fill(1e9), x1 = new Float32Array(ng).fill(-1e9), z0 = new Float32Array(ng).fill(1e9), z1 = new Float32Array(ng).fill(-1e9);
     for (let k = 0; k < P.length / 3; k++) { const g = d.grp[d.bid[k]], x = P[k * 3], z = P[k * 3 + 2]; if (x < x0[g]) x0[g] = x; if (x > x1[g]) x1[g] = x; if (z < z0[g]) z0[g] = z; if (z > z1[g]) z1[g] = z; }
-    const pts = LHS.map(L => [lx(L.X), lz(L.Y)]);
-    for (let g = 0; g < ng; g++) { if (set.has(g) || x1[g] < x0[g] || x1[g] - x0[g] > 60 || z1[g] - z0[g] > 60) continue;
+    const pts = PM, AR = [...ARENAS.values()].map(A => ({ x: lx(A.X), z: lz(A.Y), c: A.c, s: A.s, ou: A.ou + 3, ov: A.ov + 3 }));
+    for (let g = 0; g < ng; g++) { if (set.has(g) || x1[g] < x0[g]) continue; const gx = (x0[g] + x1[g]) / 2, gz = (z0[g] + z1[g]) / 2;
+      if (AR.some(A => { const u = (gx - A.x) * A.c + (gz - A.z) * A.s, v = -(gx - A.x) * A.s + (gz - A.z) * A.c; return Math.abs(u) < A.ou && Math.abs(v) < A.ov; })) { set.add(g); tris.set(g, all.get(g) || []); continue; } /* Runde 245: arena */
+      if (x1[g] - x0[g] > 60 || z1[g] - z0[g] > 60) continue;
       if (pts.some(([x, z]) => x > x0[g] - 3 && x < x1[g] + 3 && z > z0[g] - 3 && z < z1[g] + 3)) { set.add(g); tris.set(g, all.get(g) || []); } } }
   /* Runde 238: some LoD2 models hold churches and castles as flat-topped blocks (Bardowick, Petruskirche). Where OSM has a church or
      castle footprint under a flat LoD2 top, it is drawn from OSM (with gable roof and tower) instead. */
@@ -3914,7 +4040,7 @@ async function loadLod2(rec) {
   try {
     let buf = await cget(url);
     if (!buf) { buf = await (await fetchOk(url)).arrayBuffer(); cput(url, buf); }
-    rec.data = parseB3dm(buf, t);
+    rec.data = parseB3dm(buf, t); rec.data.tid = t.id; /* Runde 245: arena meshes are keyed by the LoD2 tile */
   } catch (e) {
     rec.state = 'failed'; post({ type: 'warn', msg: 'LoD2 ' + t.id + ': ' + e.message });
     for (const [key, m] of mvt) if (m.state === 'ready') sendBucket(m, key, t.id);
