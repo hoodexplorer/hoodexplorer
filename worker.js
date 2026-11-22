@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=660'); importScripts('sonderbau.js?v=660'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=661'); importScripts('sonderbau.js?v=661'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2320,7 +2320,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         const dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1], L = Math.hypot(dx, dz) || 1; for (let t = 0; t <= L; t += 1) rc2.add(ck(p[i] + dx * t / L, p[i + 1] + dz * t / L)); } }
       const nearRoad = (x, z) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (rc2.has(ck(x + a * 2, z + b * 2))) return true; return false; };
       const inside = (x, z) => (!TBc || (x >= TBc[0] && x <= TBc[2] && z >= TBc[1] && z <= TBc[3])) && inPoly(x, z, q) && !fpAt(x, z);
-      const PW = 2.3, RW = 4.4, BU = 10, BV = 6, /* Runde 217: graves ~1.5x - the figure can hide behind a tall stone */ bw = BU * PW + 3, bd = BV * RW + 2.5, ux = o.c, uz = o.s, vx = -o.s, vz = o.c, W2 = (u, v) => [o.cx + u * ux + v * vx, o.cz + u * uz + v * vz];
+      const PW = 3.9, RW = 7.4, BU = 8, BV = 5, /* Runde 217/218: graves at the scale of the figure (~1.7x again) - it can hide behind a tall stone */ bw = BU * PW + 5, bd = BV * RW + 4, ux = o.c, uz = o.s, vx = -o.s, vz = o.c, W2 = (u, v) => [o.cx + u * ux + v * vx, o.cz + u * uz + v * vz];
       // a chapel for big cemeteries with no building at all inside (otherwise the mapped chapel or hall is there already)
       let chapel = null;
       if (ar > 6000) { let any = false; for (let u = -o.w / 2; u < o.w / 2 && !any; u += 8) for (let v = -o.d / 2; v < o.d / 2 && !any; v += 8) { const [x, z] = W2(u, v); if (inPoly(x, z, q) && fpAt(x, z)) any = true; }
@@ -2338,27 +2338,27 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       const dens = Math.min(1, (CAP - used) / Math.max(1, blocks.length * BU * BV * .8));
       for (const [bu, bv] of blocks) { if (used >= CAP) break; let placed = 0; const bd2 = dens * (.55 + R() * .45);
         for (let j = 0; j < BV; j++) for (let k = 0; k < BU; k++) { const u = bu + (k + .5) * PW, v = bv + (j + .5) * RW, [x, z] = W2(u, v);
-          if (chapel && Math.hypot(x - chapel.x, z - chapel.z) < 13) continue;
+          if (chapel && Math.hypot(x - chapel.x, z - chapel.z) < 16) continue;
           if (R() > bd2) continue;
-          if (!inside(x + vx * 1.8, z + vz * 1.8) || !inside(x - vx * 1.8, z - vz * 1.8) || nearRoad(x, z)) continue;
-          const r = R(), hx = x - vx * 1.4, hz = z - vz * 1.4; // head end of the plot
+          if (!inside(x + vx * 3, z + vz * 3) || !inside(x - vx * 3, z - vz * 3) || nearRoad(x, z)) continue;
+          const r = R(), hx = x - vx * 2.4, hz = z - vz * 2.4; // head end of the plot
           if ((k === 0 || k === BU - 1) && (j === 0 || j === BV - 1) && r < .22) { // family vault / mausoleum on a block corner
-            const c = pick(GRAN), H = 3.4 + R() * 1.6; box(x, 0, z, 2.8, .45, 3.8, ux, uz, pick(CURB)); box(x, .45, z, 2.4, H, 3.3, ux, uz, c);
-            if (R() < .5) ridge(x, .45 + H, z, 3.6, 2.8, 1.3, vx, vz, c); else cap(x, .45 + H, z, 2.7, 3.6, 1.9, ux, uz, ROOFD);
-            box(x - vx * 1.67, .45, z - vz * 1.67, 1.0, 2.2, .06, ux, uz, DOOR); roadCells.add(rc(x, z)); n++; used++; placed++; continue; }
-          const dbl = R() < .14, w = dbl ? 2.0 : 1.3, y0 = .03;
+            const c = pick(GRAN), H = 4.6 + R() * 2; box(x, 0, z, 3.8, .6, 6.2, ux, uz, pick(CURB)); box(x, .6, z, 3.4, H, 5.4, ux, uz, c);
+            if (R() < .5) ridge(x, .6 + H, z, 5.8, 3.8, 1.8, vx, vz, c); else cap(x, .6 + H, z, 3.8, 5.8, 2.6, ux, uz, ROOFD);
+            box(x - vx * 2.72, .6, z - vz * 2.72, 1.4, 3.0, .08, ux, uz, DOOR); roadCells.add(rc(x, z)); n++; used++; placed++; continue; }
+          const dbl = R() < .14, w = dbl ? 3.4 : 2.2, y0 = .03;
           { const t = R(), kind = t < .34 ? 0 : t < .5 ? 1 : t < .62 ? 2 : t < .8 ? 3 : t < .95 ? 4 : t < .985 ? 5 : 6, c = kind === 3 && R() < .55 ? WOOD : pick(GRAN);
-            GR.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, ux, uz, w, pack(pick(CURB)), pack(pick(BED)), kind, Math.min(w, .7 + R() * .7), .9 + R() * 1.0, pack(c)); } // the app builds it
+            GR.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, ux, uz, w, pack(pick(CURB)), pack(pick(BED)), kind, Math.min(w, 1.2 + R() * 1.1), 1.6 + R() * 1.6, pack(c)); } // the app builds it
           /* Runde 210: planting and grave lights as sprites (one quad each, drawn with all the other sprites of the tile) */
           const sp = (sx, sz, w, h, t) => ground.spr.push(sx, sz, w, h, t, sprY(sx, sz, R()));
           if (R() < .35) { const np = 1 + ((R() * 3) | 0), kind = [43, 45, 46, 47][(R() * 4) | 0]; // Runde 211/215: single plants on some beds
-            for (let q2 = 0; q2 < np; q2++) { const pu = (R() - .5) * (w - .3), pv = -.15 + R() * 1.3, s2 = .55 + R() * .35; sp(x + ux * pu + vx * pv, z + uz * pu + vz * pv, s2, s2 * (.8 + R() * .3), R() < .7 ? kind : [43, 45, 46, 47][(R() * 4) | 0]); } }
-          if (R() < .12) sp(hx + vx * .45 - ux * w * .35, hz + vz * .45 - uz * w * .35, .7, .9 + R() * .3, 44); // small evergreen beside the stone
-          if (R() < .15) sp(hx + vx * .42 + ux * .42, hz + vz * .42 + uz * .42, .28, .45, 42);  // grave light (flame glows at night)
+            for (let q2 = 0; q2 < np; q2++) { const pu = (R() - .5) * (w - .5), pv = -.3 + R() * 2.2, s2 = .7 + R() * .4; sp(x + ux * pu + vx * pv, z + uz * pu + vz * pv, s2, s2 * (.8 + R() * .3), R() < .7 ? kind : [43, 45, 46, 47][(R() * 4) | 0]); } }
+          if (R() < .12) sp(hx + vx * .75 - ux * w * .35, hz + vz * .75 - uz * w * .35, 1.0, 1.3 + R() * .4, 44); // small evergreen beside the stone
+          if (R() < .15) sp(hx + vx * .7 + ux * .6, hz + vz * .7 + uz * .6, .4, .6, 42);  // grave light (flame glows at night)
           if (R() < .3) roadCells.add(rc(x, z)); n++; used++; placed++; } // Runde 215: forest cemeteries keep most of their trees between the graves
         if (placed > 2) { // gravel path and a low hedge along the block
-          const [px, pz] = W2(bu + BU * PW / 2, bv - 1.9); if (inside(px, pz)) lid(px, .05, pz, BU * PW + 3, 2.4, ux, uz, GRAVEL);
-          const [hx2, hz2] = W2(bu - 1.4, bv + BV * RW / 2); if (inside(hx2, hz2) && R() < .6) box(hx2, 0, hz2, .5, .7, BV * RW, ux, uz, HEDGE); } }
+          const [px, pz] = W2(bu + BU * PW / 2, bv - 3.1); if (inside(px, pz)) lid(px, .05, pz, BU * PW + 5, 3.6, ux, uz, GRAVEL);
+          const [hx2, hz2] = W2(bu - 2.4, bv + BV * RW / 2); if (inside(hx2, hz2) && R() < .6) box(hx2, 0, hz2, .7, 1.1, BV * RW, ux, uz, HEDGE); } }
       map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
   if (GR.length) map.graves = Float32Array.from(GR);
   /* Runde 213 (foliage video: patches of one kind + scaled/fewer): loose clusters of wild flowers and grass on parks, meadows and lawns

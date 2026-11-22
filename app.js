@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=660' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=661' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1496,17 +1496,17 @@ function addGraves(key, g) {
   const col = v => C.setRGB((v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255);
   for (const list of cells.values()) {
     const flat = [], stones = []; let cx = 0, cz = 0;
-    for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * 1.4, hz = z - vz * 1.4;
+    for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * 2.4, hz = z - vz * 2.4; /* Runde 218: ~1.7x */
       cx += x; cz += z; const rot = Math.atan2(-uz, ux);
-      flat.push([x, y, z, rot, w + .2, .1, 2.9, g[i + 6]], [x, y, z, rot, w - .1, .13, 2.6, g[i + 7]]);
+      flat.push([x, y, z, rot, w + .34, .16, 4.9, g[i + 6]], [x, y, z, rot, w - .16, .2, 4.4, g[i + 7]]);
       const st = (ox, oy, oz, a, b, c2, cc) => stones.push([ox, y + oy, oz, rot, a, b, c2, cc]), sc = g[i + 11], cu = g[i + 6];
-      if (kind === 0) st(hx, 0, hz, sw, sh, .2, sc);
-      else if (kind === 1) { st(hx, 0, hz, sw + .15, .24, .32, cu); st(hx, .24, hz, sw, sh, .19, sc); }
-      else if (kind === 2) { st(hx, 0, hz, sw, sh * .8, .2, sc); st(hx, sh * .8, hz, sw * .55, sh * .18, .2, sc); }
-      else if (kind === 3) { st(hx, 0, hz, .16, sh + .6, .16, sc); st(hx, (sh + .6) * .62, hz, .8, .15, .15, sc); }
-      else if (kind === 4) st(hx + vx * .45, .1, hz + vz * .45, .75, .07, .6, sc);
-      else if (kind === 5) st(hx, 0, hz, .5, 2.4 + sh * .6, .5, sc);
-      else { st(hx, 0, hz, .75, .75, .6, cu); st(hx, .75, hz, .36, 1.5, .33, 0xe2e0da); } }
+      if (kind === 0) st(hx, 0, hz, sw, sh, .32, sc);
+      else if (kind === 1) { st(hx, 0, hz, sw + .25, .4, .52, cu); st(hx, .4, hz, sw, sh, .3, sc); }
+      else if (kind === 2) { st(hx, 0, hz, sw, sh * .8, .32, sc); st(hx, sh * .8, hz, sw * .55, sh * .18, .32, sc); }
+      else if (kind === 3) { st(hx, 0, hz, .26, sh + 1, .26, sc); st(hx, (sh + 1) * .62, hz, 1.35, .25, .25, sc); }
+      else if (kind === 4) st(hx + vx * .75, .16, hz + vz * .75, 1.3, .1, 1.0, sc);
+      else if (kind === 5) st(hx, 0, hz, .85, 4 + sh * .6, .85, sc);
+      else { st(hx, 0, hz, 1.25, 1.25, 1.0, cu); st(hx, 1.25, hz, .6, 2.5, .55, 0xe2e0da); } }
     cx /= list.length; cz /= list.length;
     /* Runde 217 (graves only near the figure looked like single fields): stones near up to 70 m, and in the distance (70-160 m) only every
        third stone - the scaled/fewer trick: from afar the cemetery reads as full, at a third of the cost */
