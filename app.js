@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=638' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=642' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '')); // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1397,7 +1397,7 @@ function onData(e) {
       const it = { p, h, base, minx: a, maxx: b, minz: cc, maxz: d, tile: m.key }; t.blds.push(it);
       for (let ix = Math.floor(a / CELL); ix <= Math.floor(b / CELL); ix++) for (let iz = Math.floor(cc / CELL); iz <= Math.floor(d / CELL); iz++) { const k = gk(ix, iz); let arr = bgrid.get(k); if (!arr) bgrid.set(k, arr = []); arr.push(it); }
     }
-    t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; t.stuetzen = (m.map && m.map.stuetzen) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
+    t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);

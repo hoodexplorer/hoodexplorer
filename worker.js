@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=638'); // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=642'); importScripts('sonderbau.js?v=642'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1943,6 +1943,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         items.push(it);
       }
     }
+    /* Runde 206: Sonderbauten - houses whose centre lies in the ground rectangle of a landmark model get no mesh of their own
+       (their outline still collides); the model itself is built by the tile that holds its centre */
+    const sonderHere = []; if (WELT === 'heute' && self.SONDER && ground.tileBox) { const TB = ground.tileBox;
+      for (const e of SONDER.list) { const m = merc(e.lat, e.lon), ax = lx(m.X), az = lz(m.Y), fr = SONDER.frame(e, ax, az); let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const [x, z] of fr.rect) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+        if (x1 < TB[0] || x0 > TB[2] || z1 < TB[1] || z0 > TB[3]) continue;
+        for (const it of items) { let cx = 0, cz = 0; for (let i = 0; i < it.p.length; i += 2) { cx += it.p[i]; cz += it.p[i + 1]; } cx /= it.p.length / 2; cz /= it.p.length / 2; if (SONDER.inRect(cx, cz, fr.rect)) it.sonder = e.id; }
+        if (ax >= TB[0] && ax < TB[2] && az >= TB[1] && az < TB[3]) sonderHere.push({ e, ax, az, rect: fr.rect }); } }
     nestedParts(items); // Runde 118: footprints lying inside another one (building parts) - walls on top of each other flickered
     groundFloating(items, map.roads);
     // shops, cafés, … inside a footprint -> shopfront on the ground floor
@@ -2004,8 +2012,12 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         for (const [x, z] of Pp.pts) { const b0 = TERRAIN_ON ? hAt(x, z) : 0, top = base + minH + .2; obox2(ground, x, 0, z, Pp.sz, top - b0, Pp.sz, Pp.c, Pp.s, pc, false);
           const hs = Pp.sz / 2, ux = Pp.c * hs, uz = Pp.s * hs, vx = -Pp.s * hs, vz = Pp.c * hs; collide.push(4, top, b0, x - ux - vx, z - uz - vz, x + ux - vx, z + uz - vz, x + ux + vx, z + uz + vz, x - ux + vx, z - uz + vz); } }
       G.lift(from, base);
+      if (it.sonder) { const v0 = from / 3; G.p.length = from; G.n.length = from; G.c.length = from; if (G.f) { G.f.length = v0 * 2; G.w.length = v0 * 3; G.b.length = v0; } } // Runde 206: the landmark model stands here instead
       it.poly = null; it.cx = cx; it.cz = cz; it.G = G; it.r0 = from; it.r1 = G.p.length;
     }
+    for (const s of sonderHere) { let G = buckets.get('none'); if (!G) buckets.set('none', G = new Geo(true)); const from = G.p.length; // Runde 206: the landmark models of this tile
+      let base = 0; if (TERRAIN_ON) { base = Infinity; for (const [x, z] of s.rect.concat([[s.ax, s.az]])) base = Math.min(base, hAt(x, z)); }
+      const n = SONDER.emit(s.e, s.ax, s.az, G); G.lift(from, base); (map.sonder || (map.sonder = [])).push({ id: s.e.id, name: s.e.name, x: Math.round(s.ax), z: Math.round(s.az), tris: n }); }
   } }
   // airports (Google Hamburg: runways, taxiways and aprons were missing, only grass): OpenMapTiles layer 'aeroway'
   { const L = layers.aeroway; if (L) { const toL = mk(L.extent || ext0), ASP = hex('#55585d'), CON = hex('#b4b2aa'), WHT = hex('#f0f0ea'), YEL = hex('#e2b93a'), aprons = [];
@@ -2214,9 +2226,11 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const partsGeo = new Geo(true);
   { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), bx0 = Math.min(c0[0], c1[0]), bx1 = Math.max(c0[0], c1[0]), bz0 = Math.min(c0[1], c1[1]), bz1 = Math.max(c0[1], c1[1]);
     if (WELT === 'heute' && osm.parts && !osm.parts.nested) { osm.parts.nested = true; nestedParts(osm.parts.slice(), true); } // Runde 118: a part inside another part
+    const sRects = WELT === 'heute' && self.SONDER ? SONDER.list.map(e => { const m = merc(e.lat, e.lon); return SONDER.frame(e, lx(m.X), lz(m.Y)).rect; }).filter(r => r.some(([x, z]) => x > bx0 - 400 && x < bx1 + 400 && z > bz0 - 400 && z < bz1 + 400)) : [];
     for (const pt of (WELT === 'heute' ? osm.parts : null) || []) { // other worlds: no OSM building parts (towers, church spires)
       if (pt.hid) continue;
       if (pt.x < bx0 || pt.x >= bx1 || pt.z < bz0 || pt.z >= bz1 || pt.h - pt.mh < 0.3) continue;
+      if (sRects.length && sRects.some(r => SONDER.inRect(pt.x, pt.z, r))) continue; // Runde 206: a landmark model stands here
       if (pt.mh >= 2 && !pt.fChk) { pt.fChk = 1; if (pt.p) floatFix(pt, [osm.parts, fpItems], map.roads); } // Runde 136: a raised part with nothing under it
       // building type: from the footprint, else from the nearest OSM building with a type (outlines of buildings in parts are
       // hidden in the map tiles, so the parts often have no footprint of their own)
@@ -3529,6 +3543,12 @@ async function loadLod2(rec) {
   // landmarks mapped in parts (OSM Simple 3D Buildings) are drawn from those parts: hide the coarse LoD2 building
   // where at least 60 % of its ground points lie inside parts
   try {
+    if (self.SONDER) { // Runde 206: LoD2 buildings standing where a landmark model stands are left out
+      const rects = SONDER.list.map(e => { const m = merc(e.lat, e.lon); return SONDER.frame(e, lx(m.X), lz(m.Y)).rect; }).filter(r => r.some(([x, z]) => Math.abs(x - lx(t.cx)) < 900 && Math.abs(z - lz(t.cy)) < 900));
+      if (rects.length) { const sx = new Float64Array(d.ng), sz = new Float64Array(d.ng), sn = new Uint32Array(d.ng), P = d.pos;
+        for (let k = 0; k < P.length / 3; k++) { if (P[k * 3 + 1] > 1.5) continue; const g = d.grp[d.bid[k]]; sx[g] += P[k * 3]; sz[g] += P[k * 3 + 2]; sn[g]++; }
+        const hide = new Uint8Array(d.ng); let nh = 0; for (let g = 0; g < d.ng; g++) if (sn[g] && rects.some(r => SONDER.inRect(sx[g] / sn[g], sz[g] / sn[g], r))) { hide[g] = 1; nh++; }
+        if (nh) { const keep = []; for (let i = 0; i < idx2.length; i += 3) if (!hide[d.grp[d.bid[idx2[i]]]]) keep.push(idx2[i], idx2[i + 1], idx2[i + 2]); idx2 = Uint32Array.from(keep); } } }
     const om = await osmFor(lx(t.cx - 520), lz(t.cy + 520), lx(t.cx + 520), lz(t.cy - 520));
     if (om.parts.length) {
       const inG = new Uint32Array(d.ng), allG = new Uint32Array(d.ng), P = d.pos;
