@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=646'); importScripts('sonderbau.js?v=646'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=648'); importScripts('sonderbau.js?v=648'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2348,7 +2348,8 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           else { box(hx, y0, hz, .5, .5, .4, ux, uz, pick(CURB)); box(hx, y0 + .5, hz, .22, .75, .2, ux, uz, FIG); ground.crown(hx, y0 + 1.15, hz, .28, .5, FIG); } // figure on a plinth
           /* Runde 210: planting and grave lights as sprites (one quad each, drawn with all the other sprites of the tile) */
           const sp = (sx, sz, w, h, t) => ground.spr.push(sx, sz, w, h, t, sprY(sx, sz, R()));
-          if (R() < .55) sp(x + vx * .2, z + vz * .2, w * .95, .32 + R() * .1, 43);           // planting on the bed
+          if (R() < .7) { const np = 2 + ((R() * 4) | 0), kind = [43, 45, 46, 47][(R() * 4) | 0]; // Runde 211: several single plants scattered on the bed
+            for (let q2 = 0; q2 < np; q2++) { const pu = (R() - .5) * (w - .2), pv = -.1 + R() * .85, s2 = .36 + R() * .24; sp(x + ux * pu + vx * pv, z + uz * pu + vz * pv, s2, s2 * (.8 + R() * .3), R() < .7 ? kind : [43, 45, 46, 47][(R() * 4) | 0]); } }
           if (R() < .22) sp(hx + vx * .3 - ux * w * .35, hz + vz * .3 - uz * w * .35, .55, .7 + R() * .25, 44); // small evergreen beside the stone
           if (R() < .3) sp(hx + vx * .28 + ux * .28, hz + vz * .28 + uz * .28, .2, .32, 42);  // grave light (flame glows at night)
           roadCells.add(rc(x, z)); n++; used++; placed++; }
