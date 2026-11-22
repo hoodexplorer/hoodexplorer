@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=658' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=660' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1496,23 +1496,26 @@ function addGraves(key, g) {
   const col = v => C.setRGB((v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255);
   for (const list of cells.values()) {
     const flat = [], stones = []; let cx = 0, cz = 0;
-    for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * .95, hz = z - vz * .95;
+    for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * 1.4, hz = z - vz * 1.4;
       cx += x; cz += z; const rot = Math.atan2(-uz, ux);
-      flat.push([x, y, z, rot, w + .14, .09, 1.94, g[i + 6]], [x, y, z, rot, w - .06, .11, 1.74, g[i + 7]]);
+      flat.push([x, y, z, rot, w + .2, .1, 2.9, g[i + 6]], [x, y, z, rot, w - .1, .13, 2.6, g[i + 7]]);
       const st = (ox, oy, oz, a, b, c2, cc) => stones.push([ox, y + oy, oz, rot, a, b, c2, cc]), sc = g[i + 11], cu = g[i + 6];
-      if (kind === 0) st(hx, 0, hz, sw, sh, .14, sc);
-      else if (kind === 1) { st(hx, 0, hz, sw + .1, .16, .22, cu); st(hx, .16, hz, sw, sh, .13, sc); }
-      else if (kind === 2) { st(hx, 0, hz, sw, sh * .8, .14, sc); st(hx, sh * .8, hz, sw * .55, sh * .18, .14, sc); }
-      else if (kind === 3) { st(hx, 0, hz, .1, 1.05, .1, sc); st(hx, .62, hz, .55, .1, .1, sc); }
-      else if (kind === 4) st(hx + vx * .3, .08, hz + vz * .3, .5, .05, .38, sc);
-      else if (kind === 5) st(hx, 0, hz, .35, 1.7 + sh * .6, .35, sc);
-      else { st(hx, 0, hz, .5, .5, .4, cu); st(hx, .5, hz, .24, 1.0, .22, 0xe2e0da); } }
+      if (kind === 0) st(hx, 0, hz, sw, sh, .2, sc);
+      else if (kind === 1) { st(hx, 0, hz, sw + .15, .24, .32, cu); st(hx, .24, hz, sw, sh, .19, sc); }
+      else if (kind === 2) { st(hx, 0, hz, sw, sh * .8, .2, sc); st(hx, sh * .8, hz, sw * .55, sh * .18, .2, sc); }
+      else if (kind === 3) { st(hx, 0, hz, .16, sh + .6, .16, sc); st(hx, (sh + .6) * .62, hz, .8, .15, .15, sc); }
+      else if (kind === 4) st(hx + vx * .45, .1, hz + vz * .45, .75, .07, .6, sc);
+      else if (kind === 5) st(hx, 0, hz, .5, 2.4 + sh * .6, .5, sc);
+      else { st(hx, 0, hz, .75, .75, .6, cu); st(hx, .75, hz, .36, 1.5, .33, 0xe2e0da); } }
     cx /= list.length; cz /= list.length;
-    for (const [arr, maxD, suf] of [[flat, 35, 'f'], [stones, 65, 's']]) { if (!arr.length) continue;
+    /* Runde 217 (graves only near the figure looked like single fields): stones near up to 70 m, and in the distance (70-160 m) only every
+       third stone - the scaled/fewer trick: from afar the cemetery reads as full, at a third of the cost */
+    const farSt = stones.filter((_, j) => j % 3 === 0);
+    for (const [arr, maxD, suf, minD] of [[flat, 40, 'f', 0], [stones, 70, 's', 0], [farSt, 160, 'w', 70]]) { if (!arr.length) continue;
       const m = new THREE.InstancedMesh(GRAVE_BOX.clone(), GRAVE_MAT, arr.length); m.frustumCulled = false; m.matrixAutoUpdate = false;
       arr.forEach(([x, y, z, r, a, b, c2, cc], j) => { Q.setFromAxisAngle(Y, r); M.compose(V.set(x, y, z), Q, S.set(a, b, c2)); m.setMatrixAt(j, M); m.setColorAt(j, col(cc)); });
       m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
-      m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx, list.length ? g[list[0] + 1] : 0, cz), 26); m.userData.maxD = maxD;
+      m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx, list.length ? g[list[0] + 1] : 0, cz), 26); m.userData.maxD = maxD; m.userData.minD = minD;
       const k = key + ':grab#' + keys.length + suf; scene.add(m); meshes.set(k, m); keys.push(k); } }
   CHUNKS.set(key + ':grab', keys);
 }
@@ -1547,7 +1550,7 @@ const LOD_NEAR = 120; // m from the camera to the nearest edge of a block: beyon
 function chunkCull(cam) { // blocks lying entirely in the fog (> 99 %) are not drawn
   const d = scene.fog ? scene.fog.density : 0, far = d > 0 ? 2.3 / d : Infinity, cp = cam.position;
   for (const l of CHUNKS.values()) for (const k of l) { const o = meshes.get(k); if (!o) continue; const s = o.userData.bs || o.geometry.boundingSphere;
-    const dd = Math.hypot(s.center.x - cp.x, s.center.z - cp.z) - s.radius; o.visible = dd < far && (!o.userData.maxD || Math.hypot(s.center.x - P.x, s.center.z - P.z) - s.radius < o.userData.maxD); /* Runde 215: graves only near the figure */
+    const dd = Math.hypot(s.center.x - cp.x, s.center.z - cp.z) - s.radius; o.visible = dd < far && (!o.userData.maxD || ((dp => dp < o.userData.maxD && dp + 2 * s.radius >= (o.userData.minD || 0))(Math.hypot(s.center.x - P.x, s.center.z - P.z) - s.radius))); /* Runde 215: graves only near the figure */
     if (!o.userData.nAll) continue; const n = cam === camera && dd > LOD_NEAR ? o.userData.nBase : o.userData.nAll; /* isometric view: same scale everywhere, all details */ if (o.geometry.drawRange.count !== n) o.geometry.setDrawRange(0, n); } }
 function addCollide(key, c, l2) { // outlines for walls, standing and jumping: [n, roof height, ground, x,z ...]; l2: derived from LoD2 (Runde 75)
   for (let i = 0; i < c.length;) { const n = c[i], h = c[i + 1], base = c[i + 2], p = c.subarray(i + 3, i + 3 + n * 2); i += 3 + n * 2;
