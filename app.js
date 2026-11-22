@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=668' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=669' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1529,17 +1529,17 @@ PLOT_MAT.onBeforeCompile = sh => {
    edge and ends (pixels cut away), bare stems at the foot, light from above on the top, slow bulges along the hedge. */
 const HEDGE_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
 HEDGE_MAT.onBeforeCompile = sh => {
-  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aKind, aEnd; varying vec3 vHW, vHL, vHS; varying float vHK, vHN, vHE;').replace('#include <begin_vertex>', `#include <begin_vertex>
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aKind, aEnd; varying vec3 vHW, vHL, vHS; varying float vHK, vHN, vHE, vHX;').replace('#include <begin_vertex>', `#include <begin_vertex>
     { vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vHW = w.xyz - normalize(mat3(modelMatrix * instanceMatrix) * normal) * .05;
-      vHS = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vHL = position * vHS; vHK = aKind; vHN = normal.y; vHE = aEnd; }`);
-  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHW, vHL, vHS; varying float vHK, vHN, vHE;\nfloat hxH(vec3 p) { return fract(sin(dot(p, vec3(12.9, 78.2, 37.7))) * 43758.5); }').replace('#include <color_fragment>', `#include <color_fragment>
+      vHS = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vHL = position * vHS; vHK = aKind; vHN = normal.y; vHE = aEnd; vHX = abs(normal.x); }`);
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHW, vHL, vHS; varying float vHK, vHN, vHE, vHX;\nfloat hxH(vec3 p) { return fract(sin(dot(p, vec3(12.9, 78.2, 37.7))) * 43758.5); }').replace('#include <color_fragment>', `#include <color_fragment>
     { float k = vHK, sc = k < .5 ? 5.0 : k < 1.5 ? 7.5 : k < 2.5 ? 6.0 : k < 3.5 ? 4.5 : k < 4.5 ? 8.0 : 5.0;
       vec3 cell = k > 1.5 && k < 2.5 ? floor(vec3(vHW.x * sc, vHW.y * sc * .3, vHW.z * sc)) : floor(vHW * sc);   // thuja: upright streaks
       float n = hxH(cell), m = hxH(floor(vHW * 1.3) + 3.1), col = hxH(vec3(floor(vHW.xz * sc), 7.0));
       float top = vHS.y - vHL.y, isEnd = vHL.x < 0.0 ? mod(vHE, 2.0) : step(1.5, vHE), endD = isEnd > .5 ? vHS.x * .5 - abs(vHL.x) : 9.0; // Runde 225: ragged only at the real ends
       if (vHN < .5 && top < .14 * col) discard;                                                   // ragged top edge
       if (vHN > .5 && min(vHS.z * .5 - abs(vHL.z), endD) < .1 * col) discard;
-      if (endD < .1 * hxH(vec3(floor(vHL.yz * sc), 2.0))) discard;                               // ragged ends
+      if (vHX < .5 && endD < .1 * hxH(vec3(floor(vHL.yz * sc), 2.0))) discard;   // Runde 226: not on the end face itself (it was cut away whole - hedges open at the ends)                               // ragged ends
       float bulge = .9 + .14 * sin(vHW.x * .9 + vHW.z * .7) * sin(vHW.x * .37 - vHW.z * .53);   // slow bulges along the hedge
       diffuseColor.rgb *= (.74 + .44 * n) * (.86 + .22 * m) * bulge * (vHN > .5 ? 1.18 : .62 + .38 * smoothstep(.3, 1.0, vHL.y));
       if (n < .1) diffuseColor.rgb *= .5; if (n > .94) diffuseColor.rgb *= 1.3;
