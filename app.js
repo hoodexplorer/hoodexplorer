@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=657' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=658' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1335,13 +1335,15 @@ function surfAhead(x, z, y) { let s = groundAt(x, z, y); const o = objTop(x, z);
    of one) kicks the figure off it - away from the wall, keeping the sideways motion, up again. Up to 3 per flight, so a narrow alley
    can be climbed zig-zag; the double jump stays available. Costs nothing per frame: the wall contact is the collision test the
    movement does anyway; only the jump press probes one point ahead. */
+/* Runde 216: only real walls (house outlines and LoD2 buildings) count - not cars, trees, crates or other things */
+function wallTop(x, z) { const b = buildingAt(x, z); return Math.max(b ? b.h : -Infinity, lod2Top(x, z)); }
 function wallDodge() {
   if ((P.wd || 0) >= 3) return false;
   let nx = 0, nz = 0; const w = P.wall, fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
-  if (w && time - w.t < .3) { nx = w.nx; nz = w.nz; }
-  else for (const d of [.55, .9]) if (objTop(P.x + fx * d, P.z + fz * d) > P.y + .45) { nx = -fx; nz = -fz; break; } // facing a wall just ahead
+  if (w && time - w.t < .3 && [.5, .8].some(d => wallTop(P.x - w.nx * d, P.z - w.nz * d) > P.y + .45)) { nx = w.nx; nz = w.nz; }
+  else for (const d of [.55, .9]) if (wallTop(P.x + fx * d, P.z + fz * d) > P.y + .45) { nx = -fx; nz = -fz; break; } // facing a wall just ahead
   if (!nx && !nz) return false;
-  { let sx = 0, sz = 0; for (let k = 0; k < 8; k++) { const h = k * Math.PI / 4, cx = Math.sin(h), cz = Math.cos(h); if (objTop(P.x + cx * .8, P.z + cz * .8) > P.y + .45) { sx -= cx; sz -= cz; } }
+  { let sx = 0, sz = 0; for (let k = 0; k < 8; k++) { const h = k * Math.PI / 4, cx = Math.sin(h), cz = Math.cos(h); if (wallTop(P.x + cx * .8, P.z + cz * .8) > P.y + .45) { sx -= cx; sz -= cz; } }
     if (sx * nx + sz * nz > 0) { nx = sx; nz = sz; } } // the wall's real direction (any angle, also corners): away from all blocked sides
   const l = Math.hypot(nx, nz); if (!l) return false; nx /= l; nz /= l;
   const dn = fx * nx + fz * nz, tx = fx - dn * nx, tz = fz - dn * nz; // sideways part of the motion along the wall
