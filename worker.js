@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=664'); importScripts('sonderbau.js?v=664'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=665'); importScripts('sonderbau.js?v=665'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2344,16 +2344,16 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       const inside = (x, z) => (!TBc || (x >= TBc[0] && x <= TBc[2] && z >= TBc[1] && z <= TBc[3])) && inPoly(x, z, q) && !fpAt(x, z);
       const PW = 3.9, RW = 8.0, BU = 8, BV = 5, /* Runde 217/218: graves at the scale of the figure; 221: rows 8 m apart (room for a hedge between) */ bw = BU * PW + 5, bd = BV * RW + 6, ux = o.c, uz = o.s, vx = -o.s, vz = o.c, W2 = (u, v) => [o.cx + u * ux + v * vx, o.cz + u * uz + v * vz];
       /* Runde 221: solid things on the cemetery (hedges, vaults, mausoleums) collide like walls: an oriented rectangle in the collide list */
-      const solid = (x, z, len, wid, h, au, av) => { const y = TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, ring = [];
+      const solid = (x, z, len, wid, h, au, av, low) => { const y = TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, ring = [];
         for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) ring.push(x + au[0] * a * len / 2 + av[0] * b * wid / 2, z + au[1] * a * len / 2 + av[1] * b * wid / 2);
-        collide.push(4, y + h, y - 1, ...ring); return ring; };
+        collide.push(4, y + (low ? Math.min(h, 2.9) : h), low ? y : y - 1, ...ring); return ring; }; // low: hedges stay below 3 m in the list (no crates on top)
       /* Runde 221 (Ohlsdorf on Google Maps: grave fields cut into strips by parallel hedges, hedge rooms with openings): a hedge from
          (u0, v0) to (u1, v1) in cemetery coordinates, cut into pieces of at most 6 m (each on its own ground height), drawn by the app as
          instanced boxes with a leaf shader, solid for the figure. Only inside the cemetery, never on a road. */
       const hedge = (u0, v0, u1, v1, h, th) => { const L = Math.hypot(u1 - u0, v1 - v0); if (L < 1) return; const n = Math.ceil(L / 6);
         for (let i = 0; i < n; i++) { const a = (i + .5) / n, [x, z] = W2(u0 + (u1 - u0) * a, v0 + (v1 - v0) * a), du = (u1 - u0) / L, dv = (v1 - v0) / L, hx = du * ux + dv * vx, hz = du * uz + dv * vz, l = L / n + .05;
           if (!inside(x, z) || nearRoad(x, z) || !inside(x + hx * l / 2, z + hz * l / 2) || !inside(x - hx * l / 2, z - hz * l / 2)) continue;
-          HG.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, hx, hz, l, th, h + R() * .15); solid(x, z, l, th, h, [hx, hz], [-hz, hx]); roadCells.add(rc(x, z)); } };
+          HG.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, hx, hz, l, th, h + R() * .15); solid(x, z, l, th, h, [hx, hz], [-hz, hx], 1); roadCells.add(rc(x, z)); } };
       const side = (u0, v0, u1, v1, h, th) => { if (R() < .15) return; const L = Math.hypot(u1 - u0, v1 - v0), g0 = .2 + R() * .6, gw = 3.2 / L; // one opening of 3.2 m somewhere along it
         hedge(u0, v0, u0 + (u1 - u0) * g0, v0 + (v1 - v0) * g0, h, th); hedge(u0 + (u1 - u0) * (g0 + gw), v0 + (v1 - v0) * (g0 + gw), u1, v1, h, th); };
       // a chapel for big cemeteries with no building at all inside (otherwise the mapped chapel or hall is there already)
@@ -2392,13 +2392,17 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
               for (const sg of [-1, 1]) { const [wx, wz] = at(sg * 3.05, 1); box(wx, 2.2, wz, .1, 3, 1.1, ux, uz, WIN); }
               map.blds.push(Float32Array.from(solid(cx, cz, 7, 9.4, 11, [ux, uz], [vx, vz]))); map.blds.push(Float32Array.from(solid(tx, tz, 2.6, 2.6, 15, [ux, uz], [vx, vz]))); }
             for (let a = -6; a <= 6; a += 2) for (let b = -7; b <= 7; b += 2) { const [x, z] = at(a, b); roadCells.add(rc(x, z)); } } }
-        for (let j = 0; j < BV; j++) for (let k = 0; k < BU; k++) { const u = bu + (k + .5) * PW, v = bv + (j + .5) * RW, [x, z] = W2(u, v);
+        /* Runde 222: graves not all the same way - each field its own orientation: as laid out, turned round (head the other side), or
+           turned by 90 degrees (then 3 rows of 10 across the field); hedge strips only where the rows run along them */
+        const turn = R() < .3, flip = R() < .5, gu = turn ? [vx, vz] : [ux, uz], gs = flip ? -1 : 1, GU = turn ? Math.floor(BU * PW / RW) : BU, GV = turn ? Math.floor(BV * RW / PW) : BV;
+        for (let j = 0; j < GV; j++) for (let k = 0; k < GU; k++) { const u = bu + (k + .5) * (turn ? RW : PW), v = bv + (j + .5) * (turn ? PW : RW), [x, z] = W2(u, v);
+          const ux = gu[0] * gs, uz = gu[1] * gs, vx = -uz, vz = ux; // this grave's axes (width / length)
           if (chapel && Math.hypot(x - chapel.x, z - chapel.z) < 16) continue;
           if (spec && Math.hypot(x - spec.x, z - spec.z) < 11) continue;
           if (R() > bd2) continue;
           if (!inside(x + vx * 3, z + vz * 3) || !inside(x - vx * 3, z - vz * 3) || nearRoad(x, z)) continue;
           const r = R(), hx = x - vx * 2.4, hz = z - vz * 2.4; // head end of the plot
-          if ((k === 0 || k === BU - 1) && (j === 0 || j === BV - 1) && r < .22) { // family vault / mausoleum on a block corner
+          if ((k === 0 || k === GU - 1) && (j === 0 || j === GV - 1) && r < .22) { // family vault / mausoleum on a block corner
             const c = pick(GRAN), H = 4.6 + R() * 2; box(x, 0, z, 3.8, .6, 6.2, ux, uz, pick(CURB)); box(x, .6, z, 3.4, H, 5.4, ux, uz, c);
             if (R() < .5) ridge(x, .6 + H, z, 5.8, 3.8, 1.8, vx, vz, c); else cap(x, .6 + H, z, 3.8, 5.8, 2.6, ux, uz, ROOFD);
             box(x - vx * 2.72, .6, z - vz * 2.72, 1.4, 3.0, .08, ux, uz, DOOR); roadCells.add(rc(x, z)); map.blds.push(Float32Array.from(solid(x, z, 3.8, 6.2, .6 + H, [ux, uz], [vx, vz]))); n++; used++; placed++; continue; }
@@ -2417,7 +2421,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           /* Runde 221: hedges - strips (front + between rows 2|3 and 4|5, open at both ends), a room (four sides, each with an opening),
              a low hedge along the path, or none. Mostly taller than the figure; never closed all round. */
           const s = R(), tall = R() < .8, H = tall ? 2.3 + R() * .7 : 1.2 + R() * .3, th = tall ? .9 : .6, U1 = bu + BU * PW, V1 = bv + BV * RW;
-          if (s < .42 && !spec) { hedge(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); for (const j of [2, 4]) if (R() < .85) hedge(bu - .4, bv + j * RW, U1 + .4, bv + j * RW, H, th); }
+          if (s < .42 && !spec && !turn) { hedge(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); for (const j of [2, 4]) if (R() < .85) hedge(bu - .4, bv + j * RW, U1 + .4, bv + j * RW, H, th); }
           else if (s < .74) { side(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); side(bu - .4, V1 + .6, U1 + .4, V1 + .6, H, th); side(bu - 1.2, bv - .2, bu - 1.2, V1 + .2, H, th); side(U1 + 1.2, bv - .2, U1 + 1.2, V1 + .2, H, th); }
           else if (s < .88) hedge(bu - .4, bv - .6, U1 + .4, bv - .6, 1.1, .6); } }
       map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
