@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=663' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=664' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1423,7 +1423,7 @@ function onData(e) {
       const it = { p, h, base, minx: a, maxx: b, minz: cc, maxz: d, tile: m.key }; t.blds.push(it);
       for (let ix = Math.floor(a / CELL); ix <= Math.floor(b / CELL); ix++) for (let iz = Math.floor(cc / CELL); iz <= Math.floor(d / CELL); iz++) { const k = gk(ix, iz); let arr = bgrid.get(k); if (!arr) bgrid.set(k, arr = []); arr.push(it); }
     }
-    t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
+    t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); addHedges(m.key, m.map && m.map.hedges); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);
@@ -1513,6 +1513,38 @@ const BLOCKS = !/[?&]bloecke=0/.test(location.search), CHUNK = 128, CHUNKS = new
 /* Runde 215: graves as instances (worker: map.graves, 12 floats each) in 32 m blocks: one mesh for curbs and beds (shown up to 45 m from
    the figure), one for the stones (up to 85 m); the boxes share one geometry, colour per instance. Blocks go with their tile. */
 const GRAVE_BOX = new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), GRAVE_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
+/* Runde 221: the grave surround is no extra box any more: one flat plate per grave, the shader draws the stone curb (15 cm) around the bed
+   (instance colour) with a few soil/leaf dots. Hedges: instanced boxes with a leaf shader - 20 cm leaf pixels, holes, darker foot. */
+const PLOT_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
+PLOT_MAT.onBeforeCompile = sh => {
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vPL; varying vec2 vPH;').replace('#include <begin_vertex>', `#include <begin_vertex>
+    { float sx = length(instanceMatrix[0].xyz), sz = length(instanceMatrix[2].xyz); vPL = vec3(position.x * sx, normal.y, position.z * sz); vPH = vec2(sx, sz) * .5; }`);
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vPL; varying vec2 vPH;').replace('#include <color_fragment>', `#include <color_fragment>
+    { float d = min(vPH.x - abs(vPL.x), vPH.y - abs(vPL.z)); vec3 curb = vec3(.72, .7, .66) * (.92 + .1 * fract(sin(dot(vPH, vec2(41.3, 17.1))) * 9137.3));
+      float n = fract(sin(dot(floor(vPL.xz * 6.0), vec2(12.9, 78.2))) * 43758.5);
+      if (vPL.y < .5 || d < .15) diffuseColor.rgb = curb * (d < .04 && vPL.y > .5 ? .85 : 1.0); else diffuseColor.rgb *= .9 + .2 * n; }`);
+};
+const HEDGE_MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
+HEDGE_MAT.onBeforeCompile = sh => {
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHW; varying float vHY;').replace('#include <begin_vertex>', `#include <begin_vertex>
+    { vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vHW = w.xyz - normalize(mat3(modelMatrix * instanceMatrix) * normal) * .05; vHY = position.y; }`);
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHW; varying float vHY;').replace('#include <color_fragment>', `#include <color_fragment>
+    { vec3 q = floor(vHW * 5.0); float n = fract(sin(dot(q, vec3(12.9, 78.2, 37.7))) * 43758.5), m = fract(sin(dot(floor(vHW * 1.6), vec3(7.1, 19.3, 3.7))) * 9137.3);
+      diffuseColor.rgb *= (.76 + .42 * n) * (.86 + .2 * m) * (.62 + .38 * smoothstep(0.0, .6, vHY));
+      if (n < .1) diffuseColor.rgb *= .55; if (n > .93) diffuseColor.rgb *= 1.25; }`);
+};
+function addHedges(key, g) {
+  dropChunks(key + ':heck'); if (!g || !g.length) return;
+  const cells = new Map(); for (let i = 0; i < g.length; i += 8) { const k = Math.floor(g[i] / 40) * 100003 + Math.floor(g[i + 2] / 40); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), C = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0), keys = [];
+  for (const list of cells.values()) { const m = new THREE.InstancedMesh(GRAVE_BOX.clone(), HEDGE_MAT, list.length); m.frustumCulled = false; m.matrixAutoUpdate = false; let cx = 0, cz = 0;
+    list.forEach((i, j) => { const x = g[i], y = g[i + 1], z = g[i + 2]; cx += x; cz += z; Q.setFromAxisAngle(Y, Math.atan2(-g[i + 4], g[i + 3])); M.compose(V.set(x, y - .3, z), Q, S.set(g[i + 5], g[i + 7] + .3, g[i + 6])); m.setMatrixAt(j, M);
+      const r = Math.abs(Math.sin(x * 12.9 + z * 78.2)) % 1; m.setColorAt(j, C.setRGB(.2 + r * .05, .36 + r * .06, .17)); });
+    m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx / list.length, g[list[0] + 1], cz / list.length), 32); m.userData.maxD = 320;
+    const k = key + ':heck#' + keys.length; scene.add(m); meshes.set(k, m); keys.push(k); }
+  CHUNKS.set(key + ':heck', keys);
+}
 function addGraves(key, g) {
   dropChunks(key + ':grab'); if (!g || !g.length) return;
   const cells = new Map(); for (let i = 0; i < g.length; i += 12) { const k = Math.floor(g[i] / 32) * 100003 + Math.floor(g[i + 2] / 32); let a = cells.get(k); if (!a) cells.set(k, a = []); a.push(i); }
@@ -1522,7 +1554,7 @@ function addGraves(key, g) {
     const flat = [], stones = []; let cx = 0, cz = 0;
     for (const i of list) { const x = g[i], y = g[i + 1], z = g[i + 2], ux = g[i + 3], uz = g[i + 4], w = g[i + 5], kind = g[i + 8], sw = g[i + 9], sh = g[i + 10], vx = -uz, vz = ux, hx = x - vx * 2.4, hz = z - vz * 2.4; /* Runde 218: ~1.7x */
       cx += x; cz += z; const rot = Math.atan2(-uz, ux);
-      flat.push([x, y, z, rot, w + .34, .16, 4.9, g[i + 6]], [x, y, z, rot, w - .16, .2, 4.4, g[i + 7]]);
+      flat.push([x, y, z, rot, w + .34, .12, 4.9, g[i + 7]]); /* Runde 221: one plate, curb in the shader */
       const st = (ox, oy, oz, a, b, c2, cc) => stones.push([ox, y + oy, oz, rot, a, b, c2, cc]), sc = g[i + 11], cu = g[i + 6];
       if (kind === 0) st(hx, 0, hz, sw, sh, .32, sc);
       else if (kind === 1) { st(hx, 0, hz, sw + .25, .4, .52, cu); st(hx, .4, hz, sw, sh, .3, sc); }
@@ -1536,7 +1568,7 @@ function addGraves(key, g) {
        third stone - the scaled/fewer trick: from afar the cemetery reads as full, at a third of the cost */
     const farSt = stones.filter((_, j) => j % 3 === 0);
     for (const [arr, maxD, suf, minD] of [[flat, 40, 'f', 0], [stones, 70, 's', 0], [farSt, 160, 'w', 70]]) { if (!arr.length) continue;
-      const m = new THREE.InstancedMesh(GRAVE_BOX.clone(), GRAVE_MAT, arr.length); m.frustumCulled = false; m.matrixAutoUpdate = false;
+      const m = new THREE.InstancedMesh(GRAVE_BOX.clone(), suf === 'f' ? PLOT_MAT : GRAVE_MAT, arr.length); m.frustumCulled = false; m.matrixAutoUpdate = false;
       arr.forEach(([x, y, z, r, a, b, c2, cc], j) => { Q.setFromAxisAngle(Y, r); M.compose(V.set(x, y, z), Q, S.set(a, b, c2)); m.setMatrixAt(j, M); m.setColorAt(j, col(cc)); });
       m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
       m.userData.bs = new THREE.Sphere(new THREE.Vector3(cx, list.length ? g[list[0] + 1] : 0, cz), 26); m.userData.maxD = maxD; m.userData.minD = minD;
@@ -1659,6 +1691,9 @@ function drawTileMap(md, sc) {
   for (const ar of md.areas) { g.fillStyle = ar.k === 'w' ? '#5f93b0' : ar.k === 'f' ? '#3f5e30' : ar.k === 'p' ? '#c9bc9e' : '#4d6b37'; g.beginPath(); for (const r of ar.rings) { path(r); g.closePath(); } g.fill('evenodd'); }
   g.lineCap = 'round'; g.lineJoin = 'round';
   for (const r of md.roads) { g.strokeStyle = r.k === 'r' ? '#6b6258' : r.k === 'p' ? '#b8a888' : '#e2d4ad'; g.lineWidth = Math.max(1, r.w * MS * 1.4); g.beginPath(); path(r.p); g.stroke(); }
+  if (md.graves) { g.fillStyle = '#9fa592'; const gs = Math.max(1, 2 * MS); for (let i = 0; i < md.graves.length; i += 12) g.fillRect(X(md.graves[i]) - gs / 2, Y(md.graves[i + 2]) - gs / 2, gs, gs); } // Runde 221: grave fields
+  if (md.hedges) { g.strokeStyle = '#1f3a1c'; g.lineCap = 'butt'; const h = md.hedges; for (let i = 0; i < h.length; i += 8) { g.lineWidth = Math.max(1.2, h[i + 6] * MS * 1.6); const dx = h[i + 3] * h[i + 5] / 2, dz = h[i + 4] * h[i + 5] / 2;
+    g.beginPath(); g.moveTo(X(h[i] - dx), Y(h[i + 2] - dz)); g.lineTo(X(h[i] + dx), Y(h[i + 2] + dz)); g.stroke(); } g.lineCap = 'round'; } // hedges, so one finds the way through
   g.fillStyle = '#8a7462'; for (const bl of md.blds) { g.beginPath(); path(bl); g.closePath(); g.fill(); }
   return { cv, x0: a, z0: c, s: MS };
 }

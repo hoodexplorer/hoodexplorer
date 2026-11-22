@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=663'); importScripts('sonderbau.js?v=663'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=664'); importScripts('sonderbau.js?v=664'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2322,7 +2322,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
      (map.graves: x, y, z, ux, uz, width, curb, bed, kind, stone w, stone h, stone colour) that the app draws as instances in 32 m blocks -
      beds near (45 m), stones further (85 m), nothing beyond. So a big cemetery can be filled: up to 30 000 graves per tile. Vaults,
      chapel, paths and hedges stay geometry; plants and lights stay sprites (fewer per grave). */
-  const GR = [], pack = c => (Math.round(c[0] * 255) << 16) + (Math.round(c[1] * 255) << 8) + Math.round(c[2] * 255);
+  const GR = [], HG = [], pack = c => (Math.round(c[0] * 255) << 16) + (Math.round(c[1] * 255) << 8) + Math.round(c[2] * 255);
   { const TBc = ground.tileBox, CAP = 20000; let used = 0; map.friedhoefe = [];
     const GRAN = ['#7d7f84', '#5d6066', '#9a9ca0', '#3a3b40', '#b8a789', '#2a2b30', '#d9d7d0', '#8a8274', '#6e5a4e'].map(hex), BED = ['#4f7a3a', '#5f8a40', '#6a8f45', '#6b4e36', '#a9a69c', '#3f6a34', '#7a9a50'].map(hex),
       CURB = ['#9a9890', '#b4b0a6', '#7c7a74', '#c8c2b4'].map(hex), FL = ['#c43a3a', '#e8c24a', '#e6e2da', '#b04ab0', '#e88a3a', '#d65a8a'].map(hex), WOOD = hex('#6b4a2e'), LIGHTC = [1, .3, .16], LBODY = hex('#5a2422'),
@@ -2342,7 +2342,20 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         const dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1], L = Math.hypot(dx, dz) || 1; for (let t = 0; t <= L; t += 1) rc2.add(ck(p[i] + dx * t / L, p[i + 1] + dz * t / L)); } }
       const nearRoad = (x, z) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (rc2.has(ck(x + a * 2, z + b * 2))) return true; return false; };
       const inside = (x, z) => (!TBc || (x >= TBc[0] && x <= TBc[2] && z >= TBc[1] && z <= TBc[3])) && inPoly(x, z, q) && !fpAt(x, z);
-      const PW = 3.9, RW = 7.4, BU = 8, BV = 5, /* Runde 217/218: graves at the scale of the figure (~1.7x again) - it can hide behind a tall stone */ bw = BU * PW + 5, bd = BV * RW + 4, ux = o.c, uz = o.s, vx = -o.s, vz = o.c, W2 = (u, v) => [o.cx + u * ux + v * vx, o.cz + u * uz + v * vz];
+      const PW = 3.9, RW = 8.0, BU = 8, BV = 5, /* Runde 217/218: graves at the scale of the figure; 221: rows 8 m apart (room for a hedge between) */ bw = BU * PW + 5, bd = BV * RW + 6, ux = o.c, uz = o.s, vx = -o.s, vz = o.c, W2 = (u, v) => [o.cx + u * ux + v * vx, o.cz + u * uz + v * vz];
+      /* Runde 221: solid things on the cemetery (hedges, vaults, mausoleums) collide like walls: an oriented rectangle in the collide list */
+      const solid = (x, z, len, wid, h, au, av) => { const y = TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, ring = [];
+        for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) ring.push(x + au[0] * a * len / 2 + av[0] * b * wid / 2, z + au[1] * a * len / 2 + av[1] * b * wid / 2);
+        collide.push(4, y + h, y - 1, ...ring); return ring; };
+      /* Runde 221 (Ohlsdorf on Google Maps: grave fields cut into strips by parallel hedges, hedge rooms with openings): a hedge from
+         (u0, v0) to (u1, v1) in cemetery coordinates, cut into pieces of at most 6 m (each on its own ground height), drawn by the app as
+         instanced boxes with a leaf shader, solid for the figure. Only inside the cemetery, never on a road. */
+      const hedge = (u0, v0, u1, v1, h, th) => { const L = Math.hypot(u1 - u0, v1 - v0); if (L < 1) return; const n = Math.ceil(L / 6);
+        for (let i = 0; i < n; i++) { const a = (i + .5) / n, [x, z] = W2(u0 + (u1 - u0) * a, v0 + (v1 - v0) * a), du = (u1 - u0) / L, dv = (v1 - v0) / L, hx = du * ux + dv * vx, hz = du * uz + dv * vz, l = L / n + .05;
+          if (!inside(x, z) || nearRoad(x, z) || !inside(x + hx * l / 2, z + hz * l / 2) || !inside(x - hx * l / 2, z - hz * l / 2)) continue;
+          HG.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, hx, hz, l, th, h + R() * .15); solid(x, z, l, th, h, [hx, hz], [-hz, hx]); roadCells.add(rc(x, z)); } };
+      const side = (u0, v0, u1, v1, h, th) => { if (R() < .15) return; const L = Math.hypot(u1 - u0, v1 - v0), g0 = .2 + R() * .6, gw = 3.2 / L; // one opening of 3.2 m somewhere along it
+        hedge(u0, v0, u0 + (u1 - u0) * g0, v0 + (v1 - v0) * g0, h, th); hedge(u0 + (u1 - u0) * (g0 + gw), v0 + (v1 - v0) * (g0 + gw), u1, v1, h, th); };
       // a chapel for big cemeteries with no building at all inside (otherwise the mapped chapel or hall is there already)
       let chapel = null;
       if (ar > 6000) { let any = false; for (let u = -o.w / 2; u < o.w / 2 && !any; u += 8) for (let v = -o.d / 2; v < o.d / 2 && !any; v += 8) { const [x, z] = W2(u, v); if (inPoly(x, z, q) && fpAt(x, z)) any = true; }
@@ -2358,16 +2371,37 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       /* Runde 217: single graves spread over the whole cemetery (not whole fields here and there): every plot gets a grave with the same
          chance, so the cap is used evenly; each block its own density (55-100 %) for natural gaps */
       const dens = Math.min(1, (CAP - used) / Math.max(1, blocks.length * BU * BV * .8));
+      let nSpec = 0; const maxSpec = 1 + Math.floor(ar / 40000);
       for (const [bu, bv] of blocks) { if (used >= CAP) break; let placed = 0; const bd2 = dens * (.55 + R() * .45);
+        /* Runde 221: now and then a big special mausoleum in the middle of a grave field (temple with columns, domed house, obelisk,
+           gothic tomb chapel), at most one per 4 ha; solid, on the minimap */
+        let spec = null; { const [cx, cz] = W2(bu + BU * PW / 2, bv + BV * RW / 2);
+          if (nSpec < maxSpec && ar > 5000 && R() < .1 && [[-9, -9], [9, -9], [9, 9], [-9, 9], [0, 0]].every(([a, b]) => { const [x, z] = W2(bu + BU * PW / 2 + a, bv + BV * RW / 2 + b); return inside(x, z) && !nearRoad(x, z); })) {
+            nSpec++; spec = { x: cx, z: cz }; const t = (R() * 4) | 0, M = pick([hex('#d8d2c4'), hex('#c9c2b0'), hex('#9a9ca0'), hex('#b8a789')]), MD = hex('#6e6a62'), at = (du, dv) => [cx + du * ux + dv * vx, cz + du * uz + dv * vz];
+            if (t === 0) { box(cx, 0, cz, 10, .9, 13, ux, uz, MD); const [ax, az] = at(0, 1.4); box(ax, .9, az, 7, 5.6, 8.6, ux, uz, M);
+              for (const du of [-3.3, -1.1, 1.1, 3.3]) { const [px, pz] = at(du, -4.6); box(px, .9, pz, .75, 5.6, .75, ux, uz, M); }
+              const [ex, ez] = at(0, -.6); box(ex, 6.5, ez, 8.6, .7, 12.4, ux, uz, M); ridge(ex, 7.2, ez, 12.6, 8.8, 2.4, vx, vz, M);
+              const [dx3, dz3] = at(0, -2.95); box(dx3, .9, dz3, 1.6, 3.2, .1, ux, uz, DOOR); map.blds.push(Float32Array.from(solid(cx, cz, 10, 13, 9.6, [ux, uz], [vx, vz]))); }
+            else if (t === 1) { box(cx, 0, cz, 10, .8, 10, ux, uz, MD); box(cx, .8, cz, 7.4, 6, 7.4, ux, uz, M); box(cx, 6.8, cz, 8, .5, 8, ux, uz, MD);
+              let y = 7.3; for (const [s, h] of [[6.4, 1.1], [5.2, 1], [3.8, .9], [2.2, .8], [.6, 1.6]]) { box(cx, y, cz, s, h, s, ux, uz, s < 1 ? MD : M); y += h; }
+              const [dx3, dz3] = at(0, -3.75); box(dx3, .8, dz3, 1.6, 3.4, .1, ux, uz, DOOR); map.blds.push(Float32Array.from(solid(cx, cz, 10, 10, 12, [ux, uz], [vx, vz]))); }
+            else if (t === 2) { box(cx, 0, cz, 6.4, 1.2, 6.4, ux, uz, MD); box(cx, 1.2, cz, 4.4, 1.2, 4.4, ux, uz, M); box(cx, 2.4, cz, 1.8, 11, 1.8, ux, uz, M); cap(cx, 13.4, cz, 1.8, 1.8, 1.6, ux, uz, M);
+              map.blds.push(Float32Array.from(solid(cx, cz, 6.4, 6.4, 15, [ux, uz], [vx, vz]))); }
+            else { const C = pick(CH_W); box(cx, 0, cz, 7, .6, 9.4, ux, uz, MD); box(cx, .6, cz, 6, 6.4, 8.4, ux, uz, C); ridge(cx, 7, cz, 8.8, 6.4, 4.6, vx, vz, ROOFD);
+              const [tx, tz] = at(0, -4.9); box(tx, 0, tz, 2.6, 9.5, 2.6, ux, uz, C); cap(tx, 9.5, tz, 2.9, 2.9, 5.5, ux, uz, ROOFD); const [dx3, dz3] = at(0, -6.25); box(dx3, .2, dz3, 1.3, 2.8, .1, ux, uz, DOOR);
+              for (const sg of [-1, 1]) { const [wx, wz] = at(sg * 3.05, 1); box(wx, 2.2, wz, .1, 3, 1.1, ux, uz, WIN); }
+              map.blds.push(Float32Array.from(solid(cx, cz, 7, 9.4, 11, [ux, uz], [vx, vz]))); map.blds.push(Float32Array.from(solid(tx, tz, 2.6, 2.6, 15, [ux, uz], [vx, vz]))); }
+            for (let a = -6; a <= 6; a += 2) for (let b = -7; b <= 7; b += 2) { const [x, z] = at(a, b); roadCells.add(rc(x, z)); } } }
         for (let j = 0; j < BV; j++) for (let k = 0; k < BU; k++) { const u = bu + (k + .5) * PW, v = bv + (j + .5) * RW, [x, z] = W2(u, v);
           if (chapel && Math.hypot(x - chapel.x, z - chapel.z) < 16) continue;
+          if (spec && Math.hypot(x - spec.x, z - spec.z) < 11) continue;
           if (R() > bd2) continue;
           if (!inside(x + vx * 3, z + vz * 3) || !inside(x - vx * 3, z - vz * 3) || nearRoad(x, z)) continue;
           const r = R(), hx = x - vx * 2.4, hz = z - vz * 2.4; // head end of the plot
           if ((k === 0 || k === BU - 1) && (j === 0 || j === BV - 1) && r < .22) { // family vault / mausoleum on a block corner
             const c = pick(GRAN), H = 4.6 + R() * 2; box(x, 0, z, 3.8, .6, 6.2, ux, uz, pick(CURB)); box(x, .6, z, 3.4, H, 5.4, ux, uz, c);
             if (R() < .5) ridge(x, .6 + H, z, 5.8, 3.8, 1.8, vx, vz, c); else cap(x, .6 + H, z, 3.8, 5.8, 2.6, ux, uz, ROOFD);
-            box(x - vx * 2.72, .6, z - vz * 2.72, 1.4, 3.0, .08, ux, uz, DOOR); roadCells.add(rc(x, z)); n++; used++; placed++; continue; }
+            box(x - vx * 2.72, .6, z - vz * 2.72, 1.4, 3.0, .08, ux, uz, DOOR); roadCells.add(rc(x, z)); map.blds.push(Float32Array.from(solid(x, z, 3.8, 6.2, .6 + H, [ux, uz], [vx, vz]))); n++; used++; placed++; continue; }
           const dbl = R() < .14, w = dbl ? 3.4 : 2.2, y0 = .03;
           { const t = R(), kind = t < .34 ? 0 : t < .5 ? 1 : t < .62 ? 2 : t < .8 ? 3 : t < .95 ? 4 : t < .985 ? 5 : 6, c = kind === 3 && R() < .55 ? WOOD : pick(GRAN);
             GR.push(x, TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0, z, ux, uz, w, pack(pick(CURB)), pack(pick(BED)), kind, Math.min(w, 1.2 + R() * 1.1), 1.6 + R() * 1.6, pack(c)); } // the app builds it
@@ -2380,9 +2414,14 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           if (R() < .3) roadCells.add(rc(x, z)); n++; used++; placed++; } // Runde 215: forest cemeteries keep most of their trees between the graves
         if (placed > 2) { // gravel path and a low hedge along the block
           const [px, pz] = W2(bu + BU * PW / 2, bv - 3.1); if (inside(px, pz)) lid(px, .05, pz, BU * PW + 5, 3.6, ux, uz, GRAVEL);
-          const [hx2, hz2] = W2(bu - 2.4, bv + BV * RW / 2); if (inside(hx2, hz2) && R() < .6) box(hx2, 0, hz2, .7, 1.1, BV * RW, ux, uz, HEDGE); } }
+          /* Runde 221: hedges - strips (front + between rows 2|3 and 4|5, open at both ends), a room (four sides, each with an opening),
+             a low hedge along the path, or none. Mostly taller than the figure; never closed all round. */
+          const s = R(), tall = R() < .8, H = tall ? 2.3 + R() * .7 : 1.2 + R() * .3, th = tall ? .9 : .6, U1 = bu + BU * PW, V1 = bv + BV * RW;
+          if (s < .42 && !spec) { hedge(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); for (const j of [2, 4]) if (R() < .85) hedge(bu - .4, bv + j * RW, U1 + .4, bv + j * RW, H, th); }
+          else if (s < .74) { side(bu - .4, bv - .6, U1 + .4, bv - .6, H, th); side(bu - .4, V1 + .6, U1 + .4, V1 + .6, H, th); side(bu - 1.2, bv - .2, bu - 1.2, V1 + .2, H, th); side(U1 + 1.2, bv - .2, U1 + 1.2, V1 + .2, H, th); }
+          else if (s < .88) hedge(bu - .4, bv - .6, U1 + .4, bv - .6, 1.1, .6); } }
       map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
-  if (GR.length) map.graves = Float32Array.from(GR);
+  if (GR.length) map.graves = Float32Array.from(GR); if (HG.length) map.hedges = Float32Array.from(HG); // Runde 221
   /* Runde 213 (foliage video: patches of one kind + scaled/fewer): loose clusters of wild flowers and grass on parks, meadows and lawns
      (a cluster centre every ~15-40 m, 4-12 plants of one kind within 2.5 m around it), and flower strips along field edges (poppy /
      cornflower / grass on the inner 2.5 m of farmland). Single plant sprites 43/45/46/47; the sprite shader thins them out with
