@@ -260,5 +260,6 @@
         for (let k = 1; k + 1 < f.length; k++) { const a = V[f[0]], b2 = V[f[k]], c2 = V[f[k + 1]]; G.tri(a[0], a[1], a[2], b2[0], b2[1], b2[2], c2[0], c2[1], c2[2], sh.col, hx, hy, hz); n++; } } }
     return n; }
   const inRect = (x, z, r) => { let ins = false; for (let i = 0, j = 3; i < 4; j = i++) { const a = r[i], b = r[j]; if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) ins = !ins; } return ins; };
-  self.SONDER = { list: LIST, frame, emit, inRect, model };
+  const OFF = (() => { try { return new URLSearchParams(self.location.search).get('sonder') === '0'; } catch (e) { return false; } })(); // Runde 208: ?sonder=0 in the page = models off
+  self.SONDER = { list: OFF ? [] : LIST, all: LIST, frame, emit, inRect, model };
 })();

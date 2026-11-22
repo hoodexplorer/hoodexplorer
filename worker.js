@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=642'); importScripts('sonderbau.js?v=642'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=644'); importScripts('sonderbau.js?v=644'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2287,40 +2287,73 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       if (TBp && (x < TBp[0] || x > TBp[2] || z < TBp[1] || z > TBp[3])) continue; if (pgAt.some(o => (o[0] - x) ** 2 + (o[1] - z) ** 2 < 16)) continue; pgAt.push([x, z]);
       const t = i % 2 ? 27 : 26; ground.spr.push(x, z, 3.2, 3.2, t, sprY(x, z, hashStr('pg' + x.toFixed(1)))); i++; }
   }
-  /* Runde 204: fantasy cemeteries - the inside of a cemetery is filled with made-up graves: rows of plots in the cemetery's own
-     direction (oriented box), blocks of 10 x 6 plots with wider paths between, grave beds (planted, soil or gravel, some double),
-     headstones in granite, sandstone, black or white, wooden and stone crosses, flat plates, flowers and grave lights, now and then a
-     family tomb. Never on a mapped path or under a building, only inside the own tile. Cheap: plain boxes (about 13 quads a grave),
-     at most 450 graves per cemetery and 500 per tile - big cemeteries get whole blocks at random, the rest stays lawn and trees.
-     Every cemetery goes into map.friedhoefe (centre, ring, size, graves) - for riddles later. Same seed, same cemetery. */
-  { const TBc = ground.tileBox, CAP = 500; let used = 0; map.friedhoefe = [];
-    const GRAN = ['#7d7f84', '#5d6066', '#9a9ca0', '#3a3b40', '#b8a789', '#2a2b30', '#d9d7d0', '#8a8274'].map(hex), BED = ['#4f7a3a', '#5f8a40', '#6a8f45', '#6b4e36', '#a9a69c', '#3f6a34'].map(hex),
-      FL = ['#c43a3a', '#e8c24a', '#e6e2da', '#b04ab0', '#e88a3a'].map(hex), WOOD = hex('#6b4a2e'), LAMP = hex('#b8261e');
-    const gb = (x, y, z, len, h, wid, ax, az, col) => obox2(ground, x, y, z, len, h, wid, ax, az, col);
+  /* Runde 204/209: fantasy cemeteries - the inside of a cemetery is filled with made-up graves: rows of plots in the cemetery's own
+     direction (oriented box), blocks of 10 x 6 plots with gravel paths and low hedges between them. A grave is a stone curb with a
+     bed (two flat faces, no box), a headstone (upright, stepped, pointed, lying plate, wooden or stone cross, now and then a stele or
+     a figure), flowers, a small shrub, grave lights that glow at night. Family vaults and mausoleums (gable or pyramid roof, plinth,
+     dark door) stand on block corners; a big cemetery without any building in it gets a small chapel with a ridge turret.
+     Never on a mapped path or under a building, only inside the own tile; at most 450 graves per cemetery and 520 per tile
+     (big cemeteries: whole blocks at random, the rest stays lawn and trees). About 9 faces a grave. Every cemetery goes into
+     map.friedhoefe (centre, ring, size, graves, chapel) - for riddles later. Same seed, same cemetery. */
+  { const TBc = ground.tileBox, CAP = 520; let used = 0; map.friedhoefe = [];
+    const GRAN = ['#7d7f84', '#5d6066', '#9a9ca0', '#3a3b40', '#b8a789', '#2a2b30', '#d9d7d0', '#8a8274', '#6e5a4e'].map(hex), BED = ['#4f7a3a', '#5f8a40', '#6a8f45', '#6b4e36', '#a9a69c', '#3f6a34', '#7a9a50'].map(hex),
+      CURB = ['#9a9890', '#b4b0a6', '#7c7a74', '#c8c2b4'].map(hex), FL = ['#c43a3a', '#e8c24a', '#e6e2da', '#b04ab0', '#e88a3a', '#d65a8a'].map(hex), WOOD = hex('#6b4a2e'), LIGHTC = [1, .3, .16], LBODY = hex('#5a2422'),
+      GRAVEL = hex('#c2baa8'), HEDGE = hex('#3d5f34'), SHRUB = ['#2f5a34', '#3f6e3a', '#4c7a3e'].map(hex), ROOFD = hex('#4a5058'), CH_W = ['#e8e2d4', '#cdbb94', '#b88a6a'].map(hex), DOOR = hex('#3a2a20'), WIN = hex('#3d4a66'), FIG = hex('#e2e0da');
+    const lid = (x, y, z, len, wid, ux, uz, col) => { const hx = ux * len / 2, hz = uz * len / 2, bx = -uz * wid / 2, bz = ux * wid / 2; ground.quad([x - hx - bx, y, z - hz - bz], [x - hx + bx, y, z - hz + bz], [x + hx + bx, y, z + hz + bz], [x + hx - bx, y, z + hz - bz], col, 0, 1, 0); };
+    const box = (x, y, z, len, h, wid, ux, uz, col, top) => obox2(ground, x, y, z, len, h, wid, ux, uz, col, top);
+    const cap = (x, y, z, len, wid, h, ux, uz, col) => { const hx = ux * len / 2, hz = uz * len / 2, bx = -uz * wid / 2, bz = ux * wid / 2, c = [[x - hx - bx, z - hz - bz], [x + hx - bx, z + hz - bz], [x + hx + bx, z + hz + bz], [x - hx + bx, z - hz + bz]];
+      for (let k = 0; k < 4; k++) { const a = c[k], b = c[(k + 1) % 4]; ground.tri(a[0], y, a[1], b[0], y, b[1], x, y + h, z, col, (a[0] + b[0]) / 2 - x, .5, (a[1] + b[1]) / 2 - z); } }; // pyramid cap
+    const ridge = (x, y, z, len, wid, h, ux, uz, col) => { const hx = ux * len / 2, hz = uz * len / 2, bx = -uz * wid / 2, bz = ux * wid / 2; // gable roof, ridge along u
+      const A = [x - hx - bx, y, z - hz - bz], B2 = [x + hx - bx, y, z + hz - bz], C2 = [x + hx + bx, y, z + hz + bz], D = [x - hx + bx, y, z - hz + bz], E = [x - hx, y + h, z - hz], F = [x + hx, y + h, z + hz];
+      ground.quad(A, B2, F, E, col, -bx, .6, -bz); ground.quad(D, C2, F, E, col, bx, .6, bz);
+      ground.tri(A[0], A[1], A[2], D[0], D[1], D[2], E[0], E[1], E[2], col, -hx, 0, -hz); ground.tri(B2[0], B2[1], B2[2], C2[0], C2[1], C2[2], F[0], F[1], F[2], col, hx, 0, hz); };
     for (const q of cemPolys) { if (used >= CAP) break; const ar = Math.abs(ringArea(q)); if (ar < 250) continue; const o = obb(q); if (!o) continue; const bb = bbox(q);
-      let st = Math.floor(hashStr('fh' + o.cx.toFixed(0) + ',' + o.cz.toFixed(0)) * 2147483645) + 1; const R = () => (st = st * 16807 % 2147483647) / 2147483647;
+      let st = Math.floor(hashStr('fh' + o.cx.toFixed(0) + ',' + o.cz.toFixed(0)) * 2147483645) + 1; const R = () => (st = st * 16807 % 2147483647) / 2147483647, pick = a => a[(R() * a.length) | 0];
       const rc2 = new Set(), ck = (x, z) => Math.floor(x / 2) * 100003 + Math.floor(z / 2);
       for (const r of map.roads) { const p = r.p; for (let i = 0; i + 3 < p.length; i += 2) { if (Math.max(p[i], p[i + 2]) < bb.minx - 3 || Math.min(p[i], p[i + 2]) > bb.maxx + 3 || Math.max(p[i + 1], p[i + 3]) < bb.minz - 3 || Math.min(p[i + 1], p[i + 3]) > bb.maxz + 3) continue;
         const dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1], L = Math.hypot(dx, dz) || 1; for (let t = 0; t <= L; t += 1) rc2.add(ck(p[i] + dx * t / L, p[i + 1] + dz * t / L)); } }
       const nearRoad = (x, z) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (rc2.has(ck(x + a * 2, z + b * 2))) return true; return false; };
-      const PW = 1.5, RW = 3.0, BU = 10, BV = 6, bw = BU * PW + 3, bd = BV * RW + 2.5, ux = o.c, uz = o.s, vx = -o.s, vz = o.c; // plot width, row depth, block size with paths
+      const inside = (x, z) => (!TBc || (x >= TBc[0] && x <= TBc[2] && z >= TBc[1] && z <= TBc[3])) && inPoly(x, z, q) && !fpAt(x, z);
+      const PW = 1.5, RW = 3.0, BU = 10, BV = 6, bw = BU * PW + 3, bd = BV * RW + 2.5, ux = o.c, uz = o.s, vx = -o.s, vz = o.c, W2 = (u, v) => [o.cx + u * ux + v * vx, o.cz + u * uz + v * vz];
+      // a chapel for big cemeteries with no building at all inside (otherwise the mapped chapel or hall is there already)
+      let chapel = null;
+      if (ar > 6000) { let any = false; for (let u = -o.w / 2; u < o.w / 2 && !any; u += 8) for (let v = -o.d / 2; v < o.d / 2 && !any; v += 8) { const [x, z] = W2(u, v); if (inPoly(x, z, q) && fpAt(x, z)) any = true; }
+        const [x, z] = W2(0, 0);
+        if (!any && inside(x, z) && inside(...W2(6, 9)) && inside(...W2(-6, -9)) && !nearRoad(x, z)) {
+          const wc = pick(CH_W); box(x, 0, z, 7, 6, 12, ux, uz, wc); ridge(x, 6, z, 12.4, 7.6, 4.5, vx, vz, ROOFD);
+          const [tx, tz] = W2(0, -6.6); box(tx, 0, tz, 3, 11, 3, ux, uz, wc); cap(tx, 11, tz, 3.4, 3.4, 5, ux, uz, ROOFD);
+          const [dx2, dz2] = W2(0, -8.15); box(dx2, 0, dz2, 1.4, 2.4, .1, ux, uz, DOOR);
+          for (const sg of [-1, 1]) for (const v of [-2, 2]) { const [wx, wz] = W2(sg * 3.55, v); box(wx, 2.2, wz, .1, 2.2, .9, ux, uz, WIN); }
+          chapel = { x: Math.round(x), z: Math.round(z) }; } }
       const blocks = []; for (let bu = -o.w / 2 + 2; bu + bw / 2 < o.w / 2 + bw / 2; bu += bw) for (let bv = -o.d / 2 + 2; bv < o.d / 2 - 2; bv += bd) blocks.push([bu, bv, R()]);
       blocks.sort((a, b) => a[2] - b[2]); let n = 0;
-      for (const [bu, bv] of blocks) { if (used >= CAP || n >= 450) break;
-        for (let j = 0; j < BV; j++) for (let k = 0; k < BU; k++) { const u = bu + (k + .5) * PW, v = bv + (j + .5) * RW, x = o.cx + u * ux + v * vx, z = o.cz + u * uz + v * vz;
-          if (TBc && (x < TBc[0] || x > TBc[2] || z < TBc[1] || z > TBc[3])) continue;
-          if (!inPoly(x + vx * 1.2, z + vz * 1.2, q) || !inPoly(x - vx * 1.2, z - vz * 1.2, q) || fpAt(x, z) || nearRoad(x, z)) continue;
-          const y = .02, r = R(), /* ground geometry follows the terrain by itself */ hx = x - vx * .95, hz = z - vz * .95; // head end of the plot
-          if (r < .025) { gb(x, y, z, 1.4, 2.1 + R() * .8, 2.3, ux, uz, GRAN[(R() * 3) | 0]); gb(x, y + 2.1, z, 1.6, .25, 2.5, ux, uz, GRAN[3]); }
-          else { const dbl = R() < .14, w = dbl ? 1.35 : .85; gb(x, y, z, w, .1 + R() * .08, 1.8, ux, uz, BED[(R() * BED.length) | 0]);
-            const t = R(), c = GRAN[(R() * GRAN.length) | 0];
-            if (t < .66) gb(hx, y, hz, Math.min(w, .45 + R() * .45), .5 + R() * .55, .14, ux, uz, c);
-            else if (t < .86) { const cc = R() < .55 ? WOOD : c; gb(hx, y, hz, .1, 1.05, .1, ux, uz, cc); gb(hx, y + .62, hz, .55, .1, .1, ux, uz, cc); }
-            else gb(hx + vx * .3, y + .1, hz + vz * .3, .5, .06, .38, ux, uz, c);
-            if (R() < .4) gb(x + vx * .55, y + .1, z + vz * .55, .22, .14, .22, ux, uz, FL[(R() * FL.length) | 0]);
-            if (R() < .15) gb(hx + vx * .25 + ux * .3, y + .1, hz + vz * .25 + uz * .3, .1, .16, .1, ux, uz, LAMP); }
-          roadCells.add(rc(x, z)); n++; used++; } } // no tree on a grave
-      map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
+      for (const [bu, bv] of blocks) { if (used >= CAP || n >= 450) break; let placed = 0;
+        for (let j = 0; j < BV; j++) for (let k = 0; k < BU; k++) { const u = bu + (k + .5) * PW, v = bv + (j + .5) * RW, [x, z] = W2(u, v);
+          if (chapel && Math.hypot(x - chapel.x, z - chapel.z) < 13) continue;
+          if (!inside(x + vx * 1.2, z + vz * 1.2) || !inside(x - vx * 1.2, z - vz * 1.2) || nearRoad(x, z)) continue;
+          const r = R(), hx = x - vx * .95, hz = z - vz * .95; // head end of the plot
+          if ((k === 0 || k === BU - 1) && (j === 0 || j === BV - 1) && r < .22) { // family vault / mausoleum on a block corner
+            const c = pick(GRAN), H = 2.3 + R() * 1.2; box(x, 0, z, 1.9, .35, 2.6, ux, uz, pick(CURB)); box(x, .35, z, 1.6, H, 2.2, ux, uz, c);
+            if (R() < .5) ridge(x, .35 + H, z, 2.4, 1.9, .9, vx, vz, c); else cap(x, .35 + H, z, 1.8, 2.4, 1.3, ux, uz, ROOFD);
+            box(x - vx * 1.12, .35, z - vz * 1.12, .7, 1.6, .05, ux, uz, DOOR); roadCells.add(rc(x, z)); n++; used++; placed++; continue; }
+          const dbl = R() < .14, w = dbl ? 1.35 : .85, y0 = .03;
+          lid(x, y0 + .06, z, w + .14, 1.94, ux, uz, pick(CURB)); lid(x, y0 + .08, z, w - .06, 1.74, ux, uz, pick(BED)); // stone curb and bed
+          const t = R(), c = pick(GRAN), sw = Math.min(w, .45 + R() * .45), sh = .5 + R() * .55;
+          if (t < .34) box(hx, y0, hz, sw, sh, .14, ux, uz, c);                                                                              // upright slab
+          else if (t < .5) { box(hx, y0, hz, sw + .1, .16, .22, ux, uz, pick(CURB)); box(hx, y0 + .16, hz, sw, sh, .13, ux, uz, c); box(hx, y0 + .16 + sh, hz, sw * .6, .12, .13, ux, uz, c); } // stepped, on a plinth
+          else if (t < .62) { box(hx, y0, hz, sw, sh * .8, .14, ux, uz, c); cap(hx, y0 + sh * .8, hz, sw, .14, .25, ux, uz, c); }        // pointed
+          else if (t < .8) { const cc = R() < .55 ? WOOD : c; box(hx, y0, hz, .1, 1.05, .1, ux, uz, cc); box(hx, y0 + .62, hz, .55, .1, .1, ux, uz, cc); } // cross
+          else if (t < .95) lid(hx + vx * .3, y0 + .1, hz + vz * .3, .5, .38, ux, uz, c);                                               // lying plate
+          else if (t < .985) { box(hx, y0, hz, .35, 1.7 + R() * .8, .35, ux, uz, c); cap(hx, y0 + 1.7, hz, .35, .35, .45, ux, uz, c); } // stele
+          else { box(hx, y0, hz, .5, .5, .4, ux, uz, pick(CURB)); box(hx, y0 + .5, hz, .22, .75, .2, ux, uz, FIG); ground.crown(hx, y0 + 1.15, hz, .28, .5, FIG); } // figure on a plinth
+          if (R() < .35) lid(x + vx * .5, y0 + .1, z + vz * .5, .3, .3, ux, uz, pick(FL));
+          else if (R() < .25) ground.crown(x + vx * .45, y0 + .05, z + vz * .45, .3, .55, pick(SHRUB));
+          if (R() < .2) { const lx = hx + vx * .25 + ux * .3, lz2 = hz + vz * .25 + uz * .3; box(lx, y0 + .1, lz2, .1, .1, .1, ux, uz, LBODY, false); glow.box(lx, y0 + .2, lz2, .08, .09, .08, LIGHTC); } // grave light, glows at night
+          roadCells.add(rc(x, z)); n++; used++; placed++; }
+        if (placed > 8) { // gravel path and a low hedge along the block
+          const [px, pz] = W2(bu + BU * PW / 2, bv - 1.25); if (inside(px, pz)) lid(px, .05, pz, BU * PW + 2, 1.6, ux, uz, GRAVEL);
+          const [hx2, hz2] = W2(bu - .9, bv + BV * RW / 2); if (inside(hx2, hz2) && R() < .6) box(hx2, 0, hz2, .5, .7, BV * RW, ux, uz, HEDGE); } }
+      map.friedhoefe.push({ x: o.cx, z: o.cz, ar: Math.round(ar), graves: n, chapel, ring: Array.from(q, v => Math.round(v * 10) / 10) }); } }
   for (const q of pitchPolys) {
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
     const L2 = o.w / 2 - 1, D2 = o.d / 2 - 1, P2 = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], Wt = hex('#f2f2ee');
