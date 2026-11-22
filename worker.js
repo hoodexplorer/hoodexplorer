@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=752'); importScripts('sonderbau.js?v=752'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=765'); importScripts('sonderbau.js?v=765'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -647,6 +647,8 @@ function fpAt(x, z, not) {
 }
 // coarse grid of where streets and squares are (6 m cells): decides which side of a house faces the street
 const roadGrid = new Set(), rg = (x, z) => Math.floor(x / 6) * 100003 + Math.floor(z / 6);
+/* Runde 250 (Earth, Polizei Muenster Moltkestrasse: the street lies 20 m away behind a parking strip): public buildings look up to 35 m for their street */
+function farStreet(cx, cz, nx, nz) { for (let d = 2.5; d <= 35; d += 2.5) { const x = cx + nx * d, z = cz + nz * d; if (roadGrid.has(rg(x, z))) return true; if (d > 3 && fpAt(x, z)) return false; } return false; }
 function facesStreet(cx, cz, nx, nz) {
   for (let d = 2.5; d <= 16; d += 2.5) {
     const x = cx + nx * d, z = cz + nz * d;
@@ -2579,21 +2581,58 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
      nearest one within 25 m); the band sits at three quarters of the wall height, as ground geometry (lifted with the terrain). */
   if (WELT === 'heute') { const L = layers.poi; if (L) { const toP = mk(L.extent || ext0), done = new Set(), TBs = ground.tileBox;
     for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1) continue; const cls = (f.props.class || '') + ' ' + (f.props.subclass || '');
-      const kind = /hospital/.test(cls) ? 'H' : /police/.test(cls) ? 'P' : /fire_station/.test(cls) ? 'F' : null; if (!kind) continue;
+      const sub = f.props.subclass || f.props.class || '', kind = sub === 'hospital' ? 'H' : sub === 'police' ? 'P' : sub === 'fire_station' ? 'F' : null; if (!kind) continue; /* Runde 250: only the exact kinds - clinics and doctors' practices are no hospital */
       for (const [px, pz] of pointsOf(f, toP)) { if (TBs && (px < TBs[0] || px > TBs[2] || pz < TBs[1] || pz > TBs[3])) continue;
         let fp = fpAt(px, pz); if (!fp) { let bd = 25; for (let a = 0; a < 16 && !fp; a++) for (const d of [6, 12, 18, 24]) { const q = fpAt(px + Math.cos(a / 16 * 6.283) * d, pz + Math.sin(a / 16 * 6.283) * d); if (q && d < bd) { fp = q; bd = d; break; } } }
         if (!fp || done.has(fp) || !fp.p || fp.h < 4) continue; done.add(fp);
-        const r = fp.p, sg = ringArea(r) > 0 ? 1 : -1; let best = null, bs = -1;
+        const r = fp.p, sg = ringArea(r) > 0 ? 1 : -1; let best = null, bs = -1; const cand = [];
+        const wideRoad = (cx, cz, nx, nz) => { for (let d = 2; d <= 35; d += 2) { const x = cx + nx * d, z = cz + nz * d, q = roadAt(x, z); if (q && q[4] >= 5 && Math.hypot(q[0] - x, q[1] - z) < q[4] / 2) return true; if (d > 3 && fpAt(x, z)) return false; } return false; };
         for (let i = 0; i < r.length; i += 2) { const j = (i + 2) % r.length, dx = r[j] - r[i], dz = r[j + 1] - r[i + 1], Lg = Math.hypot(dx, dz); if (Lg < 5) continue;
-          const nx = dz / Lg * sg, nz = -dx / Lg * sg, mx = (r[i] + r[j]) / 2, mz = (r[i + 1] + r[j + 1]) / 2, sc = Lg * (facesStreet(mx, mz, nx, nz) ? 4 : 1);
-          if (sc > bs) { bs = sc; best = { mx, mz, nx, nz, ux: dx / Lg, uz: dz / Lg, Lg }; } }
+          const nx = dz / Lg * sg, nz = -dx / Lg * sg, mx = (r[i] + r[j]) / 2, mz = (r[i + 1] + r[j + 1]) / 2, sc = Lg * (wideRoad(mx, mz, nx, nz) ? 20 : farStreet(mx, mz, nx, nz) ? 6 : 1); /* Runde 250 (Earth: Stuttgart-Bad Cannstatt, Muenster, Dresden St. Joseph-Stift): a wall facing a real carriageway wins over a long garden side */
+          const wl = { mx, mz, nx, nz, ux: dx / Lg, uz: dz / Lg, Lg }; if (sc > bs) { bs = sc; best = wl; } if (Lg >= 8 && sc > Lg) cand.push(wl); }
         if (!best) continue;
-        const { mx, mz, nx, nz, ux, uz, Lg } = best, h = (fp.minH || 0) + Math.max(2.6, Math.min(fp.h - 1.4, fp.h * 0.75)), w = Math.min(Lg * 0.6, kind === 'H' ? 7 : 9), o = .14;
-        const band = kind === 'H' ? hex('#f4f4f0') : kind === 'P' ? hex('#2b4f9e') : hex('#c23a2c'), WHITE = hex('#f4f4f0'), RED = hex('#cf2b2b');
-        if (kind === 'H') { // red frame, white field, big red cross (readable from the street and from above)
-          obox2(ground, mx + nx * o, h - 1.6, mz + nz * o, 3.4, 3.2, .12, ux, uz, RED, true); obox2(ground, mx + nx * (o + .08), h - 1.4, mz + nz * (o + .08), 3.0, 2.8, .08, ux, uz, WHITE, true);
+        /* Runde 250 (Nutzer: several signs where the building has several street sides): the main wall gets everything, up to two more walls
+           facing other streets (8 m or longer, another direction) get the sign */
+        const walls = [best]; cand.sort((a, b) => b.Lg - a.Lg); for (const c of cand) { if (walls.length >= 3) break; if (walls.every(w2 => w2.nx * c.nx + w2.nz * c.nz < .7)) walls.push(c); }
+        for (let wi = 0; wi < walls.length; wi++) {
+        const { mx, mz, nx, nz, ux, uz, Lg } = walls[wi], h = (fp.minH || 0) + Math.max(2.6, Math.min(fp.h - 1.4, fp.h * 0.75)), o = .3; /* (LoD2 walls often stand a little in front of the map outline - Stuttgart-Bad Cannstatt: the gates were inside) */
+        const WHITE = hex('#f4f4f0'), RED = hex('#cf2b2b'), BLUE = hex('#2b4f9e'), GLASS = hex('#9db5c8'), GREY = hex('#b7bcc0'), DARK = hex('#5d6266');
+        const at = (u, off) => [mx + ux * u + nx * off, mz + uz * u + nz * off];
+        /* Runde 250 (Nutzer: signs a little above head height, marked towards the street): sign band at 2.6-3.4 m (fire station: above the
+           gates at 3.5-4.3 m), pixel lettering, below it the typical front - fire station: red roll gates, police: glass entrance with canopy,
+           hospital: canopy over the emergency entrance (the red cross stays high up) */
+        if (kind === 'H' && wi === 0) { obox2(ground, mx + nx * o, h - 1.6, mz + nz * o, 3.4, 3.2, .12, ux, uz, RED, true); obox2(ground, mx + nx * (o + .08), h - 1.4, mz + nz * (o + .08), 3.0, 2.8, .08, ux, uz, WHITE, true);
           obox2(ground, mx + nx * (o + .14), h - 1.2, mz + nz * (o + .14), .8, 2.4, .08, ux, uz, RED, true); obox2(ground, mx + nx * (o + .14), h - .4, mz + nz * (o + .14), 2.4, .8, .08, ux, uz, RED, true); }
-        else { obox2(ground, mx + nx * o, h - .8, mz + nz * o, w, 1.6, .14, ux, uz, band, true); obox2(ground, mx + nx * (o + .1), h - .15, mz + nz * (o + .1), w * .9, .3, .08, ux, uz, WHITE, true); } } } } }
+        const sw = Math.min(Lg * .8, kind === 'H' ? 9 : kind === 'P' ? 7 : 10), word = kind === 'H' ? 'NOTAUFNAHME' : kind === 'P' ? 'POLIZEI' : 'FEUERWEHR', y0 = kind === 'F' && wi === 0 ? 3.5 : 2.6, sh = .8;
+        if (wi > 0) { }
+        else if (kind === 'F') { const ng = Math.max(1, Math.min(4, Math.floor(Lg * .85 / 5))), gw = 4;
+          for (let g = 0; g < ng; g++) { const u = (g - (ng - 1) / 2) * 5, [gx, gz] = at(u, o);
+            obox2(ground, gx, 0, gz, gw, 3.3, .1, ux, uz, hex('#c9302c'), true); obox2(ground, gx + nx * .06, 2.6, gz + nz * .06, gw * .8, .35, .04, ux, uz, GLASS, true);
+            for (let k = 1; k <= 5; k++) obox2(ground, gx + nx * .06, k * .42, gz + nz * .06, gw, .05, .04, ux, uz, hex('#7a1d1a'), true); } }
+        else if (kind === 'P') { const [gx, gz] = at(0, o); obox2(ground, gx, 0, gz, 2.4, 2.4, .08, ux, uz, GLASS, true); obox2(ground, gx + nx * .05, 0, gz + nz * .05, .12, 2.4, .04, ux, uz, DARK, true);
+          const [cx, cz] = at(0, 1.0); obox2(ground, cx, 2.42, cz, 4, .14, 1.8, ux, uz, GREY, true); }
+        else if (kind === 'H') { const [gx, gz] = at(0, o); obox2(ground, gx, 0, gz, 3.2, 2.3, .08, ux, uz, GLASS, true); obox2(ground, gx + nx * .05, 0, gz + nz * .05, .12, 2.3, .04, ux, uz, DARK, true);
+          const [cx, cz] = at(0, 1.4); obox2(ground, cx, 2.35, cz, Math.min(Lg * .8, 10), .16, 2.6, ux, uz, GREY, true);
+          for (const sd of [-1, 1]) { const [px, pz] = at(sd * (Math.min(Lg * .8, 10) / 2 - .3), 2.5); obox2(ground, px, 0, pz, .15, 2.35, .15, ux, uz, DARK, true); } }
+        { const [sx, sz] = at(0, o + (kind === 'H' ? .02 : 0)); obox2(ground, sx, y0, sz, sw, sh, .12, ux, uz, kind === 'P' ? BLUE : kind === 'H' ? RED : WHITE, true);
+          const pw = Math.min(.13, sw * .9 / pxRuns(word).W); pxWall(ground, word, sx + nx * .06, y0 + sh / 2, sz + nz * .06, nz, -nx, nx, nz, pw, kind === 'F' ? RED : WHITE); /* reading direction: to the right of someone facing the wall */
+          if (kind === 'P') { const [qx, qz] = at(-sw / 2 + .45, o + .1); obox2(ground, qx, y0 + .2, qz, .4, .4, .05, ux, uz, hex('#f2c230'), true); } }
+        /* Runde 250, street variant A: on the lane in front of that wall - fire station: yellow zig-zag (sign 299) and FEUERWEHR, police: bays
+           with POLIZEI, hospital: red-edged bay with a white zig-zag and NOTAUFNAHME; no parked cars there */
+        if (wi === 0) { let q = null; for (let d = 1; d <= 30 && !q; d += 1) { const x = mx + nx * d, z = mz + nz * d, r = roadAt(x, z); if (r && r[4] >= 5 && Math.hypot(r[0] - x, r[1] - z) < r[4] / 2) q = r; }
+          if ((self.EMDBG = self.EMDBG || []).length < 2000) self.EMDBG.push([kind, q ? 1 : 0, +mX(mx).toFixed(0), +mY(mz).toFixed(0), +nx.toFixed(2), +nz.toFixed(2), walls.length]);
+          if (q) { let dx = q[2], dz = q[3]; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl; let px = -dz, pz = dx; if (px * -nx + pz * -nz < 0) { px = -px; pz = -pz; } // (px, pz): from the road centre towards the building
+            const t0 = (mx - q[0]) * dx + (mz - q[1]) * dz, cx0 = q[0] + dx * t0, cz0 = q[1] + dz * t0, Lm = Math.min(Lg, kind === 'H' ? 14 : 24), lane = q[4] / 2, Y = .036;
+            const P = (u, v) => [cx0 + dx * u + px * v, cz0 + dz * u + pz * v], line = (pts, w2, col) => ribbon(ground, pts.flat(), w2, Y, col);
+            if (kind === 'F') { const zz = []; for (let u = -Lm / 2, k = 0; u <= Lm / 2 + .01; u += 2, k++) zz.push(P(u, lane - 1.0 - (k % 2 ? 1.6 : 0))); line(zz, .2, hex('#f2c230'));
+              const [tx, tz] = P(0, lane - 3.4); pxFlat(ground, word, tx, tz, Y + .002, -pz, px, px, pz, Math.min(.32, (Lm - 2) / pxRuns(word).W), WHITE); }
+            else if (kind === 'P') { const v0 = lane - .2, v1 = lane - 2.4, nb = Math.max(1, Math.floor(Lm / 5.5)), L2 = nb * 5.5;
+              line([P(-L2 / 2, v0), P(-L2 / 2, v1), P(L2 / 2, v1), P(L2 / 2, v0)], .15, WHITE); for (let b = 1; b < nb; b++) line([P(-L2 / 2 + b * 5.5, v0), P(-L2 / 2 + b * 5.5, v1)], .15, WHITE);
+              for (let b = 0; b < nb; b++) { const [tx, tz] = P(-L2 / 2 + (b + .5) * 5.5, (v0 + v1) / 2); pxFlat(ground, word, tx, tz, Y + .002, -pz, px, px, pz, .14, WHITE); } }
+            else { const v0 = lane - .2, v1 = lane - 3.2; line([P(-Lm / 2, v0), P(-Lm / 2, v1), P(Lm / 2, v1), P(Lm / 2, v0), P(-Lm / 2, v0)], .25, RED);
+              const zz = []; for (let u = -Lm / 2 + .5, k = 0; u <= -Lm / 2 + 5.5; u += 1.25, k++) zz.push(P(u, k % 2 ? v0 - .3 : v1 + .3)); line(zz, .15, WHITE);
+              const [tx, tz] = P(2.2, (v0 + v1) / 2); pxFlat(ground, word, tx, tz, Y + .002, -pz, px, px, pz, Math.min(.16, (Lm - 7) / pxRuns(word).W), WHITE); }
+            for (let i = cars.length - 6; i >= 0; i -= 6) { const u = (cars[i] - cx0) * dx + (cars[i + 1] - cz0) * dz, v = (cars[i] - cx0) * px + (cars[i + 1] - cz0) * pz; if (Math.abs(u) < Lm / 2 + 4 && v > -1 && v < lane + 3) cars.splice(i, 6); } } } } } } } }
   /* Runde 244: lighthouses - a tower (colours from OSM, otherwise red/white bands, white with a red top or brick on old ones) and a light
      record for the app (rotating beam, sector fans, real character). A small footprint at the spot is wrapped by the tower. */
   const lights = [];
@@ -3134,6 +3173,21 @@ function offsetLine(l, d) { // polyline moved sideways by d along the ribbon nor
     const L = Math.hypot(nx, nz) || 1; nx /= L; nz /= L; let k = 1; if (i > 0 && i + 1 < n) { const dx = l[i * 2] - l[i * 2 - 2], dz = l[i * 2 + 1] - l[i * 2 - 1], Lq = Math.hypot(dx, dz) || 1; k = 1 / Math.max(.5, Math.abs((-dz / Lq) * nx + (dx / Lq) * nz)); }
     out.push(l[i * 2] + nx * d * k, l[i * 2 + 1] + nz * d * k); }
   return out; }
+/* Runde 250: pixel letters (5 rows) for signs on facades and words on the road - each lit run of a row is one box/quad */
+const PXF = { F: ['1111', '1000', '1110', '1000', '1000'], E: ['1111', '1000', '1110', '1000', '1111'], U: ['1001', '1001', '1001', '1001', '0110'], R: ['1110', '1001', '1110', '1010', '1001'],
+  W: ['10001', '10001', '10101', '10101', '01010'], H: ['1001', '1001', '1111', '1001', '1001'], P: ['1110', '1001', '1110', '1000', '1000'], O: ['0110', '1001', '1001', '1001', '0110'],
+  L: ['1000', '1000', '1000', '1000', '1111'], I: ['111', '010', '010', '010', '111'], Z: ['1111', '0001', '0110', '1000', '1111'], N: ['1001', '1101', '1011', '1001', '1001'],
+  T: ['11111', '00100', '00100', '00100', '00100'], A: ['0110', '1001', '1111', '1001', '1001'], M: ['10001', '11011', '10101', '10001', '10001'] };
+function pxRuns(str) { const runs = []; let x0 = 0; for (const ch of str) { const g = PXF[ch]; if (!g) { x0 += 3; continue; }
+    for (let r = 0; r < 5; r++) { const row = g[r]; let c = 0; while (c < row.length) { if (row[c] === '1') { let e = c; while (e < row.length && row[e] === '1') e++; runs.push([x0 + c, r, e - c]); c = e; } else c++; } }
+    x0 += g[0].length + 1; } return { runs, W: x0 - 1 }; }
+/* upright text on a wall: centre (x, z), baseline-to-top centred at height yc, along (ux, uz), out of the wall (nx, nz) */
+function pxWall(G, str, x, yc, z, ux, uz, nx, nz, pw, col) { const { runs, W } = pxRuns(str);
+  for (const [c, r, n] of runs) { const u = (c + n / 2 - W / 2) * pw, y = yc + (2.5 - r - 1) * pw; obox2(G, x + ux * u + nx * .05, y, z + uz * u + nz * .05, n * pw, pw, .06, ux, uz, col, true); } }
+/* text lying on the road: centre (x, z), reading along (ux, uz), letters "up" towards (vx, vz) */
+function pxFlat(G, str, x, z, y, ux, uz, vx, vz, pw, col) { const { runs, W } = pxRuns(str);
+  for (const [c, r, n] of runs) { const u0 = (c - W / 2) * pw, u1 = (c + n - W / 2) * pw, v0 = (2.5 - r - 1) * pw, v1 = v0 + pw, P = (u, v) => [x + ux * u + vx * v, y, z + uz * u + vz * v];
+    const a = P(u0, v0), b = P(u1, v0), c2 = P(u1, v1), d = P(u0, v1); G.quad(a, d, c2, b, col, 0, 1, 0); G.quad(a, b, c2, d, col, 0, 1, 0); } }
 function ribbon(G, l, w, y, col) { // l: polyline [x, z, …]
   const h = w / 2;
   for (let i = 0; i + 3 < l.length; i += 2) {
@@ -3657,7 +3711,7 @@ function blockGroups(d, prev) {
     // top mostly over open ground in OSM, but OSM does know buildings there, and they are much lower
     if (share >= 0.08 && share <= 0.5 && top[g] >= 1.5 * med) { set.add(g); tris.set(g, t); if (!prev || !prev.has(g)) post({ type: 'info', msg: 'LoD2-Block ersetzt: Dach ' + top[g].toFixed(0) + ' m, ' + (plat * 9) + ' m², OSM-Anteil ' + (share * 100).toFixed(0) + ' %, OSM-Höhe ' + med.toFixed(0) + ' m' }); }
   }
-  set.bids = bids; return { set, tris };
+  set.bids = bids; set.all = all; return { set, tris };
 }
 function wallAt(x, z) { // an OSM castle/town wall here (inside or on its outline - LoD2 walls stand exactly on the outline)
   const a = fpgrid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL))); if (!a) return false;
@@ -3672,12 +3726,25 @@ function blockIdx(rec) {
 // OSM fallback buildings inside replaced blocks (their buckets were held back because LoD2 covers the tile)
 function rescueFor(rec) {
   const key = 'l:' + rec.tile.id + ':r';
-  if (!rec.block || !rec.block.size) { if (rec.rescued) { post({ type: 'drop', prefix: key }); rec.rescued = false; } return; }
+  /* Runde 250 (Frankfurt Flughafen, Kassel-Wolfsanger: new fire stations, only their floor slab was drawn): a map building held back for this
+     LoD2 tile, with no LoD2 roof over its middle or its inner points, is newer than the LoD2 survey - it is drawn from the map */
+  const gk2 = (x, z) => Math.floor(x / 16) * 100003 + Math.floor(z / 16);
+  if (!rec.coverG && rec.data && rec.data.idx) { const AG0 = new Map(), d = rec.data, P = d.pos, I = d.idx; /* every roof face (pitched and flat) of the tile, once */
+    for (let i = 0; i < I.length; i += 3) { const a = I[i], b2 = I[i + 1], c = I[i + 2]; if (d.kind[a] === 0) continue; const t = [P[a * 3], P[a * 3 + 2], P[b2 * 3], P[b2 * 3 + 2], P[c * 3], P[c * 3 + 2]];
+      const x0 = Math.min(t[0], t[2], t[4]), x1 = Math.max(t[0], t[2], t[4]), z0 = Math.min(t[1], t[3], t[5]), z1 = Math.max(t[1], t[3], t[5]);
+      for (let a2 = Math.floor(x0 / 16); a2 <= Math.floor(x1 / 16); a2++) for (let b = Math.floor(z0 / 16); b <= Math.floor(z1 / 16); b++) { const kk = a2 * 100003 + b; let l = AG0.get(kk); if (!l) AG0.set(kk, l = []); l.push(t, 0); } }
+    rec.coverG = AG0; }
+  const AG = rec.coverG || new Map();
+  const roofed = (x, z) => { const l = AG.get(gk2(x, z)); if (l) for (let i = 0; i < l.length; i += 2) if (inTri(x, z, l[i], l[i + 1])) return true; return false; };
+  const gap = it => { if (!AG.size || !it.p) return false; const n = it.p.length / 2; if (roofed(it.cx, it.cz)) return false;
+    for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 6))) { const x = (it.p[i * 2] + it.cx) / 2, z = (it.p[i * 2 + 1] + it.cz) / 2; if (roofed(x, z)) return false; } return true; };
+  if ((!rec.block || !rec.block.size) && !AG.size) { if (rec.rescued) { post({ type: 'drop', prefix: key }); rec.rescued = false; } return; }
   const R = new Geo(true);
   for (const m of mvt.values()) if (m.items) for (const it of m.items) {
     if (!it.G || it.G.sent || it.cx === undefined) continue;
-    let inside = false; for (const t of rec.blockTris.values()) { for (let k = 0; k < t.length && !inside; k += 7) inside = inTri(it.cx, it.cz, t, k); if (inside) break; }
-    if (!inside) continue;
+    let inside = false; if (rec.blockTris) for (const t of rec.blockTris.values()) { for (let k = 0; k < t.length && !inside; k += 7) inside = inTri(it.cx, it.cz, t, k); if (inside) break; }
+    const own = m.buckets && (m.buckets.get(rec.tile.id) === it.G || m.buckets.get(String(rec.tile.id)) === it.G);
+    if (!inside && !(own && gap(it))) continue;
     const G = it.G, v0 = it.r0 / 3, v1 = it.r1 / 3;
     for (let i = it.r0; i < it.r1; i++) { R.p.push(G.p[i]); R.n.push(G.n[i]); R.c.push(G.c[i]); R.w.push(G.w[i]); }
     for (let v = v0; v < v1; v++) { R.f.push(G.f[v * 2], G.f[v * 2 + 1]); R.b.push(G.b[v]); }
@@ -3693,6 +3760,7 @@ function recheckBlock(rec) {
     rec.block = b.set; rec.blockTris = b.tris; const idx = blockIdx(rec), rp = lod2Props(rec.data, rec.tile.id, idx), spr = rp.spr;
     post({ type: 'lod2idx', key: 'l:' + rec.tile.id, idx, spr }, [idx.buffer, spr.buffer]); postRoofThings('l:' + rec.tile.id, rp.geo);
   }
+  if (rec.block) rec.block.all = b.set.all; /* Runde 250: the roof list for the gap rescue, also when the chosen groups stayed the same */
   rescueFor(rec);
 }
 /* ------------------------------------------------------------ roofs measured from aerial photos (features only, never shown) */
