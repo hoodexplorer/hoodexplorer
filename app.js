@@ -213,7 +213,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=692' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=693' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1474,6 +1474,7 @@ function onData(e) {
     for (const k of [...L2B.keys()]) if (k.startsWith(m.prefix)) { L2B.delete(k); L2VER++; }
     for (const k of [...L2H.keys()]) if (k.startsWith(m.prefix)) { L2H.delete(k); const gm = L2G.get(k); if (gm) for (const g of new Set(gm.values())) L2GC.delete(g); L2G.delete(k); }
     for (const k of [...SIGHTS.keys()]) if (k.startsWith(m.prefix)) SIGHTS.delete(k);
+    for (const k of [...LIGHTS.keys()]) if (k.startsWith(m.prefix)) dropLighthouses(k); /* Runde 244 */
     farDirty = true;
     dropCarTiles(m.prefix);
     if (window.HXW) window.HXW.drop(m.prefix);
@@ -1488,6 +1489,7 @@ function onData(e) {
     for (const k of [...CHUNKS.keys()]) if (k.startsWith(m.prefix)) { CHGEN.set(k, (CHGEN.get(k) || 0) + 1); CHUNKS.delete(k); }
     for (const [k, t] of tiles) if (k.startsWith(m.prefix)) { tiles.delete(k); TILEVER++; for (const [gkey, arr] of bgrid) { const b = arr.filter(i => i.tile !== k); if (b.length) bgrid.set(gkey, b); else bgrid.delete(gkey); } }
   } else if (m.type === 'status') { /* Runde 122: while loading, the info panel shows the open requests */ $('net').hidden = !m.loading || !started || !worldReady; $('netText').textContent = 'Lade Daten (' + m.loading + ')'; }
+  else if (m.type === 'lights') addLighthouses(m.key, m.lights); /* Runde 244 */
   else if (m.type === 'sights') { SIGHTS.set(m.key, MITTEL ? m.sights.filter(s => s.quiet) : m.sights); } // Runde 154: no sights in the medieval world
   else if (m.type === 'terrain') { if (m.z === TER.z) { TER.tiles.set(m.tx + '_' + m.ty, m.h); carDirty = true; } else TER.far.set(m.tx + '_' + m.ty, m.h); farDirty = true; }
   else if (m.type === 'terrainH0') { TER.h0 = m.h0; carDirty = true; }
@@ -2221,7 +2223,7 @@ function step(now) {
   updateSprites(cam, time, cam === iso, player.position, PRUEF === null && ISO === null); updateCarInstances(P.x, P.z); if (window.updateTiere) try { window.updateTiere(dt, time); } catch (e) { if (!window.TIERERR) { window.TIERERR = 1; console.error('Tiere', e); } } // Runde 82
   if (window.updateTraffic) try { window.updateTraffic(dt); } catch (e) { if (!window.TRERR) { window.TRERR = 1; console.error('Verkehr', e); } } // a traffic bug never stops the game loop /* Runde 81 */ if (frame % 30 === 0) updateFar(); if (frame % 20 === 0 && P.placed && PRUEF === null && ISO === null) checkSights();
   if (window.WX) try { WX.update(dt, time); } catch (e) { if (!window.WXERR) { window.WXERR = 1; console.error('Wetter', e); } } // Runde 141
-  runJobs(); chunkCull(cam);
+  runJobs(); chunkCull(cam); updateLighthouses(cam); /* Runde 244 */
   if (post.uniforms.uMx.value > 0.001) { const pu = post.uniforms; cam.updateMatrixWorld(); pu.uInvProj.value.copy(cam.projectionMatrixInverse); pu.uCamWorld.value.copy(cam.matrixWorld); pu.uCamPos.value.setFromMatrixPosition(cam.matrixWorld);
     const fw = new THREE.Vector3(); cam.getWorldDirection(fw); const ax = Math.abs(fw.x) > Math.abs(fw.z); pu.uFlow.value.set(ax ? Math.sign(fw.x) : 0, ax ? 0 : Math.sign(fw.z)); // floor streams: along the main axis nearest to the view (stable while turning)
     if (cam.isPerspectiveCamera) pu.uPxW.value = 2 * Math.tan(cam.fov * Math.PI / 360) / rt.height; else pu.uPxO.value = (cam.top - cam.bottom) / cam.zoom / rt.height; }
@@ -2754,6 +2756,38 @@ const _de = new THREE.Euler(), _dq = new THREE.Quaternion(), _dm = new THREE.Mat
    By day only a hint (you see it when you look for it), at night bright, with light cones on the road and a red glow behind.
    Placed on the light boxes of the car model itself (found by their colour), so they fit every car type. */
 const CL = { g: null, parts: null, blink: 0, side: 0, hold: 0 };
+/* Runde 244: lighthouse lights. Rotating lights (Fl, unknown): two opposite sets of beams (as many as the flash group) turn once per
+   two periods, so a flash passes every period; the lantern flares when a beam sweeps towards the viewer. Sector lights (F, Oc, Iso with
+   sectors): fixed white/red/green fans into their sectors, dark phases by character. Long soft cones (length from the nominal range),
+   additive and without fog: faint by day, bright at night. */
+const LIGHTS = new Map(), LH_COL = { w: new THREE.Color('#fff4d6'), r: new THREE.Color('#ff4a3a'), g: new THREE.Color('#4cff7a') };
+const LH_GEO = (() => { const g = new THREE.CylinderGeometry(1, .012, 1, 18, 1, true); g.translate(0, .5, 0); g.rotateZ(-Math.PI / 2); return g; })();
+function lhBeamMat(col) { return new THREE.ShaderMaterial({ uniforms: { uC: { value: col.clone() }, uI: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  vertexShader: 'varying float vT; varying vec3 vN; varying vec3 vV; void main(){ vT = uv.y; vec4 mv = modelViewMatrix * vec4(position, 1.); vN = normalize(normalMatrix * normal); vV = projectionMatrix[3][3] > .5 ? vec3(0., 0., 1.) : normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'uniform vec3 uC; uniform float uI; varying float vT; varying vec3 vN; varying vec3 vV; void main(){ float e = pow(abs(dot(normalize(vN), normalize(vV))), 2.4); float a = uI * e * pow(1. - vT, 2.6) * (.4 + .6 * smoothstep(0., .03, vT)); gl_FragColor = vec4(uC * a, 1.); }' }); }
+function addLighthouses(key, list) {
+  if (LIGHTS.has(key)) dropLighthouses(key); const arr = [];
+  for (const L of list) { const g = new THREE.Group(); g.position.set(L.x, L.y, L.z); const u = g.userData; u.beams = []; u.per = Math.max(2, L.per || 10); u.ch = L.ch; u.ph = L.s * 20;
+    const len = Math.max(450, Math.min(2200, (L.rng || 10) * 85)), wide = len * .03;
+    if (L.ch === 'Fl') { const rot = new THREE.Group(); g.add(rot); u.rot = rot; u.th0 = L.s * 6.28; const n = Math.max(1, L.grp || 1);
+      for (const side of [0, Math.PI]) for (let i = 0; i < n; i++) { const m = new THREE.Mesh(LH_GEO, lhBeamMat(LH_COL.w)); m.rotation.y = side + (i - (n - 1) / 2) * .3; m.scale.set(len, wide, wide); m.frustumCulled = false; rot.add(m); u.beams.push(m); } }
+    for (const [a0, a1, c] of L.sec || []) { let span = ((a1 - a0) % 360 + 360) % 360; if (span < .3) continue; span = Math.min(span, 300); const n = Math.ceil(span / 40), st = span / n;
+      for (let i = 0; i < n; i++) { const b = (a0 + st * (i + .5)) + 180, th = Math.PI / 2 - b * Math.PI / 180, w = Math.tan(Math.max(.4, st) / 2 * Math.PI / 180) * len * .7;
+        const m = new THREE.Mesh(LH_GEO, lhBeamMat(LH_COL[c] || LH_COL.w)); m.rotation.y = th; m.scale.set(len * .7, Math.min(w, len * .02), w); m.frustumCulled = false; m.userData.fix = true; g.add(m); u.beams.push(m); } }
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xfff1c8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
+    u.glow = sp; u.gs = 5 + L.H * .22; sp.scale.setScalar(u.gs); g.add(sp); scene.add(g); arr.push(g); }
+  LIGHTS.set(key, arr); }
+function dropLighthouses(key) { for (const g of LIGHTS.get(key) || []) { scene.remove(g); for (const m of g.userData.beams) m.material.dispose(); g.userData.glow.material.dispose(); } LIGHTS.delete(key); }
+const _lhV = new THREE.Vector3();
+function updateLighthouses(cam) { if (!LIGHTS.size) return; const n = Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5));
+  if (cam.isOrthographicCamera) _lhV.setFromMatrixColumn(cam.matrixWorld, 2);
+  for (const arr of LIGHTS.values()) for (const g of arr) { const u = g.userData, ph = (time + u.ph) % u.per;
+    const on = u.ch === 'Oc' ? (ph < u.per - Math.min(1.5, u.per * .3) ? 1 : 0) : u.ch === 'Iso' ? (ph < u.per / 2 ? 1 : 0) : 1;
+    let boost = 0;
+    if (u.rot) { u.rot.rotation.y = u.th0 - time * Math.PI / u.per; const dx = cam.isOrthographicCamera ? _lhV.x : cam.position.x - g.position.x, dz = cam.isOrthographicCamera ? _lhV.z : cam.position.z - g.position.z, ang = Math.atan2(-dz, dx);
+      for (const b of u.beams) if (!b.userData.fix) { const d = Math.cos(u.rot.rotation.y + b.rotation.y - ang); if (d > 0) boost = Math.max(boost, Math.pow(d, 90)); } }
+    for (const b of u.beams) b.material.uniforms.uI.value = b.userData.fix ? (.008 + .14 * n) * on : .03 + .42 * n; /* sector fans stay a soft tint, beams carry the show */
+    const k = u.rot ? .55 + boost * 1.6 : on; u.glow.material.opacity = Math.min(1, (.25 + .75 * n) * k + boost * .4); u.glow.scale.setScalar(u.gs * (1 + n * .8 + boost * 2.5)); } }
 function glowTex() { if (glowTex.t) return glowTex.t; const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.4, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return glowTex.t = new THREE.CanvasTexture(c); }

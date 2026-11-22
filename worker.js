@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=692'); importScripts('sonderbau.js?v=692'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=693'); importScripts('sonderbau.js?v=693'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1443,6 +1443,22 @@ function burgSite(i, j) {
 /* Runde 163: real castles and castle ruins from OSM (daten/burgen/<lat>_<lon>.json, werkzeuge/burgen.py; Germany): a castle stands
    where one stands or stood (Sparrenburg above Bielefeld); invented castles only where no real one lies within 6 km. The list is
    fixed, so every tile knows the same castles. Near-duplicates (several OSM objects of one castle) within 400 m count once. */
+/* Runde 244: lighthouses (daten/leuchttuerme.json from OSM seamarks, werkzeuge/leuchttuerme.py): loaded once, kept as Mercator points */
+let LHS = null, LHP = null;
+function lhLoad() { if (LHP) return LHP; LHP = (async () => { try { const r = await fetch('daten/leuchttuerme.json?v=1'); const A = r.ok ? await r.json() : [];
+  LHS = A.map(a => { const m = merc(a[0], a[1]); return { X: m.X, Y: m.Y, H: a[2], ch: a[3], per: a[4], grp: a[5], rng: a[6], cols: a[7], sec: a[8], st: a[9], s: hashStr('lh' + a[0] + ',' + a[1]) }; }); } catch (e) { LHS = []; } })(); return LHP; }
+/* a round tower, slightly tapered, in colour bands; gallery, glass lantern and a cap on top (y from the ground, lifted with the terrain) */
+function lhTower(G, x, z, y0, H, r0, cols, cap) {
+  const N = 12, r1 = r0 * .64, nb = cols.length, P = (a, r, y) => [x + Math.cos(a) * r, y, z + Math.sin(a) * r];
+  const ring = (ra, rb, ya, yb, col, n) => { for (let k = 0; k < n; k++) { const a0 = k / n * 6.2832, a1 = (k + 1) / n * 6.2832, am = (a0 + a1) / 2;
+    G.quad(P(a1, ra, ya), P(a0, ra, ya), P(a0, rb, yb), P(a1, rb, yb), col, Math.cos(am), (ra - rb) / Math.max(.1, yb - ya), Math.sin(am)); } };
+  for (let b = 0; b < nb; b++) ring(r0 + (r1 - r0) * b / nb, r0 + (r1 - r0) * (b + 1) / nb, y0 + H * b / nb, y0 + H * (b + 1) / nb, cols[b], N);
+  const yg = y0 + H, rg = r1 + .9, DARK = hex('#2e3134'), GLASS = hex('#fff0b0'), circ = (r, n) => { const o = []; for (let k = 0; k < n; k++) o.push(x + Math.cos(-k / n * 6.2832) * r, z + Math.sin(-k / n * 6.2832) * r); return Float32Array.from(o); };
+  ring(rg, rg, yg, yg + .35, DARK, N); G.flat([circ(rg, N)], yg + .35, DARK, 0, 0); ring(rg, rg, yg + .35, yg + 1.2, DARK, N); // gallery with railing
+  const rl = Math.max(.9, r1 * .72), hl = Math.max(1.6, H * .07); ring(rl, rl, yg + .35, yg + .35 + hl, GLASS, 8); // lantern
+  const yc = yg + .35 + hl, rc = rl + .25, ya = yc + rl * 1.1;
+  for (let k = 0; k < 8; k++) { const a0 = k / 8 * 6.2832, a1 = (k + 1) / 8 * 6.2832, am = (a0 + a1) / 2, p0 = P(a0, rc, yc), p1 = P(a1, rc, yc); G.tri(p1[0], p1[1], p1[2], p0[0], p0[1], p0[2], x, ya, z, cap, Math.cos(am), .7, Math.sin(am)); }
+  G.flat([circ(rc, 8)], yc, cap, 0, 0); return yg + .35 + hl * .55; }
 const REAL_CELLS = new Map(), REAL = [];
 async function realLoad(lat, lon) {
   const k = Math.floor(lat) + '_' + Math.floor(lon); if (REAL_CELLS.has(k)) return REAL_CELLS.get(k);
@@ -2430,6 +2446,20 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           obox2(ground, mx + nx * o, h - 1.6, mz + nz * o, 3.4, 3.2, .12, ux, uz, RED, true); obox2(ground, mx + nx * (o + .08), h - 1.4, mz + nz * (o + .08), 3.0, 2.8, .08, ux, uz, WHITE, true);
           obox2(ground, mx + nx * (o + .14), h - 1.2, mz + nz * (o + .14), .8, 2.4, .08, ux, uz, RED, true); obox2(ground, mx + nx * (o + .14), h - .4, mz + nz * (o + .14), 2.4, .8, .08, ux, uz, RED, true); }
         else { obox2(ground, mx + nx * o, h - .8, mz + nz * o, w, 1.6, .14, ux, uz, band, true); obox2(ground, mx + nx * (o + .1), h - .15, mz + nz * (o + .1), w * .9, .3, .08, ux, uz, WHITE, true); } } } } }
+  /* Runde 244: lighthouses - a tower (colours from OSM, otherwise red/white bands, white with a red top or brick on old ones) and a light
+     record for the app (rotating beam, sector fans, real character). A small footprint at the spot is wrapped by the tower. */
+  const lights = [];
+  if (WELT === 'heute' && LHS) { const TBl = ground.tileBox;
+    for (const L of LHS) { const x = lx(L.X), z = lz(L.Y); if (TBl && (x < TBl[0] || x > TBl[2] || z < TBl[1] || z > TBl[3])) continue;
+      const fp = fpAt(x, z), fa = fp && fp.p ? Math.abs(ringArea(fp.p)) : 0, onRoof = fa >= 150, base = onRoof ? (fp.h || 0) : 0, H = onRoof ? Math.min(L.H, 12) : L.H;
+      const r0 = Math.max(H > 25 ? 3 + H * .045 : 1.2 + H * .09, fa && !onRoof ? Math.sqrt(fa / Math.PI) + .3 : 0);
+      const RED = '#c8302a', WH = '#f2f0ea', s = L.s; let cols = L.cols.length ? L.cols : null;
+      if (!cols) cols = L.st && s < .5 ? ['#9c4a32'] : s < .55 ? (H > 20 ? [RED, WH, RED, WH, RED, WH] : [RED, WH, RED, WH]) : s < .8 ? [WH, WH, WH, RED] : ['#a9a49a'];
+      const cap = hex(cols.includes(RED) || s > .7 ? '#a8281f' : '#2f4a3e');
+      const yl = lhTower(ground, x, z, base, H, r0, cols.map(hex), cap);
+      const yb = TERRAIN_ON ? dzLift(x, z, hAt(x, z)) : 0;
+      if (!fp) { const R = []; for (let k = 0; k < 8; k++) R.push(x + Math.cos(k / 8 * 6.2832) * r0, z + Math.sin(k / 8 * 6.2832) * r0); collide.push(8, yb + H, yb - 1, ...R); }
+      lights.push({ x, z, y: yb + yl, H, ch: L.ch, per: L.per, grp: L.grp, rng: L.rng, sec: L.sec, s }); } }
   // petrol stations (map POI 'fuel'): canopy on pillars, pump islands, price pylon at the road – recognisable at a glance
   { const L = layers.poi; if (L) { const toP = mk(L.extent || ext0), done = [];
     for (const rng of L.feats) { const f = readFeature(L, rng); if (f.type !== 1 || f.props.class !== 'fuel') continue;
@@ -2836,7 +2866,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         refl.push(rx, rz, S[i + 2], -(S[i + 3] + 100 * k), S[i + 4], Math.floor((hAt(rx, rz) - WL() + .65) * 4) + sd); /* base rounded to 25 cm: always just above the water surface; one copy per direction with water, the shader shows the one facing the camera */ } } }
   const dipsOut = []; for (const d of (ground.dips || [])) dipsOut.push(d.x, d.z, d.ux, d.uz, d.hw, d.F, d.R, d.D);
   const dzOut = DZF ? { x0: DZF.gx0 * DZC, z0: DZF.gz0 * DZC, nx: DZF.nx, nz: DZF.nz, c: DZC, W: DZF.W, WT: DZF.WT } : null; DZF = null;
-  return { span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
+  return { span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }
 /* Runde 204: an oriented box whose sides face outwards (obox below winds them inwards - seen from outside they were culled) and with a lid */
 function obox2(G, x, y, z, len, h, wid, dx, dz, col, lid) {
@@ -3833,6 +3863,7 @@ async function loadMVT(rec, key) {
   post({ type: 'info', msg: 'Baumkarte ' + key + ': ' + (osm.trees ? osm.trees.length / 2 + ' Baeume' : 'nicht verfuegbar') });
   const layers = decodeMVT(buf); await dipsAround(rec.tx, rec.ty, layers);
   if (WELT === 'mittel') await burgPrep(cx - half, cy - half, cx + half, cy + half); // Runde 154: castles and towns around this tile
+  if (WELT === 'heute') await lhLoad(); /* Runde 244 */
   const pn0 = PENDR.length; const out = buildMVT(layers, rec.tx, rec.ty, l2, osm);
   rec.state = 'ready'; if (PENDR.length > pn0) pendRebuild(key, pn0); rec.buckets = out.buckets; rec.items = out.items;
   const g = out.ground, gl = out.glow; chunkify(g, g.det); chunkify(gl, gl.det); quant8(g); quant8(gl);
@@ -3842,6 +3873,7 @@ async function loadMVT(rec, key) {
     post({ type: 'water', key: 'm:' + key + ':water', pos: w.pos, nor: w.nor, col: w.col, field: f }, tr); } }
   if (out.parts) { const g2 = out.parts; post({ type: 'bld', key: 'm:' + key + ':parts', pos: g2.pos, nor: g2.nor, col: g2.col, fac: g2.fac, wal: g2.wal, base: g2.base }, [g2.pos.buffer, g2.nor.buffer, g2.col.buffer, g2.fac.buffer, g2.wal.buffer, g2.base.buffer]); }
   if (out.sights.length) post({ type: 'sights', key: 'm:' + key, sights: out.sights });
+  if (out.lights && out.lights.length) post({ type: 'lights', key: 'm:' + key, lights: out.lights }); /* Runde 244 */
   for (const [owner] of out.buckets) sendBucket(rec, key, owner);
   // LoD2 tiles already shown get another pass now that footprints, shops and colours are known
   for (const r of lod2.values()) if (r.data) { recolour(r); if (r.idx0) recheckBlock(r); }
