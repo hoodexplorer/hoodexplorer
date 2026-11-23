@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=784'); importScripts('sonderbau.js?v=784'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=785'); importScripts('sonderbau.js?v=785'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1850,7 +1850,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         /* Runde 220: standing crops as one raised block that follows the ground: the field outline drawn in by ~1 m, lifted to the crop
            height (wheat .9, barley .8, rapeseed 1.2, maize 2.1 m) and joined to the edge by a slanted band (code blue 3 = side: the shader
            paints stalks). The drape puts both on the terrain like every ground layer. Beet, ploughed, young cereal and stubble stay flat. */
-        if (colF !== col && poly.length === 1) { const crop = Math.round((colF[0] * 255 - 16) / 32), Hc = [.9, .8, 1.2, 2.1, 0, 0, 0, 0][crop];
+        if (colF !== col && f.props.class === 'farmland' && poly.length === 1) { const crop = /* Runde 261: only fields - outdoor-pool basins (own colour since Runde 259) were raised like a rapeseed field */ Math.round((colF[0] * 255 - 16) / 32), Hc = [.9, .8, 1.2, 2.1, 0, 0, 0, 0][crop];
           let r = Array.from(poly[0]); if (r.length > 4 && r[0] === r[r.length - 2] && r[1] === r[r.length - 1]) r = r.slice(0, -2);
           const n = r.length / 2, A0 = ringArea(r);
           /* Runde 239 (phone test: blocks hung over the paths - field outlines often run along the middle of a farm track - and looked
@@ -2911,15 +2911,17 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         collide.push(4, y + H, y - 1, ...ring); } }
     /* Runde 259 (Nutzer: basin walls looked odd - an earth bank): basins of outdoor pools get tiled walls from the deck down to below the
        water (0.5 m inside the outline - the earth bank slopes into the basin - light tiles, a white coping covers the strip) */
-    for (const r of freiRings) { const n = r.length / 2, sg = ringArea(r) > 0 ? 1 : -1, wb = -WL() - .25, TILE = hex('#bfe3ea'), COP = hex('#f2f4f2');
+    for (const r of freiRings) { const n = r.length / 2, sg = ringArea(r) > 0 ? 1 : -1, wb = -WL() - .25, WALLT = hex('#50b880'), COP = hex('#f2f4f2');
       for (let i = 0; i < n; i++) { const j = (i + 1) % n, ax = r[i * 2], az = r[i * 2 + 1], bx = r[j * 2], bz = r[j * 2 + 1], L = Math.hypot(bx - ax, bz - az); if (L < .05) continue;
         const ux0 = -(bz - az) / L * sg, uz0 = (bx - ax) / L * sg, P = (d, y, x0, z0) => [x0 + ux0 * d, y, z0 + uz0 * d];
-        /* Runde 260 (Wiesenbad, Brackwede: a green strip of the old bank showed inside the rim): 0.3 m white coping, then a tiled slope 1.3 m wide
-           down to below the water line - it covers the sloped earth bank whatever its width */
+        /* Runde 261 (Nutzer: the rims stuck out over the water and hid the tiles): like a real pool - deck and white coping only outside the
+           basin outline, from its edge a vertical tiled wall straight down below the water line. The wall is part of the water mesh (outdoor-pool
+           colour with the wall code in blue), so the water shader tiles it like the floor. */
         for (const fl of [false, true]) { const q = (a, b, c, d2, col) => fl ? ground.quad(d2, c, b, a, col, 0, 1, 0) : ground.quad(a, b, c, d2, col, 0, 1, 0);
-          q(P(0, .035, ax, az), P(0, .035, bx, bz), P(.3, .035, bx, bz), P(.3, .035, ax, az), COP); q(P(.3, .035, ax, az), P(.3, .035, bx, bz), P(1.6, wb, bx, bz), P(1.6, wb, ax, az), TILE); } } }
+          q(P(-3.2, .03, ax, az), P(-3.2, .03, bx, bz), P(-.3, .03, bx, bz), P(-.3, .03, ax, az), DECK); q(P(-.3, .035, ax, az), P(-.3, .035, bx, bz), P(0, .035, bx, bz), P(0, .035, ax, az), COP); }
+        waterG.quad(P(0, wb, ax, az), P(0, wb, bx, bz), P(0, .035, bx, bz), P(0, .035, ax, az), WALLT, ux0, 0, uz0); } }
     /* deck and lanes for every pool in this tile */
-    for (const r of poolRings) { const R1 = Array.from(r); if (R1[0] !== R1[R1.length - 2] || R1[1] !== R1[R1.length - 1]) R1.push(R1[0], R1[1]); ribbon(ground, R1, 3.2, .03, DECK);
+    for (const r of poolRings) { const R1 = Array.from(r); if (R1[0] !== R1[R1.length - 2] || R1[1] !== R1[R1.length - 1]) R1.push(R1[0], R1[1]); if (!freiRings.has(r)) ribbon(ground, R1, 3.2, .03, DECK); /* outdoor pools: deck drawn outside above (Runde 261) */
       const o = obb(r); if (o && o.w >= 20 && o.d >= 8 && Math.abs(ringArea(r)) > o.w * o.d * .85) { const nl = Math.min(8, Math.floor(o.d / 2.5) - 1);
         for (let k = 1; k <= nl; k++) { const v = -o.d / 2 + k * o.d / (nl + 1), x0 = o.cx - o.c * (o.w / 2 - 2) - o.s * v, z0 = o.cz - o.s * (o.w / 2 - 2) + o.c * v, x1 = o.cx + o.c * (o.w / 2 - 2) - o.s * v, z1 = o.cz + o.s * (o.w / 2 - 2) + o.c * v;
           ribbon(waterG, [x0, z0, x1, z1], .25, .024 - WL(), LANE); } } } }
@@ -3002,7 +3004,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         for (let i = 0; i < r.length; i += 2) { const j = (i + 2) % r.length, ex = r[j] - r[i], ez = r[j + 1] - r[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - r[i]) * ex + (z - r[i + 1]) * ez) / l2)); if ((r[i] + ex * t - x) ** 2 + (r[i + 1] + ez * t - z) ** 2 < 12) return true; } return false; });
       const S = ground.spr, out = []; for (let i = 0; i < S.length; i += 6) if (!near(S[i], S[i + 1])) for (let k = 0; k < 6; k++) out.push(S[i + k]); ground.spr = out; } /* Runde 248: no trees or shrubs on the pool deck */
   }
-  const wfield = waterPolys.length || waterLines.length ? waterField(waterPolys, waterLines, mk(ext0), { green: greenPolys, urban: resPolys.concat(indPolys, plazaPolys).map(p => [p]), blds: fpItems.map(it => [it.p]), paved: (x, z) => paved.has(rc(x, z)) || nearRoad(x, z), dryLines, dryPolys, bridgeDry }, ground) : null;
+  const wfield = waterPolys.length || waterLines.length ? waterField(waterPolys, waterLines, mk(ext0), { green: greenPolys, urban: resPolys.concat(indPolys, plazaPolys).map(p => [p]), blds: fpItems.map(it => [it.p]), paved: (x, z) => paved.has(rc(x, z)) || nearRoad(x, z), dryLines, dryPolys, bridgeDry, frei: [...freiRings] }, ground) : null;
   if (TERRAIN_ON) meadow(ground, mk(ext0), wfield); // base ground of the tile, cut out where the (lowered) water is
   // land areas lying on open water (tidal flats, reed, beaches in the river - phone test Hamburg: boats in a meadow) sink to the water
   // level with the water, so they never cover it; streets, paths, piers and bridges keep their height (checked per drape piece)
@@ -3484,6 +3486,10 @@ function roofThing0(G, ty, x, y, z, dx, dz, s) {
   }
 }
 function postRoofThings(key, g) { post({ type: 'roofthings', key: key + ':rt', pos: g ? g.pos : null, nor: g ? g.nor : null, col: g ? g.col : null, fac: g ? g.fac : null, wal: g ? g.wal : null, base: g ? g.base : null, gid: g && g.gid ? g.gid : null }, g ? [g.pos.buffer, g.nor.buffer, g.col.buffer, g.fac.buffer, g.wal.buffer, g.base.buffer].concat(g.gid ? [g.gid.buffer] : []) : []); }
+/* Runde 261: a ring pushed outward by d metres (mitred corners, at most 2 d) */
+function growRing(r, d) { const n = r.length / 2, sg = ringArea(r) > 0 ? 1 : -1, out = new Float32Array(r.length), nrm = i => { const j = (i + 1) % n, ex = r[j * 2] - r[i * 2], ez = r[j * 2 + 1] - r[i * 2 + 1], L = Math.hypot(ex, ez) || 1; return [ez / L * sg, -ex / L * sg]; };
+  for (let i = 0; i < n; i++) { const a = nrm((i + n - 1) % n), b = nrm(i); let mx = a[0] + b[0], mz = a[1] + b[1]; const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml; const k = Math.min(2 * d, d / Math.max(.2, mx * b[0] + mz * b[1]));
+    out[i * 2] = r[i * 2] + mx * k; out[i * 2 + 1] = r[i * 2 + 1] + mz * k; } return out; }
 function rasterFill(m, W, H, x0, z0, C, polys, bit) { // scanline fill, even-odd over each polygon's outer ring and holes
   const xs = [];
   for (const pl of polys) {
@@ -3543,6 +3549,11 @@ function waterField(polys, lines, toL, cls, G) {
   const W = Math.ceil((Math.max(c0[0], c1[0]) - x0) / C), H = Math.ceil((Math.max(c0[1], c1[1]) - z0) / C), N = W * H;
   const m = new Uint8Array(N); // bit 1 water, 2 green/natural land, 4 settlement area, 8 house
   rasterFill(m, W, H, x0, z0, C, polys, 1);
+  /* Runde 261 (Nutzer: pool rims stuck out over the water): the 2 m raster shore of an outdoor-pool basin wandered up to a metre into the basin
+     (a grey bank wall and land inside the tiled walls). The raster sees such basins 1.5 m larger - its shore lies under the pool deck - and
+     builds no bank face there; the basin has its own tiled walls at the exact outline. */
+  const FREI = (cls.frei || []).map(r => ({ g: growRing(r, 1.5), z: growRing(r, 3.4) })); if (FREI.length) rasterFill(m, W, H, x0, z0, C, FREI.map(q => [q.g]), 1);
+  const inFrei = (x, z) => FREI.some(q => inPoly(x, z, q.z));
   for (let k = 0; k < lines.length; k += 2) { const l = lines[k], r = lines[k + 1] / 2, rc0 = Math.ceil(r / C); // rivers and streams drawn as lines
     for (let i = 0; i + 3 < l.length; i += 2) { const L = Math.hypot(l[i + 2] - l[i], l[i + 3] - l[i + 1]), n = Math.ceil(L) + 1;
       for (let s = 0; s <= n; s++) { const x = l[i] + (l[i + 2] - l[i]) * s / n, z = l[i + 1] + (l[i + 3] - l[i + 1]) * s / n, cx = Math.floor((x - x0) / C), cz = Math.floor((z - z0) / C);
@@ -3570,6 +3581,7 @@ function waterField(polys, lines, toL, cls, G) {
       const ex = bx - ax, ez = bz - az, l = Math.hypot(ex, ez); if (l < .05) continue; let nx = -ez / l, nz = ex / l; const mx = (ax + bx) / 2, mz = (az + bz) / 2;
       if (!cellW(mx + nx * C * .8, mz + nz * C * .8)) { nx = -nx; nz = -nz; } // normal towards the water
       let hard = false; for (let q = .3; q <= 1.6 && !hard; q += .65) { const gi = Math.floor((mx - nx * C * q - x0) / C), gj = Math.floor((mz - nz * C * q - z0) / C); if (gi >= 0 && gj >= 0 && gi < W && gj < H && lab[gj * W + gi] === 2) hard = true; }
+      if (FREI.length && inFrei(mx, mz)) continue; /* Runde 261: outdoor-pool basins have their own tiled walls */
       if (WLv > 0) G.quad([ax, -WLv - .3, az], [bx, -WLv - .3, bz], [bx, .03, bz], [ax, .03, az], hard ? QUAY : BANK, nx, 0, nz);
       else if (hard) obox(G, mx - nx * .3, 0, mz - nz * .3, l, .45, .6, ex / l, ez / l, QUAY); } // flat world: low quay kerb
   }
