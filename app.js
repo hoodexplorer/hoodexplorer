@@ -216,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=781' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=784' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -505,9 +505,9 @@ function waterMat(f) {
       diffuseColor.rgb = c;
       /* Runde 259 (Nutzer: outdoor pool water like a pool - clear, tiled floor visible): basins marked with the outdoor-pool colour show light
          tiles with grout lines through clear water and moving light rings (caustics), no shore foam */
-      if (abs(vColor.r - 0.3137) < .006 && abs(vColor.g - 0.7216) < .006 && abs(vColor.b - 0.8471) < .006) {
-        vec2 tq = vGW.xz / 0.5; float gr = max(step(.9, fract(tq.x)), step(.9, fract(tq.y)));
-        vec3 pc = mix(vec3(.47, .80, .90), vec3(.36, .66, .78), gr);
+      if (abs(vColor.r - 0.3137) < .006 && abs(vColor.g - 0.7216) < .006) { /* (blue channel: the bank skirt of the water mesh carries a code there - Runde 260: it becomes a tiled wall too) */
+        bool wallF = vColor.b < .7; vec2 tq = wallF ? vec2(length(vGW.xz) / .5, vGW.y / .25) : vGW.xz / 0.5; float gr = max(step(.9, fract(tq.x)), step(.9, fract(tq.y)));
+        vec3 pc = wallF ? mix(vec3(.80, .91, .94), vec3(.62, .76, .80), gr) : mix(vec3(.47, .80, .90), vec3(.36, .66, .78), gr);
         float ca = texture2D(uCaus, vGW.xz / 3.5 + vec2(t * .03, t * .02)).r * texture2D(uCaus, vGW.xz / 2.7 - vec2(t * .025, -t * .018)).r;
         pc += vec3(.35, .4, .4) * smoothstep(.25, .6, ca);
         diffuseColor.rgb = pc; } } `); // outside the own tile (overlap with the neighbour) the edge value of the field continues (clamped)

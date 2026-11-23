@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=781'); importScripts('sonderbau.js?v=781'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=784'); importScripts('sonderbau.js?v=784'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -1838,7 +1838,11 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
            hash of the field), green = row direction (the long side of the field), blue = 2/255 marks it. The ground shader paints rows,
            crop colours and wind waves from it; no extra geometry. Only where the world keeps the field colour (today, middle ages). */
         let colF = col;
-        if (kind === 'w' && WELT === 'heute' && (f.props.class === 'swimming_pool' || inWPA(poly[0]))) { const fr = !!inWPA(poly[0]); colF = fr ? FREIC : POOLC; poolRings.add(poly[0]); if (fr) freiRings.add(poly[0]); }
+        if (kind === 'w' && WELT === 'heute') { const r0 = poly[0], sp = f.props.class === 'swimming_pool', big = sp && Math.abs(ringArea(r0)) >= 200;
+          /* Runde 260 (Wiesenbad, Naturbad Brackwede: big basins only partly inside the mapped pool area kept their earth bank): a basin belongs to the
+             outdoor pool when its middle or 30 % of its corners lie in the area; every mapped swimming pool of 200 m2 or more is an outdoor-pool basin */
+          let inA = !!inWPA(r0); if (!inA && WPA.length) { let k = 0; const n = r0.length / 2; for (let i = 0; i < r0.length; i += 2) if (WPA.some(a2 => r0[i] >= a2.minx && r0[i] <= a2.maxx && r0[i + 1] >= a2.minz && r0[i + 1] <= a2.maxz && inPoly(r0[i], r0[i + 1], a2.ring))) k++; inA = k >= n * .3; }
+          if (sp || inA) { const fr = inA || big; colF = fr ? FREIC : POOLC; poolRings.add(r0); if (fr) freiRings.add(r0); } }
         if (f.props.class === 'farmland' && WELT !== 'west' && WELT !== 'cyber') { const o = obb(poly[0]); let a = o ? Math.atan2(o.s, o.c) : 0; if (o && o.d > o.w) a += Math.PI / 2;
           a = ((a % Math.PI) + Math.PI) % Math.PI; const r0 = poly[0], hsh = Math.abs(Math.sin(r0[0] * 12.9898 + r0[1] * 78.233) * 43758.5453) % 1;
           colF = [(16 + 32 * Math.floor(hsh * 8)) / 255, Math.round(a / Math.PI * 255) / 255, 2 / 255]; }
@@ -2909,10 +2913,11 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
        water (0.5 m inside the outline - the earth bank slopes into the basin - light tiles, a white coping covers the strip) */
     for (const r of freiRings) { const n = r.length / 2, sg = ringArea(r) > 0 ? 1 : -1, wb = -WL() - .25, TILE = hex('#bfe3ea'), COP = hex('#f2f4f2');
       for (let i = 0; i < n; i++) { const j = (i + 1) % n, ax = r[i * 2], az = r[i * 2 + 1], bx = r[j * 2], bz = r[j * 2 + 1], L = Math.hypot(bx - ax, bz - az); if (L < .05) continue;
-        const ux0 = -(bz - az) / L * sg, uz0 = (bx - ax) / L * sg, ix = ux0 * .5, iz = uz0 * .5, A = [ax + ix, az + iz], B = [bx + ix, bz + iz];
-        ground.quad([ax, .035, az], [bx, .035, bz], [B[0], .035, B[1]], [A[0], .035, A[1]], COP, 0, 1, 0); ground.quad([A[0], .035, A[1]], [B[0], .035, B[1]], [bx, .035, bz], [ax, .035, az], COP, 0, 1, 0); /* 0.5 m coping over the sloped bank */
-        ground.quad([A[0], wb, A[1]], [B[0], wb, B[1]], [B[0], -.18, B[1]], [A[0], -.18, A[1]], TILE, ix, 0, iz); ground.quad([A[0], -.18, A[1]], [B[0], -.18, B[1]], [B[0], .035, B[1]], [A[0], .035, A[1]], COP, ix, 0, iz);
-        ground.quad([B[0], wb, B[1]], [A[0], wb, A[1]], [A[0], -.18, A[1]], [B[0], -.18, B[1]], TILE, -ix, 0, -iz); ground.quad([B[0], -.18, B[1]], [A[0], -.18, A[1]], [A[0], .035, A[1]], [B[0], .035, B[1]], COP, -ix, 0, -iz); } }
+        const ux0 = -(bz - az) / L * sg, uz0 = (bx - ax) / L * sg, P = (d, y, x0, z0) => [x0 + ux0 * d, y, z0 + uz0 * d];
+        /* Runde 260 (Wiesenbad, Brackwede: a green strip of the old bank showed inside the rim): 0.3 m white coping, then a tiled slope 1.3 m wide
+           down to below the water line - it covers the sloped earth bank whatever its width */
+        for (const fl of [false, true]) { const q = (a, b, c, d2, col) => fl ? ground.quad(d2, c, b, a, col, 0, 1, 0) : ground.quad(a, b, c, d2, col, 0, 1, 0);
+          q(P(0, .035, ax, az), P(0, .035, bx, bz), P(.3, .035, bx, bz), P(.3, .035, ax, az), COP); q(P(.3, .035, ax, az), P(.3, .035, bx, bz), P(1.6, wb, bx, bz), P(1.6, wb, ax, az), TILE); } } }
     /* deck and lanes for every pool in this tile */
     for (const r of poolRings) { const R1 = Array.from(r); if (R1[0] !== R1[R1.length - 2] || R1[1] !== R1[R1.length - 1]) R1.push(R1[0], R1[1]); ribbon(ground, R1, 3.2, .03, DECK);
       const o = obb(r); if (o && o.w >= 20 && o.d >= 8 && Math.abs(ringArea(r)) > o.w * o.d * .85) { const nl = Math.min(8, Math.floor(o.d / 2.5) - 1);
