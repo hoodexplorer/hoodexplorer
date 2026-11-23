@@ -216,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=788' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=789' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -269,10 +269,16 @@ const RECENT = { get: () => (store.get('hx.recent') || []).filter(r => r && r.na
   add(name, lat, lon) { if (!name || !isFinite(lat) || !isFinite(lon)) return; const a = RECENT.get().filter(r => r.name !== name); a.unshift({ name, lat: +(+lat).toFixed(6), lon: +(+lon).toFixed(6) }); store.set('hx.recent', a.slice(0, 10)); },
   /* Runde 231: only places that were searched AND then visited - a search pick is held here until one goes there ('Hierhin' / 'Los') */
   pend: null };
-function showRecent(box, pick) { box.textContent = ''; delete box.dataset.recent; const a = RECENT.get(); box.dataset.recent = a.length ? '1' : ''; if (!a.length) return; // Runde 234: no heading line
-  for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name; b.addEventListener('click', () => pick(it)); box.appendChild(b); }
-  const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Zuletzt Besucht leeren'; /* Runde 235 */ c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
+/* Runde 265 (Nutzer: the list stood there without the field in use, too long, cut off): at most 5 places, the same place only once
+   (also under a second name, within 150 m), and only while the field is in use and empty */
+function recentShort() { const out = []; for (const r of RECENT.get()) { if (out.some(q => Math.hypot((q.lat - r.lat) * 111000, (q.lon - r.lon) * 68000) < 150 || q.name.split(',')[0] === r.name.split(',')[0])) continue; out.push(r); if (out.length >= 5) break; } return out; }
+function showRecent(box, pick) { box.textContent = ''; delete box.dataset.recent; const a = recentShort(); box.dataset.recent = a.length ? '1' : ''; if (!a.length) return; // Runde 234: no heading line
+  for (const it of a) { const b = document.createElement('button'); b.type = 'button'; b.textContent = it.name.split(',').slice(0, 3).join(','); b.addEventListener('pointerdown', e => e.preventDefault()); /* keeps the field in use */ b.addEventListener('click', () => pick(it)); box.appendChild(b); }
+  const c = document.createElement('button'); c.type = 'button'; c.className = 'pclear'; c.textContent = 'Zuletzt Besucht leeren'; /* Runde 235 */ c.addEventListener('pointerdown', e => e.preventDefault()); c.addEventListener('click', () => { store.set('hx.recent', []); box.textContent = ''; }); box.appendChild(c); }
 function recentOn(inp, box, pick) { const f = () => { if (!inp.value.trim()) showRecent(box, fill); else if (box.dataset.recent) { box.textContent = ''; delete box.dataset.recent; } }; /* Runde 236: the list goes away while typing */ inp.addEventListener('focus', f); inp.addEventListener('input', f);
+  inp.addEventListener('blur', () => { if (box.dataset.recent) { box.textContent = ''; delete box.dataset.recent; } }); /* Runde 265: only while the field is in use */
+  for (const ev of ['touchstart', 'touchmove', 'pointerdown', 'pointermove', 'wheel']) box.addEventListener(ev, e => e.stopPropagation(), { passive: true }); /* the list scrolls, the map below stays */
+  document.addEventListener('pointerdown', e => { if (box.dataset.recent && !box.contains(e.target) && !inp.parentNode.contains(e.target)) { box.textContent = ''; delete box.dataset.recent; inp.blur(); } }, true); /* a tap elsewhere (keyboard already closed) */
   /* Runde 232/233: an x at the right end of the field empties it (only shown while there is text), then the recent places show */
   const w = document.createElement('span'); w.className = 'pwrap'; inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
   const x = document.createElement('button'); x.type = 'button'; x.className = 'pclr'; x.setAttribute('aria-label', 'Suchfeld leeren'); x.textContent = '×'; w.appendChild(x); // Runde 233: right end of the field
