@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=807'); importScripts('sonderbau.js?v=807'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=808'); importScripts('sonderbau.js?v=808'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -4447,7 +4447,13 @@ async function loadLod2(rec) {
   if (TERRAIN_ON) { // every building (gml_id group) stands on the lowest terrain point under its ground floor
     await ensureTerrain(lx(t.cx - 520), lz(t.cy + 520), lx(t.cx + 520), lz(t.cy - 520));
     const gb = new Float32Array(d.ng).fill(Infinity), P = d.pos;
-    for (let k = 0; k < P.length / 3; k++) { if (P[k * 3 + 1] > 1.5) continue; const g = d.grp[d.bid[k]], h = hAt(P[k * 3], P[k * 3 + 2]); if (h < gb[g]) gb[g] = h; }
+    /* Runde 284 (Nutzer: a building floated in Bethel): a building whose lowest point lies 1.5-6 m above the zero of the data (an annex up a
+       slope) had no ground-floor points and stood at the terrain height of its centre - up to 3 m in the air on the low side. Its own
+       lowest points count as its ground floor now; higher structures (bridges, skyways) stay as they are */
+    const gm = new Float32Array(d.ng).fill(Infinity); for (let k = 0; k < P.length / 3; k++) { const g = d.grp[d.bid[k]]; if (P[k * 3 + 1] < gm[g]) gm[g] = P[k * 3 + 1]; }
+    const g0 = g => gm[g] > 1.5 && gm[g] <= 6 ? gm[g] : 0;
+    for (let k = 0; k < P.length / 3; k++) { const g = d.grp[d.bid[k]]; if (P[k * 3 + 1] > g0(g) + 1.5) continue; const h = hAt(P[k * 3], P[k * 3 + 2]); if (h < gb[g]) gb[g] = h; }
+    for (let g = 0; g < d.ng; g++) if (isFinite(gb[g])) gb[g] -= g0(g);
     for (let k = 0; k < P.length / 3; k++) { const g = d.grp[d.bid[k]]; let b = gb[g]; if (!isFinite(b)) { b = hAt(d.cent[d.bid[k] * 2], d.cent[d.bid[k] * 2 + 1]); gb[g] = b; } base[k] = b; pos2[k * 3 + 1] += b; }
     d.gBase = gb;
   }
