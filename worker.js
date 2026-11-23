@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=777'); importScripts('sonderbau.js?v=777'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=778'); importScripts('sonderbau.js?v=778'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -3192,16 +3192,18 @@ function lodWalls(rec) { if (rec.wallG || !rec.data || !rec.data.idx) return rec
     const s4 = [best[0][0], best[0][1], best[1][0], best[1][1]];
     for (let x = Math.floor(Math.min(s4[0], s4[2]) / 8); x <= Math.floor(Math.max(s4[0], s4[2]) / 8); x++) for (let z = Math.floor(Math.min(s4[1], s4[3]) / 8); z <= Math.floor(Math.max(s4[1], s4[3]) / 8); z++) { const k = x * 100003 + z; let l = G.get(k); if (!l) G.set(k, l = []); l.push(s4); } }
   return rec.wallG = G; }
-function facSnap(mx, mz, nx, nz) { const ax = mx - nx * 5, az = mz - nz * 5; let best = null;
-  { const ix = mx - nx * 2.5, iz = mz - nz * 2.5, k = Math.floor(ix / 16) * 100003 + Math.floor(iz / 16); let roof = false; /* only where a LoD2 roof lies over the inside - a building drawn from the map keeps its own wall (Kassel-Wolfsanger) */
-    for (const rec of lod2.values()) { const l = rec.coverG && rec.coverG.get(k); if (l) for (let i = 0; i < l.length && !roof; i += 2) roof = inTri(ix, iz, l[i], l[i + 1]); if (roof) break; }
+function facSnap(mx, mz, nx, nz) { const ax = mx - nx * 9, az = mz - nz * 9; let best = null;
+  { let roof = false; /* only where a LoD2 roof lies over the inside - a building drawn from the map keeps its own wall (Kassel-Wolfsanger);
+       Runde 257: looked for at several depths up to 8 m behind the map outline (Nuernberg: the LoD2 wall stands further back than 2.5 m) */
+    for (const dd of [-1, 1, 2.5, 4, 6, 8]) { const ix = mx - nx * dd, iz = mz - nz * dd, k = Math.floor(ix / 16) * 100003 + Math.floor(iz / 16);
+      for (const rec of lod2.values()) { const l = rec.coverG && rec.coverG.get(k); if (l) for (let i = 0; i < l.length && !roof; i += 2) roof = inTri(ix, iz, l[i], l[i + 1]); if (roof) break; } if (roof) break; }
     if (!roof) return 0; }
   for (const rec of lod2.values()) { const G = lodWalls(rec); if (!G || !G.size) continue; const seen = new Set();
-    for (let t = 0; t <= 11; t += 2) { const k = Math.floor((ax + nx * t) / 8) * 100003 + Math.floor((az + nz * t) / 8), l = G.get(k); if (!l) continue;
+    for (let t = 0; t <= 15; t += 2) { const k = Math.floor((ax + nx * t) / 8) * 100003 + Math.floor((az + nz * t) / 8), l = G.get(k); if (!l) continue;
       for (const sg of l) { if (seen.has(sg)) continue; seen.add(sg); const fx = sg[2] - sg[0], fz = sg[3] - sg[1], fl = Math.hypot(fx, fz) || 1; if (Math.abs((fx * nx + fz * nz) / fl) > .4) continue;
         const den = nx * fz - nz * fx; if (Math.abs(den) < 1e-6) continue; const tt = ((sg[0] - ax) * fz - (sg[1] - az) * fx) / den, uu = ((sg[0] - ax) * nz - (sg[1] - az) * nx) / den;
-        if (tt < 0 || tt > 11 || uu < -.02 || uu > 1.02) continue; if (best === null || Math.abs(tt - 5) < Math.abs(best - 5)) best = tt; } } }
-  return best === null ? 0 : best - 5; }
+        if (tt < 0 || tt > 15 || uu < -.02 || uu > 1.02) continue; if (best === null || Math.abs(tt - 9) < Math.abs(best - 9)) best = tt; } } }
+  return best === null ? 0 : best - 9; } /* (ray 9 m in, 6 m out) */
 function facadeGeo(G, kind, W0, wi, fh, fm, S) {
   const sn = facSnap(W0.mx, W0.mz, W0.nx, W0.nz), W = Object.assign({}, W0, { mx: W0.mx + W0.nx * sn, mz: W0.mz + W0.nz * sn });
   const { mx, mz, nx, nz, ux, uz, Lg } = W, fp = { h: fh, minH: fm }, h = fm + Math.max(2.6, Math.min(fh - 1.4, fh * 0.75)), o = .3;
@@ -3216,20 +3218,20 @@ function facadeGeo(G, kind, W0, wi, fh, fm, S) {
         if (wi > 0) { }
         else if (kind === 'F') { const ng = Math.max(1, Math.min(4, Math.floor(Lg * .85 / 5))), gw = 4;
           for (let g = 0; g < ng; g++) { const u = (g - (ng - 1) / 2) * 5, [gx, gz] = at(u, o);
-            obox2(G, gx - nx * 1.25, 0, gz - nz * 1.25, gw, 3.3, 2.6, ux, uz, hex('#c9302c'), true); /* Runde 256 (Nutzer: gates not at the wall - 'extrude to the wall'): parts reach 2.5 m back into the building, so they always meet the drawn wall */ obox2(G, gx + nx * .06, 2.6, gz + nz * .06, gw * .8, .35, .04, ux, uz, GLASS, true);
+            obox2(G, gx - nx * .275, 0, gz - nz * .275, gw, 3.3, .65, ux, uz, hex('#c9302c'), true); /* Runde 256 (Nutzer: gates not at the wall - 'extrude to the wall'): parts reach 0.35 m behind the (snapped) wall - Runde 257: 2.5 m could come out on the far side of thin buildings */ obox2(G, gx + nx * .06, 2.6, gz + nz * .06, gw * .8, .35, .04, ux, uz, GLASS, true);
             for (let k = 1; k <= 5; k++) obox2(G, gx + nx * .06, k * .42, gz + nz * .06, gw, .05, .04, ux, uz, hex('#7a1d1a'), true); } }
-        else if (kind === 'P') { const [gx, gz] = at(0, o); obox2(G, gx - nx * 1.25, 0, gz - nz * 1.25, 2.4, 2.4, 2.58, ux, uz, GLASS, true); obox2(G, gx + nx * .05, 0, gz + nz * .05, .12, 2.4, .04, ux, uz, DARK, true);
-          const [cx, cz] = at(0, 0); obox2(G, cx, 2.42, cz, 4, .14, 3.8, ux, uz, GREY, true); }
-        else if (kind === 'H') { const [gx, gz] = at(0, o); obox2(G, gx - nx * 1.25, 0, gz - nz * 1.25, 3.2, 2.3, 2.58, ux, uz, GLASS, true); obox2(G, gx + nx * .05, 0, gz + nz * .05, .12, 2.3, .04, ux, uz, DARK, true);
-          const [cx, cz] = at(0, .6); obox2(G, cx, 2.35, cz, Math.min(Lg * .8, 10), .16, 4.2, ux, uz, GREY, true);
+        else if (kind === 'P') { const [gx, gz] = at(0, o); obox2(G, gx - nx * .27, 0, gz - nz * .27, 2.4, 2.4, .62, ux, uz, GLASS, true); obox2(G, gx + nx * .05, 0, gz + nz * .05, .12, 2.4, .04, ux, uz, DARK, true);
+          const [cx, cz] = at(0, .8); obox2(G, cx, 2.42, cz, 4, .14, 1.9, ux, uz, GREY, true); }
+        else if (kind === 'H') { const [gx, gz] = at(0, o); obox2(G, gx - nx * .27, 0, gz - nz * .27, 3.2, 2.3, .62, ux, uz, GLASS, true); obox2(G, gx + nx * .05, 0, gz + nz * .05, .12, 2.3, .04, ux, uz, DARK, true);
+          const [cx, cz] = at(0, 1.25); obox2(G, cx, 2.35, cz, Math.min(Lg * .8, 10), .16, 2.9, ux, uz, GREY, true);
           for (const sd of [-1, 1]) { const [px, pz] = at(sd * (Math.min(Lg * .8, 10) / 2 - .3), 2.5); obox2(G, px, 0, pz, .15, 2.35, .15, ux, uz, DARK, true); } }
-        { const [sx, sz] = at(0, o + (kind === 'H' ? .02 : 0)); obox2(G, sx - nx * 1.24, y0, sz - nz * 1.24, sw, sh, 2.6, ux, uz, kind === 'P' ? BLUE : kind === 'H' ? RED : WHITE, true);
+        { const [sx, sz] = at(0, o + (kind === 'H' ? .02 : 0)); obox2(G, sx - nx * .265, y0, sz - nz * .265, sw, sh, .65, ux, uz, kind === 'P' ? BLUE : kind === 'H' ? RED : WHITE, true);
           S.push([kind + ':' + word, sx + nx * .075, y0 + sh / 2, sz + nz * .075, sw, sh, nx, nz]); /* Runde 255 (Nutzer: lettering not pixel-like - the shader makes the pixels): drawn by the app as a texture */
           /* Runde 251 (Nutzer: readable from the 3rd person view): beside the sign a short blade sign sticks out into the street, symbol on both
              faces - fire station: white flame on red, police: white star on blue, hospital: red cross on white; 1.4 m panel from 2.6 m (fire station 3.5 m) on an arm, 1.7 m out */
           { let bu = sw / 2 + 1.0; if (bu > Lg / 2 - .4) bu = -bu; if (Math.abs(bu) <= Lg / 2 - .4) { const [bx, bz] = at(bu, o), by = Math.max(2.6, y0), bg = kind === 'F' ? hex('#c9302c') : kind === 'P' ? BLUE : WHITE, fg = kind === 'H' ? RED : WHITE;
               const SYM = kind === 'F' ? ['00100', '01100', '01110', '11111', '01110'] : kind === 'P' ? ['00100', '11111', '01110', '01010', '10001'] : ['00100', '00100', '11111', '00100', '00100'];
-              obox2(G, bx + nx * .2, by + 1.45, bz + nz * .2, 3.0, .08, .08, nx, nz, DARK, true); const cx = bx + nx * 1.0, cz = bz + nz * 1.0;
+              obox2(G, bx + nx * .6, by + 1.45, bz + nz * .6, 2.2, .08, .08, nx, nz, DARK, true); const cx = bx + nx * 1.0, cz = bz + nz * 1.0;
               obox2(G, cx, by, cz, 1.4, 1.4, .1, nx, nz, bg, true); if (kind === 'H') obox2(G, cx, by - .03, cz, 1.46, 1.46, .08, nx, nz, RED, true);
               for (const sd of [-1, 1]) S.push(['sym:' + kind, cx + ux * sd * .065, by + .7, cz + uz * sd * .065, 1.3, 1.3, ux * sd, uz * sd]); } } }
 }
