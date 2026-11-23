@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=800' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=801' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2278,7 +2278,8 @@ function step(now) {
     if (DRV.on) driveStep(dt, ix, iy); else {
     let tgt;
     const wf0 = waterFloor(P.x, P.z); P.swim = !!(wf0 && wf0.swim); P.wade = !!(wf0 && !wf0.swim && !wf0.ice); P.ice = !!(wf0 && wf0.ice);
-    const vmax = (P.swim ? (running || keys.shift ? 9 : 4.2) /* Runde 276 (Nutzer: sprint also while swimming) */ : P.wade ? 3.5 : running || keys.shift ? 16 : 5.5) * (window.WX ? WX.walkV : 1); // walk / run (toggle button or Shift); slow in the water; Runde 141: deep snow slows down
+    const BW = P.swim ? HXBODEN.schwimmen : P.wade ? HXBODEN.waten : null; /* Runde 276/277: speeds in the water from the ground table (boden.js) */
+    const vmax = (BW ? (running || keys.shift ? BW.sprint : BW.lauf) : running || keys.shift ? 16 : 5.5) * (window.WX ? WX.walkV : 1); // walk / run (toggle button or Shift); slow in the water; Runde 141: deep snow slows down
     const gh = goCarStep(dt, ix, iy);
     if (gh !== null) { P.yaw = lerpA(P.yaw, gh, Math.min(1, dt * 8)); tgt = vmax; }
     else if (camMode === 'chase') { P.yaw -= ix * 2.3 * dt; tgt = -iy * (iy < 0 ? vmax : 4); }
@@ -2286,7 +2287,7 @@ function step(now) {
       const vx = rx * ix + fx * (-iy), vz = rz * ix + fz * (-iy), l = Math.hypot(vx, vz); tgt = Math.min(1, l) * vmax;
       if (l > .08) P.yaw = lerpA(P.yaw, Math.atan2(vx, vz), Math.min(1, dt * 10)); }
     if (P.hold) tgt = 0;
-    P.speed += (tgt - P.speed) * Math.min(1, dt * 6 * (window.WX ? WX.walkA : 1) * (P.ice ? .6 : 1)); // Runde 141: on ice the figure slides on
+    P.speed += (tgt - P.speed) * Math.min(1, dt * 6 * (window.WX ? WX.walkA : 1) * (P.ice ? HXBODEN.eis.rutsch : 1)); // Runde 141: on ice the figure slides on
     if (P.hop && (P.ground && P.hop.t > .05 || (P.hop.t += dt) > 3)) P.hop = null; // aimed jump: fixed flight until it lands
     let mx = P.hop ? P.hop.vx * dt : Math.sin(P.yaw) * P.speed * dt, mz = P.hop ? P.hop.vz * dt : Math.cos(P.yaw) * P.speed * dt;
     if (P.kick) { const k = Math.max(0, 1 - P.kick.t / .9); mx += P.kick.vx * k * dt; mz += P.kick.vz * k * dt; if ((P.kick.t += dt) > .9) P.kick = null; } // wall dodge push, fading out
@@ -2298,7 +2299,11 @@ function step(now) {
     const wf = waterFloor(P.x, P.z); let gy = wf ? wf.y + (wf.swim ? Math.sin(time * 2.6) * .06 : 0) : terrainH(P.x, P.z, P.y);
     { const ot = objTop(P.x, P.z); if (ot > gy && ot <= P.y + .45) gy = ot; } // standing on a roof or a car roof
     if (!worldReady && P.ground) { P.y = gy; P.vy = 0; } // while loading: stand on the ground (no drop from above when the terrain arrives)
-    P.vy -= 22 * dt; P.y += P.vy * dt; if (P.y <= gy) { P.y = gy; P.vy = 0; P.ground = true; P.dj = false; P.flip = undefined; P.wd = 0; P.kick = null; P.wall = null; }
+    /* Runde 277 (Dauertest: climbing out at a pool edge lifted the figure 1.8 m in one frame): a step up of more than 0.6 m while standing
+       is climbed at 7 m/s instead of a jump in one frame */
+    if (P.ground && gy - P.y > .6) { P.y = Math.min(gy, P.y + 7 * dt); P.vy = 0; }
+    else { P.vy -= 22 * dt; P.y += P.vy * dt; if (P.y <= gy) { P.y = gy; P.vy = 0; P.ground = true; P.dj = false; P.flip = undefined; P.wd = 0; P.kick = null; P.wall = null; }
+      else if (P.ground && P.y > gy + 1) P.ground = false; } /* Runde 277 (Dauertest: walked off a roof, the figure fell 'standing'): more than 1 m of air below = falling (fall pose, landing) */
     }
   }
   player.position.set(P.x, P.y, P.z); player.rotation.y = P.yaw;
@@ -2307,7 +2312,7 @@ function step(now) {
   P.phase += Math.min(Math.abs(P.speed), 7.5) * dt * (1.5 + run * .3); // stride rate capped: faster running means longer strides, not frantic legs
   { const inAir = !P.ground && !P.swim && !DRV.on ? 1 : 0; FIGS.air += (inAir - FIGS.air) * Math.min(1, dt * 10); if (FIGS.wasAir && P.ground) FIGS.land = .22; FIGS.wasAir = !P.ground; FIGS.land = Math.max(0, FIGS.land - dt);
     FIGS.swim = (FIGS.swim || 0) + ((P.swim && !DRV.on ? 1 : 0) - (FIGS.swim || 0)) * Math.min(1, dt * 4); /* Runde 267: swimming pose */
-    HXFIG.pose(player.userData, { swim: FIGS.swim, hold: HAND.id !== 'nichts', t: time, walk: amt * (1 - FIGS.air), run, phase: P.phase, air: FIGS.air, tuck: P.flip !== undefined ? 1 : FIGS.air * Math.max(0, Math.min(1, 1 - Math.abs(P.vy || 0) / 7)), crouch: FIGS.land / .22 * .8 }); }
+    HXFIG.pose(player.userData, { swim: FIGS.swim, hold: HAND.id !== 'nichts', t: time, walk: amt * (1 - FIGS.air), run, phase: P.phase, air: FIGS.air, tuck: P.flip !== undefined ? 1 : FIGS.air * Math.max(0, Math.min(1, 1 - Math.abs(P.vy || 0) / 7)), crouch: FIGS.land / .22 * .8 }); HXFIG.glatt(player.userData, dt); /* Runde 277: soft joints */ }
   player.rotation.x = 0;
   if (P.flip !== undefined) { // Runde 130: front flip of the double jump, turning about the body's middle (0.9 m), not the feet
     P.flip = Math.min(1, P.flip + dt / .5); const th = (1 - (1 - P.flip) ** 2) * Math.PI * 2, hc = .9;

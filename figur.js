@@ -152,5 +152,18 @@ function pose(J, s) {
     J.foot[i].rotation.x = mix(J.foot[i].rotation.x, .3 * mv); } /* Runde 269: thighs turn against the lean of the body (-0.5): the legs slope 45 degrees down, not up */
   if (J.skirt) for (let i = 0; i < 2; i++) J.skirt[i].rotation.x = J.thigh[i].rotation.x;
 }
-window.HXFIG = { KATALOG, make, pose, byId: id => { if (id === 'eigen') { try { const d = JSON.parse(localStorage.getItem('hx.figurEigen')); if (d) return d; } catch (e) {} } return KATALOG.find(r => r.id === id) || KATALOG[0]; } };
+/* Runde 277: soft joints - when the pose jumps (an item taken, into the water, landing, end of a flip), every joint keeps where it was and
+   glides to the new pose on a critically damped spring (no overshoot, settled in ~0.3 s). Steady motion (walking, crawling) passes
+   unchanged: only a change larger than the motion of one frame counts as a jump. Angles wrap, so a full turn of the crawl is no jump. */
+function glatt(J, dt, w = 14) { if (!(dt > 0)) return;
+  let S = J._glatt; if (!S) { S = J._glatt = []; const add = o => { if (o && o.isObject3D) S.push({ o, t: [0, 0, 0, 0], off: [0, 0, 0, 0], v: [0, 0, 0, 0], first: true }); };
+    for (const k of ['root', 'hips', 'chest', 'neck', 'pack', 'scarf', 'upper', 'fore', 'thigh', 'shin', 'foot', 'skirt']) { const v = J[k]; if (Array.isArray(v)) v.forEach(add); else add(v); } } /* only what pose() sets every frame */
+  const thr = Math.max(.3, 12 * dt), PI2 = Math.PI * 2;
+  for (const c of S) { const o = c.o, now = [o.rotation.x, o.rotation.y, o.rotation.z, o.position.y];
+    for (let k = 0; k < 4; k++) { let d = now[k] - c.t[k]; if (k < 3) d -= Math.round(d / PI2) * PI2;
+      if (!c.first && Math.abs(d) > thr) c.off[k] -= d;
+      const a = -w * w * c.off[k] - 2 * w * c.v[k]; c.v[k] += a * dt; c.off[k] += c.v[k] * dt; if (Math.abs(c.off[k]) < 1e-4 && Math.abs(c.v[k]) < 1e-3) c.off[k] = c.v[k] = 0;
+      c.t[k] = now[k]; }
+    c.first = false; o.rotation.set(now[0] + c.off[0], now[1] + c.off[1], now[2] + c.off[2]); o.position.y = now[3] + c.off[3]; } }
+window.HXFIG = { KATALOG, make, pose, glatt, byId: id => { if (id === 'eigen') { try { const d = JSON.parse(localStorage.getItem('hx.figurEigen')); if (d) return d; } catch (e) {} } return KATALOG.find(r => r.id === id) || KATALOG[0]; } };
 })();

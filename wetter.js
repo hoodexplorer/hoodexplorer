@@ -263,8 +263,9 @@ WX.update = function (dt, time) {
   if (W.snow > .05) approach('cover', 1, W.snow / 10, dt); else approach('cover', T.cover || 0, W.rain > .05 ? 1 / 6 : T.frost ? 1 / 22 : 1 / 12, dt); // Runde 143: snow melts within ~12 s once it stops (rain: 6 s)
   approach('ice', T.ice || 0, 1 / 12, dt);
   const fz = T.frost && (T.ice || 0) > .9 ? 1 : 0; approach('freeze', fz, fz ? 1 / 10 : 1 / 15, dt); A.waterIce.value.set(W.freeze, W.cover); // Runde 143: lakes and rivers freeze at black ice (~9 s), thaw in 15 s W.storm = T.storm || 0; W.frost = T.frost || 0;
-  WX.grip = Math.max(.22, (1 - .2 * W.wet * (1 - W.ice)) * (1 - .45 * W.cover) * (1 - .68 * W.ice));
-  WX.walkV = 1 - .25 * W.cover; WX.walkA = Math.max(.12, 1 - .85 * W.ice - .3 * W.cover);
+  { const BO = window.HXBODEN; /* Runde 277: grip and walking from the ground table (boden.js), blended by the strength of the weather */
+    WX.grip = Math.max(.22, (1 - (1 - BO.nass.grip) * W.wet * (1 - W.ice)) * (1 - (1 - BO.schnee.grip) * W.cover) * (1 - (1 - BO.glatteis.grip) * W.ice));
+    WX.walkV = 1 - (1 - BO.schnee.v) * W.cover; WX.walkA = Math.max(.12, 1 - (1 - BO.glatteis.a) * W.ice - (1 - BO.schnee.a) * W.cover); }
   const sig = [W.light, W.fog, W.sat, W.snow > .05 ? 1 : 0, W.cover > .5 ? 1 : 0].map(v => v.toFixed(3)).join();
   if (sig !== moodSig) { moodSig = sig; A.remood(); }
 
@@ -292,12 +293,14 @@ WX.update = function (dt, time) {
   if (!DRV.on && P.ground && !P.swim && !P.wade && Math.abs(P.speed) > .6) {
     const s = Math.floor(P.phase / Math.PI);
     if (s !== stepN) { stepN = s; const side = s % 2 ? 1 : -1, hx = Math.cos(P.yaw) * .14 * side, hz = -Math.sin(P.yaw) * .14 * side, x = P.x + hx, z = P.z + hz, fast = Math.abs(P.speed) > 7;
-      if (puddleAt(x, z)) { const y = A.terrainH(x, z); spawn(x, y + .03, z, 0, 0, 0, 1, .3); burst(x, y, z, fast ? 9 : 5, fast ? 2.2 : 1.4, fast ? 3.2 : 2.2, 0, Math.sin(P.yaw) * P.speed * .25, Math.cos(P.yaw) * P.speed * .25); stepSnd(W.frost && W.ice > .5 ? 'ice' : 'splash', fast ? 1.25 : 1); }
-      else if (W.cover > .3) { decal(x, z, P.yaw, .2, .32); stepSnd('snow', (fast ? 1.25 : 1) * Math.min(1, .4 + W.cover)); if (fast) burst(x, A.terrainH(x, z), z, 3, .8, 1, 2); }
-      else if (W.frost && W.ice > .5) stepSnd('ice', fast ? .9 : .7); // black ice
-      else if (W.wet > .3) stepSnd('wet', (fast ? 1.2 : 1) * Math.min(1, W.wet)); } } // wet ground: a soft wet slap (was silent)
+      /* Runde 277: the ground table (boden.js) says which sound and which effects a step makes; the strength of the weather scales it */
+      const BO = window.HXBODEN, key = BO.schritt(P, W, puddleAt(x, z)), R = BO[key], y = A.terrainH(x, z), str = key === 'schnee' ? Math.min(1, .4 + W.cover) : key === 'nass' ? Math.min(1, W.wet) : 1;
+      if (R.spritzer) { spawn(x, y + .03, z, 0, 0, 0, 1, .3); burst(x, y, z, fast ? 9 : 5, fast ? 2.2 : 1.4, fast ? 3.2 : 2.2, 0, Math.sin(P.yaw) * P.speed * .25, Math.cos(P.yaw) * P.speed * .25); }
+      if (R.spur) decal(x, z, P.yaw, .2, .32); if (R.staub && fast) burst(x, y, z, 3, .8, 1, 2);
+      if (R.snd) stepSnd(R.frostSnd && W.frost && W.ice > .5 ? R.frostSnd : R.snd, (fast ? R.volSchnell : R.vol) * str); } }
   else if (DRV.on) stepN = -1;
-  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { if (P.swim) { /* Runde 274 (Nutzer: no sounds per arm stroke - as before the strokes): the swimming sound comes at loose intervals of its own, not in time with the arms */ if ((SWIMT -= dt) <= 0) { SWIMT = .7 + Math.random() * .9; stepSnd('swim', 1); } } else { const s = Math.floor(P.phase / Math.PI); if (s !== swimN) { swimN = s; stepSnd('splash', .8); } } } // Runde 181: strokes and wading
+  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { const R = window.HXBODEN[window.HXBODEN.schritt(P, W, false)]; /* Runde 277: from the ground table */
+    if (R.takt) { /* Runde 274 (Nutzer: no sounds per arm stroke - as before the strokes): the swimming sound comes at loose intervals of its own, not in time with the arms */ if ((SWIMT -= dt) <= 0) { SWIMT = R.takt[0] + Math.random() * (R.takt[1] - R.takt[0]); stepSnd(R.snd, R.vol); } } else { const s = Math.floor(P.phase / Math.PI); if (s !== swimN) { swimN = s; stepSnd(R.snd, R.vol); } } } // Runde 181: strokes and wading
   waterAmb(dt, DRV.on ? DV.x : P.x, DRV.on ? DV.z : P.z, P.swim); fishStep(dt);
 
   // driving: spray behind the wheels on a wet road, big splashes through puddles, tracks and white spray in snow
