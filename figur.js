@@ -142,7 +142,7 @@ function pose(J, s) {
   J.chest.rotation.set(mix(J.chest.rotation.x, 0), mix(J.chest.rotation.y, sin(p) * .45 * mv), 0);
   J.neck.rotation.x = mix(J.neck.rotation.x, -1.05 * mv + .05);
   for (let i = 0; i < 2; i++) { const q = p + i * Math.PI, tq = t * 3.2 + i * Math.PI;
-    const crawl = -(((q % 6.2832) + 6.2832) % 6.2832), tread = sin(tq) * .35;
+    const crawl = ((q % 6.2832) + 6.2832) % 6.2832 /* Runde 272 (Nutzer: arms turned the wrong way): the pull goes front -> down -> back under water, the arm comes forward over the water */, tread = sin(tq) * .35;
     J.upper[i].rotation.set(mix(J.upper[i].rotation.x, crawl * mv + .2 * (1 - mv)), 0, mix(J.upper[i].rotation.z, (i ? 1 : -1) * (.15 * mv + (.9 + tread) * (1 - mv))));
     J.fore[i].rotation.x = mix(J.fore[i].rotation.x, -.35 * mv - .5 * (1 - mv));
     J.thigh[i].rotation.set(mix(J.thigh[i].rotation.x, (-.5 + sin(q * 2.5) * .18) * mv + (-.5 + sin(tq) * .35) * (1 - mv)), 0, 0);
