@@ -19,6 +19,14 @@ const TERRAIN = (() => { try { const v = JSON.parse(localStorage.getItem('hx.ter
 const TER = { tiles: new Map(), far: new Map(), h0: null, z: 13 };
 // underpass troughs from the worker (see worker.js DIPS): [x, z, ux, uz, hw, F, R, D] each; keyed by tile, deduplicated on use
 const DIPS_APP = new Map(), PASS_APP = new Map(), POOLS_APP = new Map(); /* Runde 259: pool basins per map tile (no fish there) */
+/* Runde 271 (Nutzer: 'I sink in at the pool edge'): the 2 m water raster sees outdoor-pool basins 2.2 m larger (Runde 263, the bank lies under the deck) -
+   for walking and swimming only the real basin outline counts there */
+function nearFrei(x, z, d) { for (const a of POOLS_APP.values()) for (let k = 0; k < a.length; k++) { if (!(a.f && a.f[k])) continue; const r = a[k], n = r.length / 2;
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (let i = 0; i < r.length; i += 2) { if (r[i] < x0) x0 = r[i]; if (r[i] > x1) x1 = r[i]; if (r[i + 1] < z0) z0 = r[i + 1]; if (r[i + 1] > z1) z1 = r[i + 1]; }
+    if (x < x0 - d || x > x1 + d || z < z0 - d || z > z1 + d) continue;
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n, ax = r[i * 2], az = r[i * 2 + 1], ex = r[j * 2] - ax, ez = r[j * 2 + 1] - az, q = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+      if ((ax + ex * q - x) ** 2 + (az + ez * q - z) ** 2 <= d * d) return true; } } return false; }
+const poolDeck = (x, z) => POOLS_APP.size > 0 && !inPool(x, z, 1) && nearFrei(x, z, 4.6);
 function inPool(x, z, frei) { for (const a of POOLS_APP.values()) for (let k = 0; k < a.length; k++) if ((!frei || (a.f && a.f[k])) && inPoly(x, z, a[k])) return true; return false; } /* frei: only outdoor-pool basins (Runde 262) */ /* Runde 248: building passages per map tile - [ax, az, bx, bz, half width] */
 function inPassage(x, z) { for (const a of PASS_APP.values()) for (let i = 0; i < a.length; i += 5) { const ex = a[i + 2] - a[i], ez = a[i + 3] - a[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - a[i]) * ex + (z - a[i + 1]) * ez) / l2));
   if ((a[i] + ex * t - x) ** 2 + (a[i + 1] + ez * t - z) ** 2 < a[i + 4] * a[i + 4]) return true; } return false; }
@@ -216,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=794' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=795' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1817,7 +1825,7 @@ function waterProbe(x, z) { // Runde 181 (water sounds): {d: distance to the sho
 }
 function waterInfo(x, z) {
   for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue;
-    const i = cz * f.w + cx; if (f.dry && f.dry[i]) return null; const v = f.data[i * 2]; if (!(v > 0)) return null; waterInfo.hard = f.data[i * 2 + 1] > 127; return v / 4; }
+    const i = cz * f.w + cx; if (f.dry && f.dry[i]) return null; const v = f.data[i * 2]; if (!(v > 0) || poolDeck(x, z)) return null; waterInfo.hard = f.data[i * 2 + 1] > 127; return v / 4; }
   return null;
 }
 // wading and swimming: near the shore the bed slopes down to hip depth, further out the figure swims (only head and shoulders out)
@@ -1838,7 +1846,7 @@ function waterFloor(x, z) { const d = waterInfo(x, z); if (d === null) return nu
 function bedDepth(dm, hard) { return hard ? Math.min(4, 1.6 + .12 * dm) : Math.min(4, .12 + .28 * dm); } /* the same rule as worker.js bedDepth */
 function waterDepth(x, z) { const d = waterInfo(x, z); if (d === null) return 0; if (POOLS_APP.size && inPool(x, z, 1)) return 1.32; return TERRAIN ? bedDepth(d, waterInfo.hard) : 1; } // at a quay wall the water is deep at once
 function waterAt(x, z) {
-  for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue; if (f.dry && f.dry[cz * f.w + cx]) continue; if (f.data[(cz * f.w + cx) * 2] > 4) return true; /* more than 1 m from the shore: ditches and the waterline stay walkable */ }
+  for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue; if (f.dry && f.dry[cz * f.w + cx]) continue; if (f.data[(cz * f.w + cx) * 2] > 4) return !poolDeck(x, z); /* more than 1 m from the shore: ditches and the waterline stay walkable */ }
   return false;
 }
 function walkBlocked(x, z) { return !!(buildingAt(x, z) || buildingAt(x + .35, z) || buildingAt(x - .35, z) || buildingAt(x, z + .35) || buildingAt(x, z - .35)); } // on foot water is no obstacle any more (wading, swimming)
