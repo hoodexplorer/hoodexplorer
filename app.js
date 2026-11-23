@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=804' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=805' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -367,6 +367,13 @@ groundMat.onBeforeCompile = sh => {
   sh.uniforms.uFT = waterTime; sh.uniforms.uCausG = { value: causticTex }; sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uFT; uniform sampler2D uCausG;\nfloat hxH(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }');
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <color_fragment>', `#include <color_fragment>
+    /* Runde 281 (Nutzer: runway and pitch lines broke into dashes and stairs in the distance - aliasing at the coarse pixel size): thin
+       markings (white and yellow lines of runways, taxiways, pitches, roads) melt away once one screen pixel covers more than ~0.6 m of
+       ground - with a 2x2 dither from 0.6 to 1.2 m - and the surface below shows; near by nothing changes. Independent of pixel size and view. */
+    { vec3 hk = floor(diffuseColor.rgb * 255.0 + .5);
+      if (hk == vec3(240., 240., 234.) || hk == vec3(226., 185., 58.) || hk == vec3(242., 242., 238.) || hk == vec3(227., 220., 203.)) {
+        vec2 hw = fwidth(vGW.xz); float hp = max(hw.x, hw.y), hb = (mod(floor(gl_FragCoord.x), 2.0) * 2.0 + mod(floor(gl_FragCoord.y), 2.0) + .5) / 4.0;
+        if (smoothstep(.6, 1.2, hp) > hb) discard; } }
     { vec3 pc = normalize(vec3(0.761, 0.71, 0.612)), c = normalize(diffuseColor.rgb + 1e-4);
       if (dot(pc, c) > 0.9995) { // plaza: 1.2 m stone slabs in a running bond, joints and a slight tone per slab
         vec2 g = vGW.xz / vec2(1.2, 0.8); g.x += mod(floor(g.y), 2.0) * 0.5;
