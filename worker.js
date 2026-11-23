@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=805'); importScripts('sonderbau.js?v=805'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=806'); importScripts('sonderbau.js?v=806'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2868,9 +2868,12 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const pitchFull = WELT === 'heute' ? ((osm && (osm.near || osm.areas)) || []).filter(a => a.kind >= 16 && a.kind < 32) : [];
   for (const q0 of [...pitchPolys].sort((p, r) => Math.abs(ringArea(r)) - Math.abs(ringArea(p)))) {
     let q = q0, cut = false; for (let i = 0; i < q0.length && !cut; i += 2) cut = q0[i] < pX0 - 1 || q0[i] > pX1 + 1 || q0[i + 1] < pZ0 - 1 || q0[i + 1] > pZ1 + 1;
-    if (cut) { const o0 = obb(q0); const full = o0 && pitchFull.find(a => o0.cx >= a.minx && o0.cx <= a.maxx && o0.cz >= a.minz && o0.cz <= a.maxz && inPoly(o0.cx, o0.cz, a.ring)); if (full) q = full.ring;
+    if (cut) { const o0 = obb(q0); const full = o0 && pitchFull.find(a => o0.cx >= a.minx && o0.cx <= a.maxx && o0.cz >= a.minz && o0.cz <= a.maxz && inPoly(o0.cx, o0.cz, a.ring)); if (!full) continue; q = full.ring; /* Runde 282 (still double): without the whole outline no tile can tell where the field really is - surface yes, lines no */
       const o1 = obb(q); if (!o1 || o1.cx < pX0 || o1.cx >= pX1 || o1.cz < pZ0 || o1.cz >= pZ1) continue; }
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
+    /* Runde 282 (Gadderbaum: two frames, two centre circles): a pitch outline holding a whole other field (at least 40 m long, its centre
+       inside, less than 80 % of the area) is the sports ground round it, not a field - no markings, goals or masts of its own */
+    { const aq = Math.abs(ringArea(q)); if (pitchPolys.some(r => { if (r === q0 || r === q) return false; const ar = Math.abs(ringArea(r)); if (ar >= aq * .8) return false; const orr = obb(r); return orr && orr.w >= 40 && inPoly(orr.cx, orr.cz, q); })) continue; }
     if (fieldsDone.some(f => Math.hypot(f.cx - o.cx, f.cz - o.cz) < Math.max(6, .15 * f.w) && Math.abs(f.w - o.w) < .25 * f.w && Math.abs(f.d - o.d) < .25 * f.d)) continue; fieldsDone.push(o);
     const ar = Math.abs(ringArea(q)), oval = WELT === 'heute' && o.w > 80 && ar / o.a > 0.72 && ar / o.a < 0.93 && !trackPolys.some(t => inPoly(o.cx, o.cz, t));
     const ins = oval ? 7.5 : 1, L2 = o.w / 2 - ins - (oval ? o.d * 0.25 : 0), D2 = o.d / 2 - ins, P2 = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], Wt = hex('#f2f2ee');
