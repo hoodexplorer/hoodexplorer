@@ -215,7 +215,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=778' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=779' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -612,6 +612,10 @@ function itemGhost(it) {
   if (!it.keep && ARENA_R.size && inArena((it.minx + it.maxx) / 2, (it.minz + it.maxz) / 2)) return true; /* Runde 245: also the base-map outline of the whole stadium */
   if (it.l2) { if (it.keep || !ARENA_R.size) return false; if (it.gv === L2VER) return it.ghost; it.gv = L2VER; return it.ghost = inArena((it.minx + it.maxx) / 2, (it.minz + it.maxz) / 2); } if (it.gv === L2VER) return it.ghost; it.gv = L2VER; it.ghost = false;
   const cx = (it.minx + it.maxx) / 2, cz = (it.minz + it.maxz) / 2; let inL2 = false;
+  /* Runde 258: a map outline over which a drawn LoD2 house has its own ground plan is no wall any more - the LoD2 plan collides (Nuernberg: the
+     outline stood a metre in front of the drawn wall) */
+  { const p0 = it.p; let pi = 0, sx = 0, sz = 0; for (let i = 0; i < p0.length; i += 2) { sx += p0[i]; sz += p0[i + 1]; pi++; } const qx = inPoly(cx, cz, p0) ? cx : sx / pi, qz = inPoly(cx, cz, p0) ? cz : sz / pi;
+    for (const b of bgrid.get(gk(Math.floor(qx / CELL), Math.floor(qz / CELL))) || []) if (b.l2 && b !== it && qx >= b.minx && qx <= b.maxx && qz >= b.minz && qz <= b.maxz && inPoly(qx, qz, b.p)) return it.ghost = true; }
   for (const b of L2B.values()) if (cx > b[0] && cx < b[1] && cz > b[2] && cz < b[3]) { inL2 = true; break; } if (!inL2) return false;
   const p = it.p; for (let i = 0; i < p.length; i += 2) for (const [u, v] of [[0, 0], [1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]]) if (lod2Top(p[i] + u, p[i + 1] + v) > it.base + 1.2) return false;
   const st = Math.max(2, Math.max(it.maxx - it.minx, it.maxz - it.minz) / 8);

@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=778'); importScripts('sonderbau.js?v=778'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=779'); importScripts('sonderbau.js?v=779'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -4337,7 +4337,20 @@ async function loadLod2(rec) {
     const pts = new Map(), top = new Float32Array(d.ng).fill(-1e9);
     for (let k = 0; k < d.pos.length / 3; k++) { const g = d.grp[d.bid[k]]; if (!used[g]) continue; if (pos2[k * 3 + 1] > top[g]) top[g] = pos2[k * 3 + 1];
       if (d.pos[k * 3 + 1] < 1.0) { let l = pts.get(g); if (!l) pts.set(g, l = []); l.push([d.pos[k * 3], d.pos[k * 3 + 2]]); } }
-    for (const [g, l] of pts) { if (l.length < 3) continue; l.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    /* Runde 258 (phone, Nuernberg Feuerwache 5: an invisible barrier a metre in front of the wall - the map outline collided, the drawn LoD2
+       house is smaller): every drawn LoD2 house gets its real ground plan - the bottom edges of its walls chained into rings (courtyards
+       stay open); the app then lets the map outline under it go. The convex hull below stays for houses whose rings do not close. */
+    const ringed = new Set(); { const gmin = new Float32Array(d.ng).fill(1e9); for (let k = 0; k < d.pos.length / 3; k++) { const g = d.grp[d.bid[k]]; if (d.pos[k * 3 + 1] < gmin[g]) gmin[g] = d.pos[k * 3 + 1]; }
+      const E = new Map(), I3 = d.idx, P3 = d.pos, key = (x, z) => Math.round(x * 10) + ',' + Math.round(z * 10);
+      for (let i = 0; i < I3.length; i += 3) { const a = I3[i]; if (d.kind[a] !== 0) continue; const g = d.grp[d.bid[a]]; if (!used[g]) continue; const lim = gmin[g] + 1.5, vs = [I3[i], I3[i + 1], I3[i + 2]].filter(v => P3[v * 3 + 1] < lim); if (vs.length !== 2) continue;
+        const pa = [P3[vs[0] * 3], P3[vs[0] * 3 + 2]], pb = [P3[vs[1] * 3], P3[vs[1] * 3 + 2]]; if (Math.hypot(pa[0] - pb[0], pa[1] - pb[1]) < .05) continue; let m = E.get(g); if (!m) E.set(g, m = new Map());
+        const ka = key(pa[0], pa[1]), kb = key(pb[0], pb[1]); if (!m.has(ka)) m.set(ka, { p: pa, n: new Set() }); if (!m.has(kb)) m.set(kb, { p: pb, n: new Set() }); m.get(ka).n.add(kb); m.get(kb).n.add(ka); }
+      for (const [g, m] of E) { const base = d.gBase ? d.gBase[g] : 0; if (!isFinite(base) || top[g] - base < 1.2) continue; const done = new Set(); let ok = 0;
+        for (const [k0, v0] of m) { if (done.has(k0) || v0.n.size !== 2) continue; const ring = []; let prev = null, cur = k0, guard = 0;
+          while (guard++ < 2000) { done.add(cur); const v = m.get(cur); ring.push(v.p); let nxt = null; for (const q of v.n) if (q !== prev && (!done.has(q) || (q === k0 && ring.length > 2))) { nxt = q; break; } if (!nxt || nxt === k0) { if (nxt === k0) ok++; break; } prev = cur; cur = nxt; }
+          if (ring.length < 3 || !ok) continue; let A = 0; for (let i = 0; i < ring.length; i++) { const a2 = ring[i], b2 = ring[(i + 1) % ring.length]; A += a2[0] * b2[1] - b2[0] * a2[1]; } if (Math.abs(A) / 2 < 4) continue;
+          collide.push(ring.length, top[g], base); for (const q of ring) collide.push(q[0], q[1]); ringed.add(g); } } }
+    for (const [g, l] of pts) { if (l.length < 3 || ringed.has(g)) continue; l.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
       const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], hi = [];
       for (const p of l) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
       for (let i = l.length - 1; i >= 0; i--) { const p = l[i]; while (hi.length >= 2 && cr(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
