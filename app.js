@@ -19,7 +19,7 @@ const TERRAIN = (() => { try { const v = JSON.parse(localStorage.getItem('hx.ter
 const TER = { tiles: new Map(), far: new Map(), h0: null, z: 13 };
 // underpass troughs from the worker (see worker.js DIPS): [x, z, ux, uz, hw, F, R, D] each; keyed by tile, deduplicated on use
 const DIPS_APP = new Map(), PASS_APP = new Map(), POOLS_APP = new Map(); /* Runde 259: pool basins per map tile (no fish there) */
-function inPool(x, z) { for (const a of POOLS_APP.values()) for (const r of a) if (inPoly(x, z, r)) return true; return false; } /* Runde 248: building passages per map tile - [ax, az, bx, bz, half width] */
+function inPool(x, z, frei) { for (const a of POOLS_APP.values()) for (let k = 0; k < a.length; k++) if ((!frei || (a.f && a.f[k])) && inPoly(x, z, a[k])) return true; return false; } /* frei: only outdoor-pool basins (Runde 262) */ /* Runde 248: building passages per map tile - [ax, az, bx, bz, half width] */
 function inPassage(x, z) { for (const a of PASS_APP.values()) for (let i = 0; i < a.length; i += 5) { const ex = a[i + 2] - a[i], ez = a[i + 3] - a[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - a[i]) * ex + (z - a[i + 1]) * ez) / l2));
   if ((a[i] + ex * t - x) ** 2 + (a[i + 1] + ez * t - z) ** 2 < a[i + 4] * a[i + 4]) return true; } return false; }
 // bridge railings [x0, z0, x1, z1, offset] per tile: solid for whoever is up on the deck (phone test: walked through them)
@@ -216,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=785' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=786' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1520,7 +1520,7 @@ function onData(e) {
     t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); addHedges(m.key, m.map && m.map.hedges); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
     if (m.pass && m.pass.length) PASS_APP.set(m.key, m.pass); else PASS_APP.delete(m.key);
-    if (m.pools && m.pools.length) POOLS_APP.set(m.key, m.pools); else POOLS_APP.delete(m.key);
+    if (m.pools && m.pools.length) { m.pools.f = m.poolF; POOLS_APP.set(m.key, m.pools); } else POOLS_APP.delete(m.key);
     if (m.einr && m.einr.length) EINR.set(m.key, m.einr); else EINR.delete(m.key); /* Runde 252 */
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);
@@ -1778,10 +1778,11 @@ function waterSurf(x, z) {
   let S = 16; for (const f of WFIELDS.values()) if (x >= f.x0 && z >= f.z0 && x < f.x0 + f.w * f.c && z < f.z0 + f.h * f.c) { S = f.S || 16; break; }
   const G = (i, j) => terrainRaw(i * S, j * S), i = Math.floor(x / S), j = Math.floor(z / S), u = x / S - i, v = z / S - j;
   let h; if (u + v <= 1) { const h00 = G(i, j); h = h00 + (G(i + 1, j) - h00) * u + (G(i, j + 1) - h00) * v; } else { const h11 = G(i + 1, j + 1); h = h11 + (G(i, j + 1) - h11) * (1 - u) + (G(i + 1, j) - h11) * (1 - v); }
-  return h - (TERRAIN ? 1.18 : -.02);
+  return h - (TERRAIN ? (POOLS_APP.size && inPool(x, z, 1) ? .18 : 1.18) : -.02); /* Runde 262: outdoor-pool water just below the edge */
 }
 function waterFloor(x, z) { const d = waterInfo(x, z); if (d === null) return null; const surf = waterSurf(x, z);
   if (waterIce.value.x * 1.25 > .1 + .8 * Math.min(d, 16) / 16) return { y: surf + .03, swim: false, ice: true }; // Runde 143: frozen - one walks on the ice wherever it is drawn (from the shore outwards, as in the shader)
+  if (POOLS_APP.size && inPool(x, z, 1)) return { y: surf - 1.5, swim: true }; /* Runde 262: a pool basin is deep at once */
   return d < 2.5 && !waterInfo.hard ? { y: surf - Math.min(.95, .2 + d * .32), swim: false } : { y: surf - 1.5, swim: true }; } // at a quay wall the water is deep at once
 function waterAt(x, z) {
   for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue; if (f.dry && f.dry[cz * f.w + cx]) continue; if (f.data[(cz * f.w + cx) * 2] > 4) return true; /* more than 1 m from the shore: ditches and the waterline stay walkable */ }

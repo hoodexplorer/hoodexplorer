@@ -90,6 +90,7 @@ function tiShorePoint(px, pz) { for (let k = 0; k < 10; k++) { const [x, z] = ti
     for (let j = 0; j < 8; j++) { const a = j / 8 * 6.283; if (X2.waterAt(x + Math.cos(a) * 6, z + Math.sin(a) * 6)) { w = a; break; } }
     if (w < 0) continue; if (tiWaterFrac(x + Math.cos(w) * 30, z + Math.sin(w) * 30, 25) < .6) continue; // only big water: lakes, rivers, the sea
     return [x, z, w]; } return null; }
+function tiFishW(x, z) { return X2.waterAt(x, z) && !(X2.inPool && X2.inPool(x, z)); } /* Runde 262: fish never swim into a pool */
 function tiWaterPoint(px, pz) { for (let k = 0; k < 12; k++) { const [x, z] = tiRandomNear(px, pz, 8, TI_R); if (!X2.waterAt(x, z) || (X2.inPool && X2.inPool(x, z))) continue; /* Runde 259: no fish in pools */ if (tiWaterFrac(x, z, 3) < 1) continue; return [x, z, tiWaterFrac(x, z, 25)]; } return null; }
 function tiWallPoint(px, pz, nearBins) { // a point right beside a house wall (rats: along the walls; cats: in front of the houses)
   if (nearBins) { const bins = []; for (const b of X2.BINS.values()) for (let i = 0; i < b.length; i += 2) { const d = tHyp(b[i] - px, b[i + 1] - pz); if (d > 15 && d < TI_R) bins.push([b[i], b[i + 1]]); } if (bins.length && tR() < .7) { const b = tPick(bins); return [b[0] + (tR() - .5) * 2, b[1] + (tR() - .5) * 2]; } }
@@ -173,10 +174,10 @@ function tiUpdate(dt) {
       if (n) { o.vx += ((ax / n - o.vx) * .9 + (cx / n - o.x) * coh + sx * .5) * dt; o.vz += ((az / n - o.vz) * .9 + (cz / n - o.z) * coh + sz * .5) * dt; } else { o.vx += sx * .5 * dt; o.vz += sz * .5 * dt; }
       o.vx += (tR() - .5) * .8 * dt; o.vz += (tR() - .5) * .8 * dt;
       if (dP < 4) { o.fl = Math.max(o.fl || 0, .9); o.vx += (o.x - tx) / (dP || 1) * 8 * dt; o.vz += (o.z - tz) / (dP || 1) * 8 * dt; }
-      const s0 = tHyp(o.vx, o.vz) || 1, la = 1.2; if (!X2.waterAt(o.x + o.vx / s0 * la, o.z + o.vz / s0 * la)) { o.vx = -o.vx * .5 + (tR() - .5); o.vz = -o.vz * .5 + (tR() - .5); } // the shore: turn back
+      const s0 = tHyp(o.vx, o.vz) || 1, la = 1.2; if (!tiFishW(o.x + o.vx / s0 * la, o.z + o.vz / s0 * la)) { o.vx = -o.vx * .5 + (tR() - .5); o.vz = -o.vz * .5 + (tR() - .5); } // the shore: turn back
       o.fl = (o.fl || 0) - dt; const mx = o.fl > 0 ? 3.5 : o.sp === 'fisch_hecht' ? .4 : o.sp === 'fisch_karpfen' ? .7 : 1.3, mn = o.sp === 'fisch_hecht' ? .05 : .35, s = tHyp(o.vx, o.vz);
       if (s > mx) { o.vx *= mx / s; o.vz *= mx / s; } else if (s < mn) { o.vx *= mn / (s || 1); o.vz *= mn / (s || 1); }
-      const nx = o.x + o.vx * dt, nz = o.z + o.vz * dt; if (X2.waterAt(nx, nz)) { o.x = nx; o.z = nz; }
+      const nx = o.x + o.vx * dt, nz = o.z + o.vz * dt; if (tiFishW(nx, nz)) { o.x = nx; o.z = nz; }
       o.dir = Math.atan2(o.vz, o.vx); const sp = tHyp(o.vx, o.vz); o.ph = (o.ph + dt * (1 + sp * 2.2)) % 1; o.f = sp > .2 ? Math.floor(o.ph * 6) % 6 : 6 + (Math.floor(TI.t * 1.5 + o.d * 3) % 2);
       if (o.jump === undefined && o.sp === 'fisch_karpfen' && tR() < dt / 40) o.jump = 0;
       const ws = X2.waterSurf(o.x, o.z); o.y = (ws === null || ws === undefined ? X2.terrainH(o.x, o.z) : ws) + .03;
@@ -228,6 +229,6 @@ function updateTiere(dt) {
   TI.ms += performance.now() - t0; if (++TI.msN >= 60) { TI.msAvg = TI.ms / TI.msN; TI.ms = 0; TI.msN = 0; }
 }
 /* Runde 184: a fish that jumps now - the same animated sprite as the swimming ones (carp or perch), leaves after its jump */
-TI.jump = (x, z, h) => { if (!TI.list) return null; const o = tiAdd({ kind: 'fisch', sp: tR() < .6 ? 'fisch_karpfen' : 'fisch_barsch', x, z, g: -1 - Math.floor(tR() * 1e6), vx: Math.sin(h) * .7, vz: Math.cos(h) * .7, temp: 1 });
+TI.jump = (x, z, h) => { if (!TI.list || (X2.inPool && X2.inPool(x, z))) return null; /* Runde 262: no fish jumping in pools */ const o = tiAdd({ kind: 'fisch', sp: tR() < .6 ? 'fisch_karpfen' : 'fisch_barsch', x, z, g: -1 - Math.floor(tR() * 1e6), vx: Math.sin(h) * .7, vz: Math.cos(h) * .7, temp: 1 });
   o.jump = 0; o.d = 0; o.ph = 0; o.fl = 0; return o; };
 window.updateTiere = updateTiere; window.TI = TI;
