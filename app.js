@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=799' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=800' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2278,7 +2278,7 @@ function step(now) {
     if (DRV.on) driveStep(dt, ix, iy); else {
     let tgt;
     const wf0 = waterFloor(P.x, P.z); P.swim = !!(wf0 && wf0.swim); P.wade = !!(wf0 && !wf0.swim && !wf0.ice); P.ice = !!(wf0 && wf0.ice);
-    const vmax = (P.swim ? 4.2 : P.wade ? 3.5 : running || keys.shift ? 16 : 5.5) * (window.WX ? WX.walkV : 1); // walk / run (toggle button or Shift); slow in the water; Runde 141: deep snow slows down
+    const vmax = (P.swim ? (running || keys.shift ? 9 : 4.2) /* Runde 276 (Nutzer: sprint also while swimming) */ : P.wade ? 3.5 : running || keys.shift ? 16 : 5.5) * (window.WX ? WX.walkV : 1); // walk / run (toggle button or Shift); slow in the water; Runde 141: deep snow slows down
     const gh = goCarStep(dt, ix, iy);
     if (gh !== null) { P.yaw = lerpA(P.yaw, gh, Math.min(1, dt * 8)); tgt = vmax; }
     else if (camMode === 'chase') { P.yaw -= ix * 2.3 * dt; tgt = -iy * (iy < 0 ? vmax : 4); }
