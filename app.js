@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=798' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=799' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2307,7 +2307,7 @@ function step(now) {
   P.phase += Math.min(Math.abs(P.speed), 7.5) * dt * (1.5 + run * .3); // stride rate capped: faster running means longer strides, not frantic legs
   { const inAir = !P.ground && !P.swim && !DRV.on ? 1 : 0; FIGS.air += (inAir - FIGS.air) * Math.min(1, dt * 10); if (FIGS.wasAir && P.ground) FIGS.land = .22; FIGS.wasAir = !P.ground; FIGS.land = Math.max(0, FIGS.land - dt);
     FIGS.swim = (FIGS.swim || 0) + ((P.swim && !DRV.on ? 1 : 0) - (FIGS.swim || 0)) * Math.min(1, dt * 4); /* Runde 267: swimming pose */
-    HXFIG.pose(player.userData, { swim: FIGS.swim, t: time, walk: amt * (1 - FIGS.air), run, phase: P.phase, air: FIGS.air, tuck: P.flip !== undefined ? 1 : FIGS.air * Math.max(0, Math.min(1, 1 - Math.abs(P.vy || 0) / 7)), crouch: FIGS.land / .22 * .8 }); }
+    HXFIG.pose(player.userData, { swim: FIGS.swim, hold: HAND.id !== 'nichts', t: time, walk: amt * (1 - FIGS.air), run, phase: P.phase, air: FIGS.air, tuck: P.flip !== undefined ? 1 : FIGS.air * Math.max(0, Math.min(1, 1 - Math.abs(P.vy || 0) / 7)), crouch: FIGS.land / .22 * .8 }); }
   player.rotation.x = 0;
   if (P.flip !== undefined) { // Runde 130: front flip of the double jump, turning about the body's middle (0.9 m), not the feet
     P.flip = Math.min(1, P.flip + dt / .5); const th = (1 - (1 - P.flip) ** 2) * Math.PI * 2, hc = .9;

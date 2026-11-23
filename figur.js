@@ -145,6 +145,8 @@ function pose(J, s) {
     const crawl = ((q % 6.2832) + 6.2832) % 6.2832 /* Runde 272 (Nutzer: arms turned the wrong way): the pull goes front -> down -> back under water, the arm comes forward over the water */, tread = sin(tq) * .35;
     J.upper[i].rotation.set(mix(J.upper[i].rotation.x, crawl * mv + .2 * (1 - mv)), 0, mix(J.upper[i].rotation.z, (i ? 1 : -1) * (.15 * mv + (.9 + tread) * (1 - mv))));
     J.fore[i].rotation.x = mix(J.fore[i].rotation.x, -.35 * mv - .5 * (1 - mv));
+    if (i === 0 && s.hold) { /* Runde 275 (Nutzer: an item in the hand - that arm does not circle): held forward above the water, the other arm swims */
+      J.upper[0].rotation.set(mix(J.upper[0].rotation.x, 2.6 * mv - 2.0 * (1 - mv)), 0, mix(J.upper[0].rotation.z, -.12)); J.fore[0].rotation.x = mix(J.fore[0].rotation.x, -.15); }
     J.thigh[i].rotation.set(mix(J.thigh[i].rotation.x, (-.5 + sin(q * 2.5) * .18) * mv + (-.5 + sin(tq) * .35) * (1 - mv)), 0, 0);
     J.shin[i].rotation.x = mix(J.shin[i].rotation.x, (.05 + Math.max(0, sin(q * 2.5 + 1)) * .15) * mv + (.8 + sin(tq + 1) * .4) * (1 - mv));
     J.foot[i].rotation.x = mix(J.foot[i].rotation.x, .3 * mv); } /* Runde 269: thighs turn against the lean of the body (-0.5): the legs slope 45 degrees down, not up */
