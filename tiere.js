@@ -180,7 +180,7 @@ function tiUpdate(dt) {
       const nx = o.x + o.vx * dt, nz = o.z + o.vz * dt; if (tiFishW(nx, nz)) { o.x = nx; o.z = nz; }
       o.dir = Math.atan2(o.vz, o.vx); const sp = tHyp(o.vx, o.vz); o.ph = (o.ph + dt * (1 + sp * 2.2)) % 1; o.f = sp > .2 ? Math.floor(o.ph * 6) % 6 : 6 + (Math.floor(TI.t * 1.5 + o.d * 3) % 2);
       if (o.jump === undefined && o.sp === 'fisch_karpfen' && tR() < dt / 40) o.jump = 0;
-      const ws = X2.waterSurf(o.x, o.z); o.y = (ws === null || ws === undefined ? X2.terrainH(o.x, o.z) : ws) + .03;
+      const ws = X2.waterSurf(o.x, o.z); o.y = (ws === null || ws === undefined ? X2.terrainH(o.x, o.z) : ws - (X2.waterDepth ? Math.min(.6, X2.waterDepth(o.x, o.z) * .5) : -.03)); /* Runde 264: fish swim below the see-through surface */
       if (o.jump !== undefined) { // Runde 184: every jump splashes - out of the water and back in (wetter.js WX.fishSplash: ring, drops, plip/plop)
         if (o.jump === 0 && window.WX && WX.fishSplash) WX.fishSplash(o.x, o.z, 'plip', o.vx, o.vz);
         o.jump += dt; o.y += Math.sin(Math.min(1, o.jump / 1.1) * Math.PI) * 1.1;

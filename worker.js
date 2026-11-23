@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=787'); importScripts('sonderbau.js?v=787'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=788'); importScripts('sonderbau.js?v=788'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -140,6 +140,7 @@ async function fetchOk(url, opt) { let t = 0; if (!opt || !opt.signal) { const c
 
 /* ------------------------------------------------------------ helpers */
 function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
+const SMALLW = [0x5e / 255, 0x80 / 255, 0x68 / 255].join(); /* Runde 264: colour of small (not cut) lakes */
 function hex(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; }
 const NAMED = { white: '#efece4', black: '#2c2c2c', grey: '#8c8a85', gray: '#8c8a85', darkgrey: '#56565a', darkgray: '#56565a', lightgrey: '#c9c7c1', lightgray: '#c9c7c1', silver: '#b9b8b4',
   red: '#a8483c', darkred: '#7a2e26', maroon: '#6c2c26', brown: '#7a5a44', darkbrown: '#5a3e2e', yellow: '#dfc878', beige: '#d9c9a8', cream: '#ece2c6', ivory: '#eee8d6', orange: '#cf8a4c',
@@ -1785,7 +1786,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
     return false; };
   const kerbFree = (x, z, nx, nz) => { if (self.KERBOFF) return [x, z]; for (let k = 0; k <= 16; k++) { const px = x + nx * k * .5, pz = z + nz * k * .5; if (!onRoad(px, pz)) return [px, pz]; } return null; };
   const mk = ext => (x, y) => { const X = (tx + x / ext) / n * WORLD - HALF, Y = HALF - (ty + y / ext) / n * WORLD; return [lx(X), lz(Y)]; };
-  const ground = new Geo(), bridgeG = new Geo(), waterG = new Geo(), poolG = new Geo() /* Runde 263: see-through surface of outdoor pools */, glow = new Geo(), buckets = new Map(), collide = [], names = [], nameIdx = new Map(), samples = [], spawn = [], start = [], sqNames = [], pedNames = new Set();
+  const ground = new Geo(), bridgeG = new Geo(), waterG = new Geo(), poolG = new Geo() /* Runde 263: see-through surface of outdoor pools */, bedG = new Geo() /* Runde 264: bed of rivers and lakes */, glow = new Geo(), buckets = new Map(), collide = [], names = [], nameIdx = new Map(), samples = [], spawn = [], start = [], sqNames = [], pedNames = new Set();
   { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0); ground.tileBox = [Math.min(c0[0], c1[0]), Math.min(c0[1], c1[1]), Math.max(c0[0], c1[0]), Math.max(c0[1], c1[1])]; } // Runde 186: areas end at the tile edge
   const map = { areas: [], roads: [], blds: [] };
   /* Runde 165: medieval countryside - streets only where people live (towns, farmsteads, hamlets) plus the through roads that join
@@ -1871,7 +1872,11 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
               tallFields.add(poly[0]); G0.flat([Float32Array.from(ins)], y + Hc, colF); const side = [colF[0], colF[1], 3 / 255];
               for (let i = 0; i < n; i++) { const j = (i + 1) % n; G0.quad([foot[i * 2], y + .006, foot[i * 2 + 1]], [foot[j * 2], y + .006, foot[j * 2 + 1]], [ins[j * 2], y + Hc, ins[j * 2 + 1]], [ins[i * 2], y + Hc, ins[i * 2 + 1]], side, 0, 1, 0); } } } }
         map.areas.push({ k: kind, rings: poly.map(r => Float32Array.from(r)) });
-        if (kind === 'w') { waterRings.push(poly[0]); waterPolys.push(poly); }
+        if (kind === 'w') { waterRings.push(poly[0]); waterPolys.push(poly);
+          /* Runde 264: kind of water for its bed and clearness - 1 river, 2 canal/dock, 4 lake, 8 pond/small murky water, 64 pool (own floor), 128 big lake/sea */
+          const cl = f.props.class || 'lake', ar2 = Math.abs(ringArea(poly[0]));
+          poly.wk = poolRings.has(poly[0]) ? 64 : cl === 'river' ? 1 : (cl === 'canal' || cl === 'dock') ? 2 : /^(ocean|sea|bay|reservoir)$/.test(cl) ? 128
+            : (cl === 'pond' || cl === 'basin' || (ar2 < 8000 && col && col.join() === SMALLW)) ? 8 : ar2 > 3e6 ? 128 : 4; }
         else if (ln !== 'landuse' || /^(grass|meadow|farmland|village_green|recreation_ground|cemetery|allotments|orchard|vineyard)$/.test(f.props.class)) greenPolys.push(poly);
         if (f.props.class === 'playground' || f.props.subclass === 'playground') playPolys.push(poly[0]);
         if (f.props.class === 'cemetery' || f.props.subclass === 'grave_yard') cemPolys.push(poly[0]); // Runde 204
@@ -1923,7 +1928,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       const R = 7 + hashStr('tr' + key) * 9, ring = []; let h0 = Infinity, h1 = -Infinity;
       for (let k = 0; k < 14; k++) { const a = k / 14 * 6.283, rr = R * (.8 + .4 * hashStr('tq' + key + ',' + k)), px = x + Math.cos(a) * rr * 1.25, pz = z + Math.sin(a) * rr; ring.push(px, pz); const h = weltBase(px, pz); h0 = Math.min(h0, h); h1 = Math.max(h1, h); }
       if (h1 - h0 > 1.2) continue; // a pond needs level ground
-      waterG.flat([ring], .02 - WL(), hex('#5e8068')); map.areas.push({ k: 'w', rings: [Float32Array.from(ring)] }); waterRings.push(ring); waterPolys.push([ring]); MED.ponds.push(x, z, R * 1.5); BURG_CLR.push(x, z); } }
+      waterG.flat([ring], .02 - WL(), hex('#5e8068')); map.areas.push({ k: 'w', rings: [Float32Array.from(ring)] }); waterRings.push(ring); { const pq = [ring]; pq.wk = 8; waterPolys.push(pq); } MED.ponds.push(x, z, R * 1.5); BURG_CLR.push(x, z); } }
   if (MED) { // Runde 165: hamlets - every ~400 m along rivers and streams, now and then a group of 3-5 houses on the dry bank
     for (let k = 0; k < waterLines.length; k += 2) { const line = waterLines[k], w = waterLines[k + 1]; if (w < 2.5) continue;
       sampleLineDir(line, 400, (x, z, dx, dz) => { if (hashStr('hm' + Math.round(x / 50) + ',' + Math.round(z / 50)) > .22) return;
@@ -2899,7 +2904,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
           for (const [fu, fv] of [[0, 0], [.2, 0], [-.2, 0], [0, .2], [0, -.2], [.25, .25], [-.25, -.25]]) { const cx = o.cx + o.c * o.w * fu - o.s * o.d * fv, cz = o.cz + o.s * o.w * fu + o.c * o.d * fv;
             const ring = []; for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) ring.push(cx + o.c * u * L / 2 - o.s * v * W / 2, cz + o.s * u * L / 2 + o.c * v * W / 2);
             let ok = true; for (let i = 0; i < 8 && ok; i += 2) for (const t of [0, .5]) { const px = ring[i] * (1 - t) + cx * t, pz = ring[i + 1] * (1 - t) + cz * t; if (!inPoly(px, pz, a.ring) || fpAt(px, pz)) ok = false; }
-            if (!ok || fpAt(cx, cz)) continue; const r = Float32Array.from(ring); if (WL() > 0) { waterG.flat([r], POOLF, FREIC); poolG.flat([r], POOLY, FREIC); } else waterG.flat([r], .02, FREIC); map.areas.push({ k: 'w', rings: [r] }); waterRings.push(r); waterPolys.push([r]); poolRings.add(r); freiRings.add(r); break; } } }
+            if (!ok || fpAt(cx, cz)) continue; const r = Float32Array.from(ring); if (WL() > 0) { waterG.flat([r], POOLF, FREIC); poolG.flat([r], POOLY, FREIC); } else waterG.flat([r], .02, FREIC); map.areas.push({ k: 'w', rings: [r] }); waterRings.push(r); { const pq = [r]; pq.wk = 64; waterPolys.push(pq); } poolRings.add(r); freiRings.add(r); break; } } }
       /* fence along the outline: 2.5 m pieces; gaps at roads/paths, in houses (the entrance building is the border there) and on water */
       const R0 = Array.from(a.ring); if (R0[0] !== R0[R0.length - 2] || R0[1] !== R0[R0.length - 1]) R0.push(R0[0], R0[1]);
       const per = []; let P = 0; for (let i = 0; i + 3 < R0.length; i += 2) { const l = Math.hypot(R0[i + 2] - R0[i], R0[i + 3] - R0[i + 1]); if (l < .05) continue; const dx = (R0[i + 2] - R0[i]) / l, dz = (R0[i + 3] - R0[i + 1]) / l;
@@ -3021,7 +3026,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         for (let i = 0; i < r.length; i += 2) { const j = (i + 2) % r.length, ex = r[j] - r[i], ez = r[j + 1] - r[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - r[i]) * ex + (z - r[i + 1]) * ez) / l2)); if ((r[i] + ex * t - x) ** 2 + (r[i + 1] + ez * t - z) ** 2 < 12) return true; } return false; });
       const S = ground.spr, out = []; for (let i = 0; i < S.length; i += 6) if (!near(S[i], S[i + 1])) for (let k = 0; k < 6; k++) out.push(S[i + k]); ground.spr = out; } /* Runde 248: no trees or shrubs on the pool deck */
   }
-  const wfield = waterPolys.length || waterLines.length ? waterField(waterPolys, waterLines, mk(ext0), { green: greenPolys, urban: resPolys.concat(indPolys, plazaPolys).map(p => [p]), blds: fpItems.map(it => [it.p]), paved: (x, z) => paved.has(rc(x, z)) || nearRoad(x, z), dryLines, dryPolys, bridgeDry, frei: [...freiRings] }, ground) : null;
+  const wfield = waterPolys.length || waterLines.length ? waterField(waterPolys, waterLines, mk(ext0), { green: greenPolys, urban: resPolys.concat(indPolys, plazaPolys).map(p => [p]), blds: fpItems.map(it => [it.p]), paved: (x, z) => paved.has(rc(x, z)) || nearRoad(x, z), dryLines, dryPolys, bridgeDry, frei: [...freiRings], bedG }, ground) : null;
   if (TERRAIN_ON) meadow(ground, mk(ext0), wfield); // base ground of the tile, cut out where the (lowered) water is
   // land areas lying on open water (tidal flats, reed, beaches in the river - phone test Hamburg: boats in a meadow) sink to the water
   // level with the water, so they never cover it; streets, paths, piers and bridges keep their height (checked per drape piece)
@@ -3080,7 +3085,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
       for (let gx = Math.floor((Math.min(x0, x1) - e) / K); gx <= Math.floor((Math.max(x0, x1) + e) / K); gx++) for (let gz = Math.floor((Math.min(z0, z1) - e) / K); gz <= Math.floor((Math.max(z0, z1) + e) / K); gz++) { const k = gx * 100003 + gz; let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(i); } }
     ground.corr = glow.corr = { segs: corrSegs, grid, K, B }; }
   if (STS.lines) post({ type: 'info', msg: 'STRBREITE ' + JSON.stringify(STS) });
-  ground.drape(hAt); glow.forceS = ground.S; glow.drape(hAt); waterG.noShade = true; waterG.forceS = ground.S; waterG.drape(hAt); poolG.noShade = true; poolG.forceS = ground.S; poolG.drape(hAt); // everything on the ground's terrain grid: a pond on its own (coarser) grid lay above the meadow on slopes (phone test, Hohenschwangau)
+  ground.drape(hAt); glow.forceS = ground.S; glow.drape(hAt); waterG.noShade = true; waterG.forceS = ground.S; waterG.drape(hAt); poolG.noShade = true; poolG.forceS = ground.S; poolG.drape(hAt); bedG.noShade = true; bedG.forceS = ground.S; bedG.drape(hAt); // everything on the ground's terrain grid: a pond on its own (coarser) grid lay above the meadow on slopes (phone test, Hohenschwangau)
   if (elevSegs.length || spanSegs.length) bridgeG.elev = (x, z) => { const T = bridgeG._tHz ? bridgeG._tHz(x, z) : hAt(x, z);
     for (let i = 0; i < elevSegs.length; i += 6) { const ex = elevSegs[i + 2] - elevSegs[i], ez = elevSegs[i + 3] - elevSegs[i + 1], L2 = ex * ex + ez * ez || 1, q = Math.max(0, Math.min(1, ((x - elevSegs[i]) * ex + (z - elevSegs[i + 1]) * ez) / L2)); if (Math.hypot(x - elevSegs[i] - ex * q, z - elevSegs[i + 1] - ez * q) < elevSegs[i + 4]) return hAt(x, z) + elevSegs[i + 5] - T; } // Runde 79: the deck is natural terrain + 5.5 m - ramps, troughs and dams of the roads below no longer make it wavy
     let sb = null, sdd = Infinity; for (let i = 0; i < spanSegs.length; i += 7) { const ex = spanSegs[i + 2] - spanSegs[i], ez = spanSegs[i + 3] - spanSegs[i + 1], L2 = ex * ex + ez * ez || 1, q = Math.max(0, Math.min(1, ((x - spanSegs[i]) * ex + (z - spanSegs[i + 1]) * ez) / L2)), d = Math.hypot(x - spanSegs[i] - ex * q, z - spanSegs[i + 1] - ez * q), dd = d + (spanSegs[i + 4] < 0 ? 1000 : 0); if (d < Math.abs(spanSegs[i + 4]) && dd < sdd) { sdd = dd; sb = spanSegs[i + 5] + (spanSegs[i + 6] - spanSegs[i + 5]) * q; } } if (sb !== null) return sb - T; // Runde 83: spanning deck, the nearest one (parallel bridges overlap)
@@ -3137,7 +3142,7 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         for (const [x, z] of pointsOf(f, toP)) add(k, x, z, nm); } }
     if (LHS) for (const Lh of LHS) add('L', lx(Lh.X), lz(Lh.Y), ''); /* Runde 253: lighthouses (own list; names from the map where it has one) */
     for (const a of (osm && osm.areas) || []) { if (a.kind !== 7 && a.kind !== 8) continue; let x = 0, z = 0; const n = a.ring.length / 2; for (let i = 0; i < a.ring.length; i += 2) { x += a.ring[i]; z += a.ring[i + 1]; } add(a.kind === 7 ? 'S' : 'W', x / n, z / n, ''); } }
-  return { pools: [...poolRings].map(r => Array.from(r, v => Math.round(v * 10) / 10)), poolF: [...poolRings].map(r => freiRings.has(r) ? 1 : 0), facs, einr, pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, poolw: poolG.p.length ? poolG.out() : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
+  return { pools: [...poolRings].map(r => Array.from(r, v => Math.round(v * 10) / 10)), poolF: [...poolRings].map(r => freiRings.has(r) ? 1 : 0), facs, einr, pass: new Float32Array(passSegs), span: new Float32Array(spanSegs), elev: new Float32Array(elevSegs), dz: dzOut, corr: new Float32Array(corrSegs), waterS: waterG.S || 16, rails: new Float32Array(railSegs), dips: new Float32Array(dipsOut), refl: new Float32Array(refl), water: waterG.p.length ? Object.assign(waterG.out(), { field: wfield }) : null, poolw: poolG.p.length ? poolG.out() : null, bedg: bedG.p.length ? bedG.out() : null, welt: WOUT, items: fpItems, parts: partsGeo.p.length ? partsGeo.out() : null, sights, lights, cars: new Float32Array(WELT === 'west' || WELT === 'mittel' ? [] : cars), spr: new Float32Array(ground.spr), ground: Object.assign(WELD ? ground.outWelded() : ground.out(), { det: detOut(ground, ground.p.length / 9) }), glow: Object.assign(glow.out(), { det: detOut(glow, glow.p.length / 9) }), buckets, collide: new Float32Array(collide), names, samples: new Float32Array(samples), sqNames: new Float32Array(sqNames), pedNames: [...pedNames], spawn: new Float32Array(spawn), start: new Float32Array(start), map };
 }
 /* Runde 204: an oriented box whose sides face outwards (obox below winds them inwards - seen from outside they were culled) and with a lid */
 function obox2(G, x, y, z, len, h, wid, dx, dz, col, lid) {
@@ -3565,11 +3570,18 @@ function shoreLoops(land, W, H, x0, z0, C) {
     out.push({ ring: Float32Array.from(s2), land: li === 1 }); }
   return out;
 }
+/* Runde 264 (Nutzer: see-through water for rivers and lakes, with gravel, sand ... on the bottom): depth of the bed below the water
+   surface from the distance to the shore - natural banks run out flat, at quay walls it is deep at once; at most 4 m. The app and the
+   water shader use the same rule (app.js bedDepth). */
+function bedDepth(dm, hard) { return hard ? Math.min(4, 1.6 + .12 * dm) : Math.min(4, .12 + .28 * dm); }
+/* bed kinds: 0 sand, 1 gravel, 2 mud with plants, 3 stone (quays, canals), 4 rocks (steep streams), 7 none (pools: own floor, opaque) */
 function waterField(polys, lines, toL, cls, G) {
   const c0 = toL(0, 0), c1 = toL(4096, 4096), x0 = Math.min(c0[0], c1[0]), z0 = Math.min(c0[1], c1[1]), C = 2;
   const W = Math.ceil((Math.max(c0[0], c1[0]) - x0) / C), H = Math.ceil((Math.max(c0[1], c1[1]) - z0) / C), N = W * H;
   const m = new Uint8Array(N); // bit 1 water, 2 green/natural land, 4 settlement area, 8 house
   rasterFill(m, W, H, x0, z0, C, polys, 1);
+  const KB = new Uint8Array(N); /* Runde 264: kind bits of the water (see poly.wk; 16 stream line, 32 ditch line) */
+  { const byK = new Map(); for (const p of polys) { const k = p.wk || 4; if (!byK.has(k)) byK.set(k, []); byK.get(k).push(p); } for (const [k, ps] of byK) rasterFill(KB, W, H, x0, z0, C, ps, k); }
   /* Runde 261 (Nutzer: pool rims stuck out over the water): the 2 m raster shore of an outdoor-pool basin wandered up to a metre into the basin
      (a grey bank wall and land inside the tiled walls). The raster sees such basins 1.5 m larger - its shore lies under the pool deck - and
      builds no bank face there; the basin has its own tiled walls at the exact outline. */
@@ -3579,10 +3591,10 @@ function waterField(polys, lines, toL, cls, G) {
     for (let gz = Math.max(0, Math.floor((b0 - 3 - z0) / C)); gz <= Math.min(H - 1, Math.floor((b1 + 3 - z0) / C)); gz++) for (let gx = Math.max(0, Math.floor((a0 - 3 - x0) / C)); gx <= Math.min(W - 1, Math.floor((a1 + 3 - x0) / C)); gx++)
       if (nearRing(x0 + (gx + .5) * C, z0 + (gz + .5) * C, r, 2.2)) m[gz * W + gx] |= 1; } /* Runde 263: 2.2 m (phone: the simplified shore cut a green corner into the basin) - the shore lies under the 3.6 m deck */
   const inFrei = (x, z) => FREI.some(r => nearRing(x, z, r, 4.6));
-  for (let k = 0; k < lines.length; k += 2) { const l = lines[k], r = lines[k + 1] / 2, rc0 = Math.ceil(r / C); // rivers and streams drawn as lines
+  for (let k = 0; k < lines.length; k += 2) { const l = lines[k], lw = lines[k + 1], r = lines[k + 1] / 2, rc0 = Math.ceil(r / C); // rivers and streams drawn as lines
     for (let i = 0; i + 3 < l.length; i += 2) { const L = Math.hypot(l[i + 2] - l[i], l[i + 3] - l[i + 1]), n = Math.ceil(L) + 1;
       for (let s = 0; s <= n; s++) { const x = l[i] + (l[i + 2] - l[i]) * s / n, z = l[i + 1] + (l[i + 3] - l[i + 1]) * s / n, cx = Math.floor((x - x0) / C), cz = Math.floor((z - z0) / C);
-        for (let u = -rc0; u <= rc0; u++) for (let v = -rc0; v <= rc0; v++) { const X = cx + u, Z = cz + v; if (X < 0 || Z < 0 || X >= W || Z >= H) continue; if ((u * C) ** 2 + (v * C) ** 2 <= r * r + 1) m[Z * W + X] |= 1; } } } }
+        for (let u = -rc0; u <= rc0; u++) for (let v = -rc0; v <= rc0; v++) { const X = cx + u, Z = cz + v; if (X < 0 || Z < 0 || X >= W || Z >= H) continue; if ((u * C) ** 2 + (v * C) ** 2 <= r * r + 1) { m[Z * W + X] |= 1; KB[Z * W + X] |= lw >= 10 ? 1 : lw >= 7 ? 2 : lw >= 2 ? 16 : 32; } } } } }
   rasterFill(m, W, H, x0, z0, C, cls.green, 2); rasterFill(m, W, H, x0, z0, C, cls.urban, 4); rasterFill(m, W, H, x0, z0, C, cls.blds, 8);
   const wat = i => m[i] & 1;
   // shore type (Google 3D Landungsbruecken: in towns the shore is a quay wall, not a beach): natural on green land without houses
@@ -3607,7 +3619,7 @@ function waterField(polys, lines, toL, cls, G) {
       if (!cellW(mx + nx * C * .8, mz + nz * C * .8)) { nx = -nx; nz = -nz; } // normal towards the water
       let hard = false; for (let q = .3; q <= 1.6 && !hard; q += .65) { const gi = Math.floor((mx - nx * C * q - x0) / C), gj = Math.floor((mz - nz * C * q - z0) / C); if (gi >= 0 && gj >= 0 && gi < W && gj < H && lab[gj * W + gi] === 2) hard = true; }
       if (FREI.length && inFrei(mx, mz)) continue; /* Runde 261: outdoor-pool basins have their own tiled walls */
-      if (WLv > 0) G.quad([ax, -WLv - .3, az], [bx, -WLv - .3, bz], [bx, .03, bz], [ax, .03, az], hard ? QUAY : BANK, nx, 0, nz);
+      if (WLv > 0) G.quad([ax, -WLv - (hard ? 4.3 : .5), az], [bx, -WLv - (hard ? 4.3 : .5), bz], [bx, .03, bz], [ax, .03, az], hard ? QUAY : BANK, nx, 0, nz); /* Runde 264: quay walls down to the bed */
       else if (hard) obox(G, mx - nx * .3, 0, mz - nz * .3, l, .45, .6, ex / l, ez / l, QUAY); } // flat world: low quay kerb
   }
   // chamfer distance transform, carrying the kind of the nearest shore along
@@ -3644,7 +3656,30 @@ function waterField(polys, lines, toL, cls, G) {
     for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, z > 0 ? i - W : -1, z < H - 1 ? i + W : -1]) if (j >= 0 && !fdep[j] && wat(j)) { fdep[j] = fdep[i] + 1; flim[j] = flim[i]; flow[j * 2] = flow[i * 2]; flow[j * 2 + 1] = flow[i * 2 + 1]; fq.push(j); } }
   const data = new Uint8Array(N * 2);
   for (let i = 0; i < N; i++) { data[i * 2] = wat(i) && !(m[i] & 16) ? Math.max(1, Math.min(255, Math.round(d[i] * C * 4))) : 0; data[i * 2 + 1] = lab[i] === 2 ? 255 : 0; } // distance in 0.25 m (up to 63 m); 0 = land, pier or bridge
-  return { data, flow, dry: nDry ? dry : null, w: W, h: H, x0, z0, c: C, m, loops };
+  /* Runde 264: bed kind and clearness per cell (texture for the water shader: L = kind * 32, A = sight depth * 40 in m), and the bed itself:
+     one quad per 2 m cell where the water is see-through (up to 16 m from the shore and while the depth is below ~3.5 x the sight depth),
+     plus the land cells along the shore (no gaps under the smoothed bank). Deeper water is opaque - the old dark floor lies under it. */
+  const bed = new Uint8Array(N * 2);
+  for (let i = 0; i < N; i++) { if (!wat(i)) continue; const k = KB[i], x = i % W, z = (i - x) / W; let ty = 0, vis = 2.0;
+    if (k & 64) { ty = 7; vis = .1; }
+    else if (lab[i] === 2) { ty = 3; vis = k & 3 ? .7 : 1.2; }
+    else if (k & 16) { const px = x0 + (x + .5) * C, pz = z0 + (z + .5) * C, sl = Math.hypot(hAt(px + 4, pz) - hAt(px - 4, pz), hAt(px, pz + 4) - hAt(px, pz - 4)) / 8; if (sl > .05) { ty = 4; vis = 3; } else { ty = 1; vis = 2.2; } }
+    else if (k & 32) { ty = 2; vis = .4; }
+    else if (k & 1) { ty = 1; vis = 1.3; }
+    else if (k & 2) { ty = 3; vis = .7; }
+    else if (k & 8) { ty = 2; vis = .5; }
+    else if (k & 128) { ty = 0; vis = 2.6; }
+    bed[i * 2] = ty * 32; bed[i * 2 + 1] = Math.min(255, Math.round(vis * 40)); }
+  const BG = cls.bedG || G; if (BG && WLv > 0) { const ys = .02 - WLv, cd = (X, Z) => { if (X < 0 || Z < 0 || X >= W || Z >= H) return -1; const j = Z * W + X; return wat(j) ? d[j] * C : 0; };
+    const corner = (X, Z, hd) => { let sm = 0, n = 0; for (const [u, v] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const q = cd(X + u, Z + v); if (q >= 0) { sm += q; n++; } } return ys - bedDepth(n ? sm / n : 0, hd); };
+    let nq = 0; /* 4 m blocks (2 x 2 cells): a block is built when one of its cells is see-through water or land beside it */
+    const ok = j => { if (!wat(j) || bed[j * 2] >= 224) return false; const vis = bed[j * 2 + 1] / 40, dm = d[j] * C; return dm <= 8 && bedDepth(dm, lab[j] === 2) < 2.0 * vis; };
+    for (let z = 0; z < H && nq < 15000; z += 2) for (let x = 0; x < W; x += 2) { let src = -1;
+      for (let v = 0; v < 2 && src < 0; v++) for (let u = 0; u < 2; u++) { const X = x + u, Z = z + v; if (X >= W || Z >= H) continue; const i = Z * W + X;
+        if (ok(i)) { src = i; break; } if (!wat(i)) for (const j of [i - 1, i + 1, i - W, i + W]) if (j >= 0 && j < N && ok(j)) { src = j; break; } if (src >= 0) break; }
+      if (src < 0) continue; const hd = lab[src] === 2, dep = bedDepth(d[src] * C, hd), ax = x0 + x * C, az = z0 + z * C, B = 2 * C, col = [bed[src * 2] / 255, Math.min(1, dep / 4), 4 / 255];
+      BG.quad([ax, corner(x, z, hd), az], [ax + B, corner(x + 2, z, hd), az], [ax + B, corner(x + 2, z + 2, hd), az + B], [ax, corner(x, z + 2, hd), az + B], col, 0, 1, 0); nq++; } }
+  return { data, flow, dry: nDry ? dry : null, bed, w: W, h: H, x0, z0, c: C, m, loops };
 }
 // base ground of a tile with terrain: meadow quads per row run of land cells, so the lowered water is not covered
 function meadow(G, toL, f) {
@@ -3660,7 +3695,7 @@ function meadow(G, toL, f) {
   if (WL() > 0) { const BED = hex('#4a4a38'), n = 16; for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const ax = x0 + (x1 - x0) * i / n, bx = x0 + (x1 - x0) * (i + 1) / n, az = z0 + (z1 - z0) * j / n, bz = z0 + (z1 - z0) * (j + 1) / n;
     { /* only where the water field has water within 8 m (the bed was a whole extra layer under every tile) */ let wet = false; const gx0 = Math.max(0, Math.floor((ax - 8 - f.x0) / f.c)), gx1 = Math.min(f.w - 1, Math.floor((bx + 8 - f.x0) / f.c)), gz0 = Math.max(0, Math.floor((az - 8 - f.z0) / f.c)), gz1 = Math.min(f.h - 1, Math.floor((bz + 8 - f.z0) / f.c));
       for (let gz = gz0; gz <= gz1 && !wet; gz++) for (let gx = gx0; gx <= gx1; gx++) if (f.data[(gz * f.w + gx) * 2] > 0) { wet = true; break; } if (!wet) continue; }
-    G.quad([ax, -WL() - .35, az], [bx, -WL() - .35, az], [bx, -WL() - .35, bz], [ax, -WL() - .35, bz], BED, 0, 1, 0); } }
+    G.quad([ax, -WL() - 4.3, az], [bx, -WL() - 4.3, az], [bx, -WL() - 4.3, bz], [ax, -WL() - 4.3, bz], BED, 0, 1, 0); } } /* Runde 264: under the deepest bed */
 }
 /* LoD2 plausibility (Sparrenburg Bielefeld: the whole fortress was one block with a flat top at tower height, 55 m above the slope).
    A cadastre outline that covers a castle, a walled courtyard or a building complex sometimes comes out as one block at the height of
@@ -4310,8 +4345,9 @@ async function loadMVT(rec, key) {
   const g = out.ground, gl = out.glow; chunkify(g, g.det); chunkify(gl, gl.det); quant8(g); quant8(gl);
   post({ type: 'ground', key: 'm:' + key, pos: g.pos, nor: g.nor, col: g.col, idx: g.idx || null, det: g.det, cidx: g.cidx, cinfo: g.cinfo, glow: gl, collide: out.collide, names: out.names, samples: out.samples, sqNames: out.sqNames, pedNames: out.pedNames, spawn: out.spawn, start: out.start, welt: out.welt, map: out.map, spr: out.spr, refl: out.refl, cars: out.cars, dips: out.dips, pass: out.pass, einr: out.einr, pools: out.pools, poolF: out.poolF, rails: out.rails, corr: out.corr, dz: out.dz, span: out.span, elev: out.elev }, [g.pos.buffer, g.nor.buffer, g.col.buffer, g.cidx.buffer, g.cinfo.buffer, gl.pos.buffer, gl.nor.buffer, gl.col.buffer, gl.cidx.buffer, gl.cinfo.buffer, out.spr.buffer, out.refl.buffer, out.cars.buffer]);
   if (out.water) { const w = out.water, f = w.field; if (f) f.S = out.waterS;
-    { const tr = [w.pos.buffer, w.nor.buffer, w.col.buffer]; if (f) { tr.push(f.data.buffer); if (f.flow) tr.push(f.flow.buffer); if (f.dry) tr.push(f.dry.buffer); }
+    { const tr = [w.pos.buffer, w.nor.buffer, w.col.buffer]; if (f) { tr.push(f.data.buffer); if (f.bed) tr.push(f.bed.buffer); if (f.flow) tr.push(f.flow.buffer); if (f.dry) tr.push(f.dry.buffer); }
     post({ type: 'water', key: 'm:' + key + ':water', pos: w.pos, nor: w.nor, col: w.col, field: f }, tr); } }
+  if (out.bedg) { const w = out.bedg; post({ type: 'bedg', key: 'm:' + key + ':bed', pos: w.pos, nor: w.nor, col: w.col }, [w.pos.buffer, w.nor.buffer, w.col.buffer]); } /* Runde 264 */
   if (out.poolw) { const w = out.poolw; post({ type: 'poolw', key: 'm:' + key + ':poolw', pos: w.pos, nor: w.nor, col: w.col }, [w.pos.buffer, w.nor.buffer, w.col.buffer]); } /* Runde 263 */
   if (out.parts) { const g2 = out.parts; post({ type: 'bld', key: 'm:' + key + ':parts', pos: g2.pos, nor: g2.nor, col: g2.col, fac: g2.fac, wal: g2.wal, base: g2.base }, [g2.pos.buffer, g2.nor.buffer, g2.col.buffer, g2.fac.buffer, g2.wal.buffer, g2.base.buffer]); }
   if (out.sights.length) post({ type: 'sights', key: 'm:' + key, sights: out.sights });
