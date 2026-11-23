@@ -216,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=789' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=790' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1834,7 +1834,7 @@ function waterFloor(x, z) { const d = waterInfo(x, z); if (d === null) return nu
   if (POOLS_APP.size && inPool(x, z, 1)) return { y: surf - 1.25, swim: true }; /* (the tiled floor lies 1.32 m below the surface) */ /* Runde 262: a pool basin is deep at once */
   if (!TERRAIN) return d < 2.5 && !waterInfo.hard ? { y: surf - Math.min(.95, .2 + d * .32), swim: false } : { y: surf - 1.5, swim: true };
   const dep = bedDepth(d, waterInfo.hard); /* Runde 264: on the real bed while it is shallow, swimming above it further out */
-  return dep < 1.1 ? { y: surf - dep, swim: false } : { y: surf - 1.25, swim: true }; }
+  return dep < 1.1 ? { y: surf - dep, swim: false } : { y: surf - Math.min(1.5, dep), swim: true }; } /* Runde 266 (Nutzer: 'I do not start swimming' - at 1.25 m the shoulders stood out like wading): swimming 1.5 m deep as before, never below the bed */
 function bedDepth(dm, hard) { return hard ? Math.min(4, 1.6 + .12 * dm) : Math.min(4, .12 + .28 * dm); } /* the same rule as worker.js bedDepth */
 function waterDepth(x, z) { const d = waterInfo(x, z); if (d === null) return 0; if (POOLS_APP.size && inPool(x, z, 1)) return 1.32; return TERRAIN ? bedDepth(d, waterInfo.hard) : 1; } // at a quay wall the water is deep at once
 function waterAt(x, z) {
