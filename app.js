@@ -18,7 +18,8 @@ const TERRAIN = (() => { try { const v = JSON.parse(localStorage.getItem('hx.ter
 // terrain heights, sent by the worker per Terrarium tile (zoom 13); heights relative to the start point, 0 without terrain
 const TER = { tiles: new Map(), far: new Map(), h0: null, z: 13 };
 // underpass troughs from the worker (see worker.js DIPS): [x, z, ux, uz, hw, F, R, D] each; keyed by tile, deduplicated on use
-const DIPS_APP = new Map(), PASS_APP = new Map(); /* Runde 248: building passages per map tile - [ax, az, bx, bz, half width] */
+const DIPS_APP = new Map(), PASS_APP = new Map(), POOLS_APP = new Map(); /* Runde 259: pool basins per map tile (no fish there) */
+function inPool(x, z) { for (const a of POOLS_APP.values()) for (const r of a) if (inPoly(x, z, r)) return true; return false; } /* Runde 248: building passages per map tile - [ax, az, bx, bz, half width] */
 function inPassage(x, z) { for (const a of PASS_APP.values()) for (let i = 0; i < a.length; i += 5) { const ex = a[i + 2] - a[i], ez = a[i + 3] - a[i + 1], l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - a[i]) * ex + (z - a[i + 1]) * ez) / l2));
   if ((a[i] + ex * t - x) ** 2 + (a[i + 1] + ez * t - z) ** 2 < a[i + 4] * a[i + 4]) return true; } return false; }
 // bridge railings [x0, z0, x1, z1, offset] per tile: solid for whoever is up on the deck (phone test: walked through them)
@@ -215,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=779' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=781' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -501,7 +502,15 @@ function waterMat(f) {
         ic = mix(ic, vec3(.92, .94, .97), uIce.y * (.55 + .45 * hn)); // snow on the ice
         if (hn > .992 && fract(t * .4 + hn * 9.0) > .85) ic = vec3(1.0);
         c = ic; }
-      diffuseColor.rgb = c; } `); // outside the own tile (overlap with the neighbour) the edge value of the field continues (clamped)
+      diffuseColor.rgb = c;
+      /* Runde 259 (Nutzer: outdoor pool water like a pool - clear, tiled floor visible): basins marked with the outdoor-pool colour show light
+         tiles with grout lines through clear water and moving light rings (caustics), no shore foam */
+      if (abs(vColor.r - 0.3137) < .006 && abs(vColor.g - 0.7216) < .006 && abs(vColor.b - 0.8471) < .006) {
+        vec2 tq = vGW.xz / 0.5; float gr = max(step(.9, fract(tq.x)), step(.9, fract(tq.y)));
+        vec3 pc = mix(vec3(.47, .80, .90), vec3(.36, .66, .78), gr);
+        float ca = texture2D(uCaus, vGW.xz / 3.5 + vec2(t * .03, t * .02)).r * texture2D(uCaus, vGW.xz / 2.7 - vec2(t * .025, -t * .018)).r;
+        pc += vec3(.35, .4, .4) * smoothstep(.25, .6, ca);
+        diffuseColor.rgb = pc; } } `); // outside the own tile (overlap with the neighbour) the edge value of the field continues (clamped)
   };
   return mat;
 }
@@ -1511,6 +1520,7 @@ function onData(e) {
     t.map = drawTileMap(m.map); t.roads = m.map && m.map.roads; t.areas = m.map && m.map.areas; t.friedhoefe = (m.map && m.map.friedhoefe) || []; addGraves(m.key, m.map && m.map.graves); addHedges(m.key, m.map && m.map.hedges); t.stuetzen = (m.map && m.map.stuetzen) || []; t.sonder = (m.map && m.map.sonder) || []; /* Runde 204: fantasy cemeteries, for riddles later */ tiles.set(m.key, t); TILEVER++;
     if (m.dips && m.dips.length) DIPS_APP.set(m.key, m.dips); else DIPS_APP.delete(m.key);
     if (m.pass && m.pass.length) PASS_APP.set(m.key, m.pass); else PASS_APP.delete(m.key);
+    if (m.pools && m.pools.length) POOLS_APP.set(m.key, m.pools); else POOLS_APP.delete(m.key);
     if (m.einr && m.einr.length) EINR.set(m.key, m.einr); else EINR.delete(m.key); /* Runde 252 */
     if (m.rails && m.rails.length) RAILS.set(m.key, m.rails); else RAILS.delete(m.key);
     if (m.corr && m.corr.length) CORR_APP.set(m.key, corrIndex(m.corr)); else CORR_APP.delete(m.key);
@@ -1548,6 +1558,7 @@ function onData(e) {
     for (const [k, o] of meshes) if (k.startsWith(m.prefix)) { scene.remove(o); o.geometry.dispose(); if (o.userData.ownMat) { o.material.uniforms_tex && o.material.uniforms_tex.dispose(); o.material.dispose(); } meshes.delete(k); }
     for (const k of [...DIPS_APP.keys()]) if (k.startsWith(m.prefix)) DIPS_APP.delete(k);
     for (const k of [...PASS_APP.keys()]) if (k.startsWith(m.prefix)) PASS_APP.delete(k);
+    for (const k of [...POOLS_APP.keys()]) if (k.startsWith(m.prefix)) POOLS_APP.delete(k);
     for (const k of [...EINR.keys()]) if (k.startsWith(m.prefix)) EINR.delete(k);
     for (const k of [...RAILS.keys()]) if (k.startsWith(m.prefix)) RAILS.delete(k);
     for (const k of [...CORR_APP.keys()]) if (k.startsWith(m.prefix)) CORR_APP.delete(k);
@@ -3379,7 +3390,7 @@ window.HXZ_API = { scene, P, DRV, tiles, LAYERS, clearCars(x, z, r) { let n = 0;
 /* Runde 141: what the weather module (wetter.js) needs */
 window.HXWX_API = { scene, groundMat, bldMat, P, DV, DRV, store, get cam() { return cam; }, get iso() { return cam === iso; }, get isoZoom() { return isoZoom; }, get started() { return started; },
   terrainH: (x, z, y) => terrainH(x, z, y), underground: (x, z, y) => !!(TUN.segs.length && underground(x, z, y)), water: (x, z) => !!waterFloor(x, z), waterProbe, waterSurf: (x, z) => waterSurf(x, z), /* = the drawn water surface (measured: ray onto the water mesh) */ waterFloor: (x, z) => waterFloor(x, z), get camera() { return camera; }, remood: () => applyMood(cur), waterIce, get fogColor() { return scene.fog.color; } };
-window.HXTR = { get PASS() { return PASS_APP; }, get SIGHTS() { return SIGHTS; }, player, isoCam: iso, setFigur, addEigenCard, get CARS() { let n = 0, g = 0; for (const a of carTiles.values()) for (let i = 0; i < a.length; i += 6) { n++; if (a[i + 3] < 0) g++; } return { n, weg: g }; }, get OCCDBG() { return { slots: occSlots.map(o => ({ a: +o.a.toFixed(2), cx: Math.round((o.b.minx + o.b.maxx) / 2 - P.x), cz: Math.round((o.b.minz + o.b.maxz) / 2 - P.z), h: Math.round(o.b.h - o.b.base), l2: o.b.l2 })), g: occG.map(o => o.g + ":" + o.a.toFixed(2)) }; }, HXL, withLamp, itemGhost, get BG() { return bgrid; }, get L2B() { return L2B; }, bldU: bldUniforms, beamTex: () => beamTex(), glowTex: () => glowTex(), get worker() { return worker; }, SPAN_APP, ELEV_APP, scene, terrainH, buildGraph, ONEW, P, DV, DRV, tiles, BINS, waterAt, waterSurf, buildingAt, inPoly, camera, streetAt, DIPS_APP, get ELEV() { return typeof ELEV_APP !== 'undefined' ? ELEV_APP : null; }, get camMode() { return camMode; }, get night() { return Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)); }, get TILEVER() { return TILEVER; }, get PRUEF() { return PRUEF; }, get ISO() { return ISO; } }; // Runde 81: traffic.js
+window.HXTR = { inPool: (x, z) => inPool(x, z), get PASS() { return PASS_APP; }, get SIGHTS() { return SIGHTS; }, player, isoCam: iso, setFigur, addEigenCard, get CARS() { let n = 0, g = 0; for (const a of carTiles.values()) for (let i = 0; i < a.length; i += 6) { n++; if (a[i + 3] < 0) g++; } return { n, weg: g }; }, get OCCDBG() { return { slots: occSlots.map(o => ({ a: +o.a.toFixed(2), cx: Math.round((o.b.minx + o.b.maxx) / 2 - P.x), cz: Math.round((o.b.minz + o.b.maxz) / 2 - P.z), h: Math.round(o.b.h - o.b.base), l2: o.b.l2 })), g: occG.map(o => o.g + ":" + o.a.toFixed(2)) }; }, HXL, withLamp, itemGhost, get BG() { return bgrid; }, get L2B() { return L2B; }, bldU: bldUniforms, beamTex: () => beamTex(), glowTex: () => glowTex(), get worker() { return worker; }, SPAN_APP, ELEV_APP, scene, terrainH, buildGraph, ONEW, P, DV, DRV, tiles, BINS, waterAt, waterSurf, buildingAt, inPoly, camera, streetAt, DIPS_APP, get ELEV() { return typeof ELEV_APP !== 'undefined' ? ELEV_APP : null; }, get camMode() { return camMode; }, get night() { return Math.max(0, Math.min(1, (cur.lamp || 0) / 1.5)); }, get TILEVER() { return TILEVER; }, get PRUEF() { return PRUEF; }, get ISO() { return ISO; } }; // Runde 81: traffic.js
 window.HXD = { toLocal: (lat, lon) => toLocal(lat, lon), terrainH2: (x, z, y) => terrainH(x, z, y), get tiles() { return tiles; }, get mw() { return DRV.mw; }, buildGraph2: () => buildGraph(), attach: (G, x, z, h, n) => attach(G, x, z, h, n), get ONEW() { return ONEW; }, get CRATES() { return CRATES; }, get INV() { return INV; }, lootBox: b => lootBox(b), get worker() { return worker; }, get worldReady() { return worldReady; }, bldUniforms, groundAround: r => groundAround(r), JOBQ, onData: e => onData(e), toLatLon: (x, z) => toLatLon(x, z), lod2Top, bridgeElev, ELEV_APP, jump, objTop, surfAhead, CORR_APP, DZ_APP, dzH, terrainRaw, wakePts, waterAt, WFIELDS, enterCar, leaveCar, driveTo, nearestParked, buildGraph, nearestNode, aStar, DRV, DV, P, keys, meshes, scene, dipInfo, DIPS_APP, RAILS, railAt, get camera() { return camera; }, get renderer() { return renderer; }, get iso() { return iso; } }; // debugging in the browser console
 // route on the mini and big map
 function drawRouteMini(ctx, ms) {

@@ -90,7 +90,7 @@ function tiShorePoint(px, pz) { for (let k = 0; k < 10; k++) { const [x, z] = ti
     for (let j = 0; j < 8; j++) { const a = j / 8 * 6.283; if (X2.waterAt(x + Math.cos(a) * 6, z + Math.sin(a) * 6)) { w = a; break; } }
     if (w < 0) continue; if (tiWaterFrac(x + Math.cos(w) * 30, z + Math.sin(w) * 30, 25) < .6) continue; // only big water: lakes, rivers, the sea
     return [x, z, w]; } return null; }
-function tiWaterPoint(px, pz) { for (let k = 0; k < 12; k++) { const [x, z] = tiRandomNear(px, pz, 8, TI_R); if (!X2.waterAt(x, z)) continue; if (tiWaterFrac(x, z, 3) < 1) continue; return [x, z, tiWaterFrac(x, z, 25)]; } return null; }
+function tiWaterPoint(px, pz) { for (let k = 0; k < 12; k++) { const [x, z] = tiRandomNear(px, pz, 8, TI_R); if (!X2.waterAt(x, z) || (X2.inPool && X2.inPool(x, z))) continue; /* Runde 259: no fish in pools */ if (tiWaterFrac(x, z, 3) < 1) continue; return [x, z, tiWaterFrac(x, z, 25)]; } return null; }
 function tiWallPoint(px, pz, nearBins) { // a point right beside a house wall (rats: along the walls; cats: in front of the houses)
   if (nearBins) { const bins = []; for (const b of X2.BINS.values()) for (let i = 0; i < b.length; i += 2) { const d = tHyp(b[i] - px, b[i + 1] - pz); if (d > 15 && d < TI_R) bins.push([b[i], b[i + 1]]); } if (bins.length && tR() < .7) { const b = tPick(bins); return [b[0] + (tR() - .5) * 2, b[1] + (tR() - .5) * 2]; } }
   for (let k = 0; k < 14; k++) { const [x, z] = tiRandomNear(px, pz, 15, TI_R); if (!tiFree(x, z)) continue;
