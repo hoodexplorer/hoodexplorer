@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=803' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=804' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1897,7 +1897,12 @@ function drawTileMap(md, sc) {
   for (const r of md.roads) ext(r.p); for (const ar of md.areas) ext(ar.rings[0]); for (const bl of md.blds) ext(bl);
   if (!isFinite(a)) return null;
   const cv = document.createElement('canvas'); cv.width = Math.min(1024, Math.ceil((b - a) * MS) + 2); cv.height = Math.min(1024, Math.ceil((d - c) * MS) + 2);
-  const g = cv.getContext('2d'); const X = x => (x - a) * MS, Y = z => (z - c) * MS;
+  const g = cv.getContext('2d'); paintMap(g, md, MS, x => (x - a) * MS, z => (z - c) * MS);
+  return { cv, x0: a, z0: c, s: MS, w: b - a, h: d - c, md };
+}
+/* Runde 280 (Nutzer: the big map was blurred blocks when zoomed in - a 0.4 px/m picture blown up): the painting itself, usable for the
+   little tile pictures and, zoomed in, straight onto the big map in screen resolution (MS = screen pixels per metre) */
+function paintMap(g, md, MS, X, Y) {
   const path = p => { g.moveTo(X(p[0]), Y(p[1])); for (let i = 2; i < p.length; i += 2) g.lineTo(X(p[i]), Y(p[i + 1])); };
   for (const ar of md.areas) { g.fillStyle = ar.k === 'w' ? '#5f93b0' : ar.k === 'f' ? '#3f5e30' : ar.k === 'p' ? '#c9bc9e' : '#4d6b37'; g.beginPath(); for (const r of ar.rings) { path(r); g.closePath(); } g.fill('evenodd'); }
   g.lineCap = 'round'; g.lineJoin = 'round';
@@ -1906,7 +1911,6 @@ function drawTileMap(md, sc) {
   if (md.hedges) { g.strokeStyle = '#1f3a1c'; g.lineCap = 'butt'; const h = md.hedges; for (let i = 0; i < h.length; i += 10) { g.lineWidth = Math.max(1.2, h[i + 6] * MS * 1.6); const dx = h[i + 3] * h[i + 5] / 2, dz = h[i + 4] * h[i + 5] / 2;
     g.beginPath(); g.moveTo(X(h[i] - dx), Y(h[i + 2] - dz)); g.lineTo(X(h[i] + dx), Y(h[i + 2] + dz)); g.stroke(); } g.lineCap = 'round'; } // hedges, so one finds the way through
   g.fillStyle = '#8a7462'; for (const bl of md.blds) { g.beginPath(); path(bl); g.closePath(); g.fill(); }
-  return { cv, x0: a, z0: c, s: MS };
 }
 const mini = $('mini'), mctx = mini.getContext('2d');
 /* sights (from the map's points of interest): info card when the player comes close, counted as discovered */
@@ -2012,8 +2016,12 @@ function drawBig() {
   for (let y = ((H / 2 - bm.cz * k) % step + step) % step; y < H; y += step) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   g.imageSmoothingEnabled = false;
   bigTilesFor(W, H); // light map tiles of the whole view, loaded on demand (also where the game has not been yet)
-  for (const t of BIG.tiles.values()) if (t && t.z === BIG.z) { const [x, y] = toScr(t.map.x0, t.map.z0); g.drawImage(t.map.cv, x, y, t.map.cv.width * k / t.map.s, t.map.cv.height * k / t.map.s); }
-  for (const t of tiles.values()) if (t.map && BIG.z >= 14) { const [x, y] = toScr(t.map.x0, t.map.z0); g.drawImage(t.map.cv, x, y, t.map.cv.width * k / MS, t.map.cv.height * k / MS); }
+  /* Runde 280: blown up more than 1.5 times, a tile is painted from its map data in screen resolution (only tiles on screen) */
+  const ox = W / 2 - bm.cx * k, oz = H / 2 - bm.cz * k, X = x => x * k + ox, Y = z => z * k + oz;
+  const put = mp => { if (!mp) return; const [x, y] = toScr(mp.x0, mp.z0), w = mp.cv.width * k / mp.s, h = mp.cv.height * k / mp.s; if (x > W || y > H || x + w < 0 || y + h < 0) return;
+    if (mp.md && k / mp.s > 1.5) { g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); paintMap(g, mp.md, k, X, Y); g.restore(); } else g.drawImage(mp.cv, x, y, w, h); };
+  for (const t of BIG.tiles.values()) if (t && t.z === BIG.z) put(t.map);
+  if (BIG.z >= 14) for (const t of tiles.values()) put(t.map);
   g.filter = 'none';
   const mark = (x, z, col, r) => { const [sx, sy] = toScr(x, z); g.fillStyle = col; g.strokeStyle = '#1a1206'; g.lineWidth = 2; g.beginPath(); g.arc(sx, sy, r, 0, 7); g.fill(); g.stroke(); };
   if (window.HXZ) HXZ.drawBig(g, toScr, W / bigCv.clientWidth, bm.s); // Runde 144
