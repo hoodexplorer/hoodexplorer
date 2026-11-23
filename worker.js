@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=802'); importScripts('sonderbau.js?v=802'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=803'); importScripts('sonderbau.js?v=803'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2849,12 +2849,21 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   const SURFC = [null, hex('#4f9a4a'), hex('#b5603e'), hex('#cdb48a'), hex('#b4523e'), hex('#7c7f83'), hex('#a07a5a'), null], osmPitch = [];
   if (WELT === 'heute') for (const a of (osm && osm.areas) || []) {
     if (a.kind === 2) trackPolys.push(Array.from(a.ring)); // plain array: the ring is closed with concat below (a Float32Array has none - tiles failed)
-    else if (a.kind >= 16 && a.kind < 32) { osmPitch.push(a); const c = SURFC[a.kind & 7]; if (c && Math.abs(ringArea(a.ring)) > 30) ground.flat([a.ring], .021, c) /* above the map's pitch layer: no green flecks */; } }
+    else if (a.kind >= 16 && a.kind < 32) osmPitch.push(a); }
+  /* Runde 279 (Nutzer: two surfaces flickered on one ground - a red and a green pitch lay over each other at the same height): the
+     surfaces are drawn largest first, each one that overlaps an earlier one 2 mm higher (at most 8 mm, the lines at 3 cm stay on top) */
+  { const drawn = []; for (const a of [...osmPitch].sort((p, q) => Math.abs(ringArea(q.ring)) - Math.abs(ringArea(p.ring)))) { const c = SURFC[a.kind & 7]; if (!c || Math.abs(ringArea(a.ring)) <= 30) continue;
+      const lv = drawn.reduce((m, d) => a.maxx > d.a.minx && a.minx < d.a.maxx && a.maxz > d.a.minz && a.minz < d.a.maxz ? Math.max(m, d.lv + 1) : m, 0);
+      ground.flat([a.ring], .021 + Math.min(4, lv) * .002, c) /* above the map's pitch layer: no green flecks */; drawn.push({ a, lv }); } }
   const CINDER = hex('#a8835f'), stadA = stadPolys.map(q => Object.assign({ ring: q }, bbox(q))).concat(((osm && osm.areas) || []).filter(a => a.kind === 7)), surfAt = (x, z) => { const a = osmPitch.find(a2 => x >= a2.minx && x <= a2.maxx && z >= a2.minz && z <= a2.maxz && inPoly(x, z, a2.ring)); return a ? a.kind & 7 : 0; },
     bigStad = (x, z) => { const sf = surfAt(x, z); if (sf === 6) return false; if (sf === 4) return true; return stadA.some(a => x >= a.minx - 40 && x <= a.maxx + 40 && z >= a.minz - 40 && z <= a.maxz + 40); }; /* Runde 246 (20 grounds): tartan in and next to stadium areas or where OSM says so, cinder elsewhere and where OSM says cinder */ // Runde 241: cinder tracks outside big stadiums
   for (const q0 of trackPolys) { const q = Array.from(q0), tb = bbox(q); if (Math.max(tb.maxx - tb.minx, tb.maxz - tb.minz) < 80 || ringLen(q) < 250) continue; /* Runde 246: no ring round a small hard court */ ribbon(ground, q.concat([q[0], q[1]]), 6.5, .02, bigStad((tb.minx + tb.maxx) / 2, (tb.minz + tb.maxz) / 2) ? RED : CINDER); }
-  for (const q of pitchPolys) {
+  /* Runde 279 (Nutzer: double lines): the same field mapped twice (centres within 15 % of the length, size within 25 %) gets its
+     markings, goals and masts only once - from the larger outline; fields of other sizes inside a sports ground stay */
+  const fieldsDone = [];
+  for (const q of [...pitchPolys].sort((p, r) => Math.abs(ringArea(r)) - Math.abs(ringArea(p)))) {
     const o = obb(q); if (!o || o.w < 12 || o.d < 8) continue;
+    if (fieldsDone.some(f => Math.hypot(f.cx - o.cx, f.cz - o.cz) < Math.max(6, .15 * f.w) && Math.abs(f.w - o.w) < .25 * f.w && Math.abs(f.d - o.d) < .25 * f.d)) continue; fieldsDone.push(o);
     const ar = Math.abs(ringArea(q)), oval = WELT === 'heute' && o.w > 80 && ar / o.a > 0.72 && ar / o.a < 0.93 && !trackPolys.some(t => inPoly(o.cx, o.cz, t));
     const ins = oval ? 7.5 : 1, L2 = o.w / 2 - ins - (oval ? o.d * 0.25 : 0), D2 = o.d / 2 - ins, P2 = (u, v) => [o.cx + u * o.c - v * o.s, o.cz + u * o.s + v * o.c], Wt = hex('#f2f2ee');
     if (oval) ribbon(ground, Array.from(q).concat([q[0], q[1]]).map((v, i) => i % 2 ? v + (o.cz - v) * (3.6 / (o.d / 2)) : v + (o.cx - v) * (3.6 / (o.w / 2))), 6.5, .02, bigStad(o.cx, o.cz) ? RED : CINDER);
