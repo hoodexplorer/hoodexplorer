@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=806' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=807' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -422,6 +422,9 @@ groundMat.onBeforeCompile = sh => {
       float ca = min(texture2D(uCausG, floor(p * 3.0) / 3.0 / 4.5 + vec2(uFT * .03, uFT * .02)).r, texture2D(uCausG, floor(p * 3.0) / 3.0 / 5.5 - vec2(uFT * .025, -uFT * .017)).r);
       c += vec3(.28, .30, .25) * smoothstep(.3, .6, ca) * (1.0 - smoothstep(.3, 2.2, dep));
       diffuseColor.rgb = c; }`);
+  /* Runde 283 (Nutzer: dark frames round white lines): flat ground marks itself in the alpha of the picture (0.5) - the post pass draws
+     no dark crease between two pixels of flat ground (markings, zebra crossings, pitch and runway lines), house edges keep theirs */
+  sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n{ vec3 hn = normalize(cross(dFdx(vGW), dFdy(vGW))); if (abs(hn.y) > .9) gl_FragColor.a = .5; }');
 };
 groundMat.extensions = { derivatives: true };
 /* Water: one material per map tile with the tile's shore field (distance to the shore, hard or natural shore; 2 m raster).
@@ -1194,6 +1197,8 @@ const post = new THREE.ShaderMaterial({
       float lm=max(max(dot(texture2D(tColor,uv-vec2(t.x,0.)).rgb,vec3(0.299,0.587,0.114)),dot(texture2D(tColor,uv+vec2(t.x,0.)).rgb,vec3(0.299,0.587,0.114))),
                    max(dot(texture2D(tColor,uv-vec2(0.,t.y)).rgb,vec3(0.299,0.587,0.114)),dot(texture2D(tColor,uv+vec2(0.,t.y)).rgb,vec3(0.299,0.587,0.114))));
       float crease=clamp((lm-l0-0.16)*4.0,0.0,1.0);
+      { float ga=max(max(max(texture2D(tColor,uv-vec2(t.x,0.)).a,texture2D(tColor,uv+vec2(t.x,0.)).a),max(texture2D(tColor,uv-vec2(0.,t.y)).a,texture2D(tColor,uv+vec2(0.,t.y)).a)),texture2D(tColor,uv).a);
+        if(ga<0.75) crease=0.0; } /* Runde 283: all five pixels flat ground - no frame round markings */
       if(uHasDepth>0.5&&uOrtho<0.5){float dz=lin(texture2D(tDepth,uv).r);crease*=1.0-smoothstep(350.0,900.0,dz);}
       col*=1.0-uEdge*0.45*crease;
       if(uHasDepth>0.5){
