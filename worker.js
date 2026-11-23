@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=801'); importScripts('sonderbau.js?v=801'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=802'); importScripts('sonderbau.js?v=802'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -2326,23 +2326,34 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
         const dx = ex / L2, dz = ez / L2, nx = -dz, nz = dx;
         for (let u = 0; u < L2; u += dash + gap) { const u1 = Math.min(L2, u + dash), ax = x0 + dx * u + nx * off, az = z0 + dz * u + nz * off, bx = x0 + dx * u1 + nx * off, bz = z0 + dz * u1 + nz * off;
           ground.quad([ax - nx * wid / 2, y, az - nz * wid / 2], [bx - nx * wid / 2, y, bz - nz * wid / 2], [bx + nx * wid / 2, y, bz + nz * wid / 2], [ax + nx * wid / 2, y, az + nz * wid / 2], col, 0, 1, 0); } } };
+    /* Runde 278 (Nutzer: airliners on small airfields, e.g. Norderney): the longest runway decides the size of the airfield - from 1800 m
+       (or a runway cut by the tile edge that is already 900 m long) an airport with 45 m runways, 22 m taxiways and airliners; below that
+       a small airfield with 30 m runways, 10 m taxiways and small planes */
+    let rwMax = 0, rwCut = false; { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0), edge = (x, z) => Math.min(Math.abs(x - c0[0]), Math.abs(x - c1[0]), Math.abs(z - c0[1]), Math.abs(z - c1[1])) < 40;
+      for (const rng of L.feats) { const f = readFeature(L, rng); if (f.props.class !== 'runway') continue;
+        for (const line of geomLines(f, toL)) { let len = 0, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+          for (let i = 0; i < line.length; i += 2) { if (i) len += Math.hypot(line[i] - line[i - 2], line[i + 1] - line[i - 1]); x0 = Math.min(x0, line[i]); x1 = Math.max(x1, line[i]); z0 = Math.min(z0, line[i + 1]); z1 = Math.max(z1, line[i + 1]);
+            if (edge(line[i], line[i + 1])) rwCut = true; }
+          rwMax = Math.max(rwMax, f.type === 3 ? Math.hypot(x1 - x0, z1 - z0) : len); } } }
+    const bigAP = rwMax >= 1800 || (rwCut && rwMax >= 900), RWW = bigAP ? 45 : 30, TWW = bigAP ? 22 : 10;
     for (const rng of L.feats) { const f = readFeature(L, rng), cls = f.props.class;
       if (f.type === 3) { const col = cls === 'apron' || cls === 'helipad' ? CON : cls === 'runway' || cls === 'taxiway' ? ASP : null; if (!col) continue;
         for (const poly of polygons(geomLines(f, toL))) { ground.flat(poly, cls === 'apron' ? .026 : .027, col); if (cls === 'apron') aprons.push(poly[0]); } }
       else if (f.type === 2 && (cls === 'runway' || cls === 'taxiway')) for (const line of geomLines(f, toL)) {
-        if (cls === 'runway') { ribbon(ground, line, 45, .028, ASP); stripe(line, 0, .9, .031, WHT, 30, 20); stripe(line, 21, .9, .031, WHT, 1e9, 0); stripe(line, -21, .9, .031, WHT, 1e9, 0);
+        if (cls === 'runway') { ribbon(ground, line, RWW, .028, ASP); stripe(line, 0, .9, .031, WHT, 30, 20); stripe(line, RWW / 2 - 1.5, .9, .031, WHT, 1e9, 0); stripe(line, 1.5 - RWW / 2, .9, .031, WHT, 1e9, 0);
           for (const end of [0, 1]) { const i = end ? line.length - 4 : 0, dx0 = line[i + 2] - line[i], dz0 = line[i + 3] - line[i + 1], l0 = Math.hypot(dx0, dz0) || 1, dx = dx0 / l0, dz = dz0 / l0, sg = end ? -1 : 1;
             const px = end ? line[line.length - 2] : line[0], pz = end ? line[line.length - 1] : line[1];
             { const c0 = mk(ext0)(0, 0), c1 = mk(ext0)(ext0, ext0); if (Math.min(Math.abs(px - c0[0]), Math.abs(px - c1[0]), Math.abs(pz - c0[1]), Math.abs(pz - c1[1])) < 40) continue; } // a tile cut, not the runway end
-            for (let k = -7; k <= 7; k++) { if (Math.abs(k) < 1) continue; const o = k * 2.6, ax = px + dx * 6 * sg - dz * o, az = pz + dz * 6 * sg + dx * o; // threshold "piano keys"
+            for (let k = -7; k <= 7; k++) { if (Math.abs(k) < 1 || Math.abs(k) * 2.6 > RWW / 2 - 3) continue; const o = k * 2.6, ax = px + dx * 6 * sg - dz * o, az = pz + dz * 6 * sg + dx * o; // threshold "piano keys"
               obox(ground, ax + dx * 15 * sg, .031, az + dz * 15 * sg, 30, .002, 1.6, dx, dz, WHT); } } }
-        else { ribbon(ground, line, 22, .0275, ASP); stripe(line, 0, .45, .0315, YEL, 1e9, 0); } }
+        else { ribbon(ground, line, TWW, .0275, ASP); stripe(line, 0, .45, .0315, YEL, 1e9, 0); } }
     }
     // parked airliners on the aprons (not on taxiway lines), a few per tile
     let np = 0;
     for (const q of aprons) { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (let i = 0; i < q.length; i += 2) { x0 = Math.min(x0, q[i]); x1 = Math.max(x1, q[i]); z0 = Math.min(z0, q[i + 1]); z1 = Math.max(z1, q[i + 1]); }
-      for (let x = x0 + 30; x < x1 - 20; x += 70) for (let z = z0 + 30; z < z1 - 20; z += 70) { if (np > 14 || !inPoly(x, z, q) || fpAt(x, z) || fpAt(x + 25, z) || fpAt(x - 25, z) || fpAt(x, z + 25) || fpAt(x, z - 25) || rnd() < .4) continue;
-        cars.push(x, z, Math.floor(rnd() * 8) * Math.PI / 4, 11, 3, rnd()); np++; } } } }
+      const G = bigAP ? 70 : 20, M0 = bigAP ? 30 : 10, R0 = bigAP ? 25 : 7; /* Runde 278: airliners (type 11) or small planes (type 12) */
+      for (let x = x0 + M0; x < x1 - M0 * .66; x += G) for (let z = z0 + M0; z < z1 - M0 * .66; z += G) { if (np > 14 || !inPoly(x, z, q) || fpAt(x, z) || fpAt(x + R0, z) || fpAt(x - R0, z) || fpAt(x, z + R0) || fpAt(x, z - R0) || rnd() < .4) continue;
+        cars.push(x, z, Math.floor(rnd() * 8) * Math.PI / 4, bigAP ? 11 : 12, bigAP || rnd() < .6 ? 3 : Math.floor(rnd() * 6), rnd()); np++; } } } }
   // street furniture from own OSM tiles
   for (const p of osm.pts) {
     if (p.t >= 9) continue; /* Runde 245: water towers, windmills, stations are drawn elsewhere */

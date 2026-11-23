@@ -5,7 +5,7 @@
    low-resolution render and the outline pass, like everything else.
    Body vertices are pure white and get the car's own colour in the shader; glass, tyres, lights keep their colour. */
 let WATER_DROP = 0; // water surface below the land (set by the app: 1.2 m with terrain)
-const CAR_TYPES = 12, CAR_MAX = 700, CAR_TOTAL = 900, CAR_RADIUS = 230;
+const CAR_TYPES = 13, CAR_MAX = 700, CAR_TOTAL = 900, CAR_RADIUS = 230;
 // typical German car colours, roughly by frequency (index 12 = taxi ivory)
 const CAR_COLOURS = ['#202226', '#a9adb2', '#6e7278', '#e9e9e6', '#1f3357', '#2f5f9e', '#a3262a', '#2f4f3a', '#b9a27c', '#5a3a2a', '#e0b02a', '#d8682a', '#efe3bc'].map(c => new THREE.Color(c));
 
@@ -90,6 +90,12 @@ function buildCarModels() {
       parts.push([box(34, .45, 6), BOXW, M(0, 3.4, 1)], [box(12, .3, 3), BOXW, M(0, 5.0, -16.5)], [box(.4, 7, 4.5), BLUE, M(0, 8.0, -16.8)], [box(4.04, .35, 30), BLUE, M(0, 4.4, 0)]);
       for (const sx of [-1, 1]) parts.push([cyl, [.7, .72, .74], R(sx * 6.5, 2.4, 2.5, 1.2, 4, 1.2, Math.PI / 2)], [box(.4, 2.1, .4), DARK, M(sx * 2.6, 0, 1)]);
       parts.push([box(.3, 2.1, .3), DARK, M(0, 0, 14)]);
+      return model(parts); })(),
+    (() => { const parts = [], BLUE = [.16, .3, .62]; // Runde 278: small plane (type 12, ~8 m, high wing) for small airfields
+      parts.push([box(1.2, 1.3, 4.6), WHITE6, M(0, .8, .4)], [box(1.0, .85, 1.0), WHITE6, M(0, .95, 3.2)], [box(.7, .7, 3.2), WHITE6, M(0, 1.25, -3.4)], [box(1.24, .5, 1.7), GLASS, M(0, 1.55, 1.0)]);
+      parts.push([box(11, .16, 1.5), BOXW, M(0, 2.1, .9)], [box(3.4, .12, .9), BOXW, M(0, 1.6, -4.7)], [box(.14, 1.4, 1.0), BLUE, M(0, 1.85, -4.8)], [box(1.24, .16, 6.2), BLUE, M(0, 1.3, -.4)]);
+      for (const sx of [-1, 1]) parts.push([box(.1, 1.2, .1), DARK, M(sx * 1.7, 1.0, .9)], [box(.15, .8, .15), DARK, M(sx * .9, 0, .6)]);
+      parts.push([box(.15, .95, .15), DARK, M(0, 0, 3.3)], [box(1.9, .14, .08), DARK, M(0, 1.3, 3.75)]);
       return model(parts); })()
   ];
 }
