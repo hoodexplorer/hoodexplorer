@@ -145,9 +145,9 @@ function pose(J, s) {
     const crawl = -(((q % 6.2832) + 6.2832) % 6.2832), tread = sin(tq) * .35;
     J.upper[i].rotation.set(mix(J.upper[i].rotation.x, crawl * mv + .2 * (1 - mv)), 0, mix(J.upper[i].rotation.z, (i ? 1 : -1) * (.15 * mv + (.9 + tread) * (1 - mv))));
     J.fore[i].rotation.x = mix(J.fore[i].rotation.x, -.35 * mv - .5 * (1 - mv));
-    J.thigh[i].rotation.set(mix(J.thigh[i].rotation.x, (.45 + sin(q * 2.5) * .18) * mv + (-.5 + sin(tq) * .35) * (1 - mv)), 0, 0);
-    J.shin[i].rotation.x = mix(J.shin[i].rotation.x, (.15 + Math.max(0, sin(q * 2.5 + 1)) * .3) * mv + (.8 + sin(tq + 1) * .4) * (1 - mv));
-    J.foot[i].rotation.x = mix(J.foot[i].rotation.x, .6 * mv); }
+    J.thigh[i].rotation.set(mix(J.thigh[i].rotation.x, (-.5 + sin(q * 2.5) * .18) * mv + (-.5 + sin(tq) * .35) * (1 - mv)), 0, 0);
+    J.shin[i].rotation.x = mix(J.shin[i].rotation.x, (.05 + Math.max(0, sin(q * 2.5 + 1)) * .15) * mv + (.8 + sin(tq + 1) * .4) * (1 - mv));
+    J.foot[i].rotation.x = mix(J.foot[i].rotation.x, .3 * mv); } /* Runde 269: thighs turn against the lean of the body (-0.5): the legs slope 45 degrees down, not up */
   if (J.skirt) for (let i = 0; i < 2; i++) J.skirt[i].rotation.x = J.thigh[i].rotation.x;
 }
 window.HXFIG = { KATALOG, make, pose, byId: id => { if (id === 'eigen') { try { const d = JSON.parse(localStorage.getItem('hx.figurEigen')); if (d) return d; } catch (e) {} } return KATALOG.find(r => r.id === id) || KATALOG[0]; } };

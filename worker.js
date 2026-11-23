@@ -7,7 +7,7 @@
  */
 'use strict';
 try { importScripts('lib/earcut.min.js?v=2.2.4'); } catch (e) { importScripts('https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js'); } // Runde 121: local copy first, CDN as fallback
-importScripts('ausfall.js?v=792'); importScripts('sonderbau.js?v=792'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
+importScripts('ausfall.js?v=793'); importScripts('sonderbau.js?v=793'); // Runde 206: Sonderbau-Baukasten // Runde 120: ?ausfall=... test switch (does nothing without it)
 
 const R = 6378137, WORLD = 2 * Math.PI * R, HALF = WORLD / 2;
 let TILEJSON = 'https://tiles.openfreemap.org/planet';
@@ -3030,8 +3030,9 @@ function buildMVT(layers, tx, ty, l2tiles, osm) {
   if (TERRAIN_ON) meadow(ground, mk(ext0), wfield); // base ground of the tile, cut out where the (lowered) water is
   /* Runde 267 (Nutzer, Bethel: a tree on the water): a tree or bush whose spot lies in a water cell of the 2 m raster stood at land height over the
      lowered water (the map outline of the pond and the raster shore differ by up to a cell) - such plants go */
-  if (wfield && TERRAIN_ON) { const f = wfield, S = ground.spr, out = []; for (let i = 0; i < S.length; i += 6) { const gx = Math.floor((S[i] - f.x0) / f.c), gz = Math.floor((S[i + 1] - f.z0) / f.c);
-      if (gx >= 0 && gz >= 0 && gx < f.w && gz < f.h && f.data[(gz * f.w + gx) * 2] > 0) continue; for (let k = 0; k < 6; k++) out.push(S[i + k]); } ground.spr = out; }
+  if (wfield && TERRAIN_ON) { const f = wfield, S = ground.spr, out = [], wc = (x, z) => { const gx = Math.floor((x - f.x0) / f.c), gz = Math.floor((z - f.z0) / f.c); return gx >= 0 && gz >= 0 && gx < f.w && gz < f.h && f.data[(gz * f.w + gx) * 2] > 0; };
+    /* Runde 269 (still one at the Gadderbaum pond): also within 1.2 m of a water cell - the smoothed bank ends there and the tree stood over the water */
+    for (let i = 0; i < S.length; i += 6) { const x = S[i], z = S[i + 1]; if (wc(x, z) || wc(x + 1.2, z) || wc(x - 1.2, z) || wc(x, z + 1.2) || wc(x, z - 1.2)) continue; for (let k = 0; k < 6; k++) out.push(S[i + k]); } ground.spr = out; }
   // land areas lying on open water (tidal flats, reed, beaches in the river - phone test Hamburg: boats in a meadow) sink to the water
   // level with the water, so they never cover it; streets, paths, piers and bridges keep their height (checked per drape piece)
   if (wfield && wfield.loops) { // shore outline for the area layers (park, lawn, forest...): cut exactly there, nothing of them on the water
