@@ -216,7 +216,20 @@ function tiDraw() {
     C4[i] = sh.x + f * sh.cw; C4[i + 1] = sh.y + row * sh.ch; C4[i + 2] = sh.cw; C4[i + 3] = sh.ch;
     E4[i] = mir; E4[i + 1] = sh.row; E4[i + 2] = o.kind === 'fisch' && o.jump === undefined ? .45 + (o.d || 0) * .25 : 0; n++; }
   g.instanceCount = n; for (const k of ['iP', 'iS', 'iC', 'iE']) { g.attributes[k].needsUpdate = true; g.attributes[k].updateRange.count = n * 4; }
+  tiShadows();
 }
+/* Runde 285 (Nutzer: like the koi pond): every fish under water casts a soft dark spot on the bed, a little to the side and larger the
+   deeper it is - one instanced flat disc (10 triangles), drawn before the see-through water so the water lies over it */
+function tiShadows() {
+  if (!TI.shadow) { const geo = new THREE.CircleGeometry(.5, 10); geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x0b1a1c, transparent: true, opacity: .26, depthWrite: false });
+    TI.shadow = new THREE.InstancedMesh(geo, mat, 64); TI.shadow.frustumCulled = false; TI.shadow.renderOrder = -1; X2.scene.add(TI.shadow); TI.shM = new THREE.Matrix4(); TI.shQ = new THREE.Quaternion(); TI.shV = new THREE.Vector3(); TI.shS = new THREE.Vector3(); TI.shY = new THREE.Vector3(0, 1, 0); }
+  let n = 0; const M = TI.meta;
+  if (X2.waterDepth) for (const o of TI.list) { if (n >= 64) break; if (o.kind !== 'fisch' || o.jump !== undefined) continue; const ws = X2.waterSurf(o.x, o.z); if (ws === null || ws === undefined || isNaN(ws)) continue;
+    const dep = X2.waterDepth(o.x, o.z); if (!(dep > .25)) continue; const sh = M && M.sheets[o.sp], L = sh ? sh.mw : .6, off = Math.min(1, dep * .35);
+    TI.shQ.setFromAxisAngle(TI.shY, -(o.dir || 0)); TI.shV.set(o.x + off * .6, ws - dep + .03, o.z + off * .8); TI.shS.set(L * (.8 + dep * .15), 1, L * (.32 + dep * .08));
+    TI.shM.compose(TI.shV, TI.shQ, TI.shS); TI.shadow.setMatrixAt(n++, TI.shM); }
+  TI.shadow.count = n; TI.shadow.visible = n > 0; if (n) TI.shadow.instanceMatrix.needsUpdate = true; }
 
 function updateTiere(dt) {
   if (!TI.meta) return;

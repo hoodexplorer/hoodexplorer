@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=808' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=809' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -406,7 +406,8 @@ groundMat.onBeforeCompile = sh => {
     }
     /* Runde 264: bed of rivers and lakes (code blue 4; red = kind, green = depth / 4 m) - sand with ripples, gravel, mud with water plants,
        stone slabs at quays and canals, rocks in steep streams; deeper = darker and greener, a moving light net in the shallows */
-    if (abs(diffuseColor.b * 255.0 - 4.0) < .6) { float ty = floor(diffuseColor.r * 255.0 / 32.0 + .5), dep = diffuseColor.g * 4.0; vec2 p = vGW.xz; vec3 c;
+    if (abs(diffuseColor.b * 255.0 - 4.0) < .6) { float ty = floor(diffuseColor.r * 255.0 / 32.0 + .5), dep = diffuseColor.g * 4.0; vec2 p = vGW.xz; vec3 c; /* Runde 285 (Nutzer: like the koi pond): light breaking in the moving surface - the bed pattern sways a little, more where it is deeper */
+      p += min(1.0, dep * .8) * .16 * vec2(sin(p.y * 1.7 + uFT * 1.9) + .5 * sin(p.x * 2.9 - uFT * 1.3), cos(p.x * 1.5 + uFT * 1.6) + .5 * cos(p.y * 2.3 + uFT * 1.1));
       float h1 = hxH(floor(p * 4.0)), h2 = hxH(floor(p * 4.0) + 7.3), hb = hxH(floor(p / 1.5));
       if (ty < .5) { float rp = sin(p.x * 2.3 + sin(p.y * .6) * 1.8 + p.y * .4); c = mix(vec3(.80, .72, .52), vec3(.67, .59, .41), .5 + .35 * rp) * (.95 + .08 * h1);
         if (h2 > .93) c = vec3(.55, .52, .46); }
@@ -2322,7 +2323,10 @@ function step(now) {
     /* Runde 277 (Dauertest: climbing out at a pool edge lifted the figure 1.8 m in one frame): a step up of more than 0.6 m while standing
        is climbed at 7 m/s instead of a jump in one frame */
     if (P.ground && gy - P.y > .6) { P.y = Math.min(gy, P.y + 7 * dt); P.vy = 0; }
-    else { P.vy -= 22 * dt; P.y += P.vy * dt; if (P.y <= gy) { P.y = gy; P.vy = 0; P.ground = true; P.dj = false; P.flip = undefined; P.wd = 0; P.kick = null; P.wall = null; }
+    else { const yPrev = P.y, vyPrev = P.vy; P.vy -= 22 * dt; P.y += P.vy * dt;
+      /* Runde 285 (Nutzer: like the koi pond): falling or jumping into the water makes a splash - drops, rings and a plunge, stronger from higher up */
+      if (wf && !wf.ice && vyPrev < -3 && window.WX && WX.platsch) { const ws = waterSurf(P.x, P.z); if (ws !== null && yPrev > ws && P.y <= ws) WX.platsch(P.x, P.z, Math.min(1, (-vyPrev - 3) / 10)); }
+      if (P.y <= gy) { P.y = gy; P.vy = 0; P.ground = true; P.dj = false; P.flip = undefined; P.wd = 0; P.kick = null; P.wall = null; }
       else if (P.ground && P.y > gy + 1) P.ground = false; } /* Runde 277 (Dauertest: walked off a roof, the figure fell 'standing'): more than 1 m of air below = falling (fall pose, landing) */
     }
   }

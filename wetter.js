@@ -238,6 +238,11 @@ function waterAmb(dt, x, z, swimming) {
    drops in its direction, a ring and a 'plop' with bubbles as it falls back in (WX.fishSplash). */
 const FISH = { t: 6 + Math.random() * 6 };
 function fishSound(kind, x, z) { const cam = A.cam, d = cam ? Math.hypot(cam.position.x - x, cam.position.z - z) : 10; if (d < 55) stepSnd(kind, 1 - d / 60); } /* Runde 191: gentler fall-off with distance */
+/* Runde 285: the figure lands in the water - a crown of drops, three rings one after the other and a plunge (k 0..1 = how hard) */
+WX.platsch = (x, z, k) => { const y = A.waterSurf(x, z); if (y === null || y === undefined || isNaN(y)) return;
+  for (const l of [.45, .75, 1.05]) spawn(x, y + .03, z, 0, 0, 0, 1, l * (1 + k * .6));
+  burst(x, y, z, Math.round(8 + 14 * k), 1.4 + 2 * k, 2.6 + 3 * k, 0, 0, 0);
+  stepSnd('splash', 1.1 + .6 * k); stepSnd('plop', .6 + .5 * k); };
 WX.fishSplash = (x, z, kind, vx, vz) => { const y = A.waterSurf(x, z); if (y === null || y === undefined || isNaN(y)) return; const s = Math.hypot(vx || 0, vz || 0) || 1;
   spawn(x, y + .03, z, 0, 0, 0, 1, kind === 'plop' ? .35 : .3);
   if (kind === 'plop') burst(x, y, z, 7, 1.3, 2.4, 0, (vx || 0) / s * .6, (vz || 0) / s * .6); else burst(x, y, z, 4, .8, 1.6, 0, 0, 0);
