@@ -180,8 +180,8 @@ function burstSnd(dur, type, f, q, vol, f2) { if (!ac || ac.state !== 'running')
 const STEPB = {}, STEPV = { splash: .26, snow: .24, wet: .15, ice: .18, swim: .3, lap: .26, slap: .2, plip: .32, plop: .55 }; /* Runde 191: fish jumps audible (phone test: hardly heard), gluggs a little louder */ // Runde 187: water quieter (was obtrusive)
 function stepSnd(kind, k = 1) { if (!ac || ac.state !== 'running') return; const L = STEPB[kind]; if (!L || !L.length) return;
   const s = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter(); s.buffer = L[(Math.random() * L.length) | 0]; s.playbackRate.value = .9 + Math.random() * .2;
-  lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .5; // Runde 180: steps never bright - they get on one's nerves in the long run
-  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(lp); lp.connect(g); g.connect((window.HXSND ? HXSND.node(ac, '' + (/^(lap|slap|plip|plop)$/.test(kind) ? 'wasser' : 'schritte') + '') : ac.destination)); s.start(); }
+  lp.type = 'lowpass'; lp.frequency.value = /^(swim|plip|plop|lap|slap)$/.test(kind) ? 9000 : 3000; /* Runde 273: water may splash brightly */ lp.Q.value = .5; // Runde 180: steps never bright - they get on one's nerves in the long run
+  g.gain.value = STEPV[kind] * k * (.8 + Math.random() * .4); s.connect(lp); lp.connect(g); g.connect((window.HXSND ? HXSND.node(ac, '' + (/^(lap|slap|plip|plop|swim)$/.test(kind) ? 'wasser' : 'schritte') + '') : ac.destination)); s.start(); }
 const sWhoosh = v => burstSnd(.6, 'bandpass', 900, .8, Math.min(.35, .08 + v * .006), 300);
 function thunder(dist) { if (!ac || ac.state !== 'running') return; const t = ac.currentTime + dist, s = ac.createBufferSource(); s.buffer = noiseBuf; const fl = ac.createBiquadFilter(), g = ac.createGain();
   fl.type = 'lowpass'; fl.frequency.value = 160 + Math.random() * 120; g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.6 / (1 + dist * .4), t + .08); g.gain.exponentialRampToValueAtTime(.2 / (1 + dist * .4), t + .9);
@@ -297,7 +297,7 @@ WX.update = function (dt, time) {
       else if (W.frost && W.ice > .5) stepSnd('ice', fast ? .9 : .7); // black ice
       else if (W.wet > .3) stepSnd('wet', (fast ? 1.2 : 1) * Math.min(1, W.wet)); } } // wet ground: a soft wet slap (was silent)
   else if (DRV.on) stepN = -1;
-  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { const s = Math.floor(P.phase / Math.PI); if (s !== swimN) { swimN = s; stepSnd(P.swim ? 'swim' : 'splash', P.swim ? .65 : .8); } } // Runde 181: strokes and wading
+  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { const s = Math.floor(P.phase / (P.swim ? 2 * Math.PI : Math.PI)); if (s !== swimN) { swimN = s; stepSnd(P.swim ? 'swim' : 'splash', P.swim ? .55 : .8); } /* Runde 273: one splash per arm stroke cycle - two per second sounded like steps */ } // Runde 181: strokes and wading
   waterAmb(dt, DRV.on ? DV.x : P.x, DRV.on ? DV.z : P.z, P.swim); fishStep(dt);
 
   // driving: spray behind the wheels on a wet road, big splashes through puddles, tracks and white spray in snow

@@ -224,7 +224,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=796' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=797' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -1592,7 +1592,7 @@ function onData(e) {
     if (BIG.tiles.size > 220) { const k0 = BIG.tiles.keys().next().value; BIG.tiles.delete(k0); } drawBig(); }
   else if (m.type === 'bedg') addMesh(m.key, m, groundMat); /* Runde 264: bed of rivers and lakes */
   else if (m.type === 'poolw') { addMesh(m.key, m, poolWMat); const o = meshes.get(m.key); if (o) o.renderOrder = 2; } /* Runde 263: see-through pool water */
-  else if (m.type === 'water') { if (m.field) WFIELDS.set(m.key, m.field); const mat = m.field ? waterMat(m.field) : groundMat; addMesh(m.key, m, mat); const o = meshes.get(m.key); if (o && m.field) o.userData.ownMat = true; }
+  else if (m.type === 'water') { if (m.field) { WFIELDS.set(m.key, m.field); cullSpritesIn(m.key); } const mat = m.field ? waterMat(m.field) : groundMat; addMesh(m.key, m, mat); const o = meshes.get(m.key); if (o && m.field) o.userData.ownMat = true; }
   else if (m.type === 'lod2idx') { // LoD2 buildings replaced by OSM buildings (implausible blocks)
     const o = meshes.get(m.key); if (o) { o.geometry.setIndex(new THREE.BufferAttribute(m.idx, 1)); }
     for (const k of [m.key + ':spr', m.key + ':sprs']) { const s = meshes.get(k); if (s) { scene.remove(s); s.geometry.dispose(); meshes.delete(k); } }
@@ -1636,12 +1636,22 @@ function onData(e) {
   else if (m.type === 'warn') { console.warn('[HoodExplorer]', m.msg); (window.HXlog = window.HXlog || []).push(m.msg); }
 }
 const BINS = new Map();
+/* Runde 273 (Nutzer: a tree in the pond by Freibad Gadderbaum - 'maybe a tile border'): each tile removes plants standing in its own water only;
+   a pond lying across a tile border was missing in the neighbour's data, so the neighbour's trees stood in it. Plants (kinds below 16) are now
+   also checked against the water of all other loaded tiles - when they arrive and when a neighbour's water arrives later */
+function inOtherWater(tile, x, z) { for (const [fk, f] of WFIELDS) { if (fk.startsWith(tile + ':')) continue; const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c);
+    if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue; const i = cz * f.w + cx; if (f.data[i * 2] > 0 && !(f.dry && f.dry[i]) && !poolDeck(x, z)) return true; } return false; }
+function cullSpritesIn(fieldKey) { const tile = fieldKey.split(':water')[0], f = WFIELDS.get(fieldKey); if (!f) return;
+  for (const [k, o] of meshes) { if (!/:sprs?(#\d+)?$/.test(k) || k.startsWith(tile + ':')) continue; const a = o.geometry && o.geometry.attributes.iA; if (!a) continue; const A = a.data.array; let ch = false;
+    for (let i = 0; i < A.length; i += 6) { if (A[i + 4] >= 16 || A[i + 2] === 0) continue; const cx = Math.floor((A[i] - f.x0) / f.c), cz = Math.floor((A[i + 1] - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue;
+      const j = cz * f.w + cx; if (f.data[j * 2] > 0 && !(f.dry && f.dry[j]) && !poolDeck(A[i], A[i + 1])) { A[i + 2] = 0; ch = true; } }
+    if (ch) a.data.needsUpdate = true; } }
 function addSprites(key, arr, now) { // trees, bushes and props of one tile: one instanced draw for the sprites, one for their shadows
   if (!arr || !arr.length) return;
   if (!now && BLOCKS && /^m:/.test(key)) { JOBQ[2].push(() => { if (tiles.has(key)) addSprites(key, arr, true); }); return; } // after ground and houses
   // all as sprites (bushes too: they now turn properly from 16 directions, see sprites.js); ground patches for all but ducks and birds
   { const b = []; for (let i = 0; i < arr.length; i += 6) if (arr[i + 4] === 16) b.push(arr[i], arr[i + 1]); if (b.length) BINS.set(key, b); else BINS.delete(key); } // wheelie bins: rats (Runde 82)
-  const sp = [], sh = []; for (let i = 0; i < arr.length; i += 6) { const t = arr[i + 4]; sp.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); if (t !== 28 && t !== 30 && t !== 38 && !(t >= 42 && t <= 47)) /* Runde 210: no shadow under grave sprites */ sh.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); } // ducks swim, birds fly: no ground patch under them
+  const sp = [], sh = []; for (let i = 0; i < arr.length; i += 6) { const t = arr[i + 4]; if (t < 16 && WFIELDS.size && inOtherWater(key, arr[i], arr[i + 1])) continue; /* Runde 273 */ sp.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); if (t !== 28 && t !== 30 && t !== 38 && !(t >= 42 && t <= 47)) /* Runde 210: no shadow under grave sprites */ sh.push(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4], arr[i + 5]); } // ducks swim, birds fly: no ground patch under them
   dropChunks(key + ':sprites');
   if (BLOCKS && /^m:/.test(key)) { // in 128 m blocks like the ground (culled outside the picture and in the fog)
     for (const suf of [':spr', ':sprs', ':sprb']) { const old = meshes.get(key + suf); if (old) { scene.remove(old); old.geometry.dispose(); meshes.delete(key + suf); } }

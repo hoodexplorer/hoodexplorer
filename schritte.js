@@ -38,7 +38,7 @@
   function norm(buf, peak = .9) { let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v)); if (m > 0) for (let i = 0; i < buf.length; i++) buf[i] *= peak / m; return buf; }
   const K = {
     // Runde 181: water - swimming strokes, shore lapping, quay slaps; loops for brooks/rivers and rain on water. Dark like the steps.
-    swim(sr) { const b = new Float32Array(Math.floor(.5 * sr)); noise(b, sr, 0, .2, 'bp', 620 + R() * 200, .5, .7, .07); /* Runde 268 (Nutzer: 'footsteps while swimming'): no thump any more - the arm slides into the water with a soft swish */
+    swim(sr) { const b = new Float32Array(Math.floor(.6 * sr)); noise(b, sr, 0, .22, 'bp', 1400 + R() * 500, .6, .7, .03); noise(b, sr, .02, .08, 'hp', 3500, .7, .25, .005); /* Runde 273: a bright splash, not a dull thud */ /* Runde 268 (Nutzer: 'footsteps while swimming'): no thump any more - the arm slides into the water with a soft swish */
       noise(b, sr, .02, .14, 'bp', 1000 + R() * 300, .6, .2, .015); const n = 5 + Math.floor(R() * 4); for (let i = 0; i < n; i++) bubble(b, sr, .02 + R() * .3, (2.5 + R() * 4) / 1000, .25 + R() * .25); return norm(b, .8); },
     plip(sr) { const b = new Float32Array(Math.floor(.25 * sr)); noise(b, sr, 0, .02, 'bp', 900, .8, .5, .002); bubble(b, sr, .005, (2.5 + R() * 1.5) / 1000, .5); return norm(b, .6); }, // a fish leaves the water
     plop(sr) { const b = new Float32Array(Math.floor(.45 * sr)); noise(b, sr, 0, .035, 'bp', 520 + R() * 160, .7, 1, .002); thump(b, sr, 0, 90, 30, .2); // and falls back in
