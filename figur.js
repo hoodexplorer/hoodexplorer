@@ -137,17 +137,17 @@ function pose(J, s) {
      still: treading water, upright, arms sculling and legs pedalling */
   const sw = s.swim || 0; J.root.position.y = 0; if (sw <= 0) return;
   const mv = Math.min(1, w * 1.6), t = s.t || 0, mix = (a, b) => a + (b - a) * sw;
-  J.root.position.y = mix(0, .38 * mv + .2 * (1 - mv));
-  J.hips.rotation.x = mix(J.hips.rotation.x, 1.4 * mv); J.hips.rotation.y = mix(J.hips.rotation.y, 0);
+  J.root.position.y = mix(0, .26 * mv + .2 * (1 - mv)); /* Runde 268 (Nutzer: legs out of the water): lower, the legs slope down */
+  J.hips.rotation.x = mix(J.hips.rotation.x, 1.25 * mv); J.hips.rotation.y = mix(J.hips.rotation.y, 0);
   J.chest.rotation.set(mix(J.chest.rotation.x, 0), mix(J.chest.rotation.y, sin(p) * .45 * mv), 0);
   J.neck.rotation.x = mix(J.neck.rotation.x, -1.05 * mv + .05);
   for (let i = 0; i < 2; i++) { const q = p + i * Math.PI, tq = t * 3.2 + i * Math.PI;
     const crawl = -(((q % 6.2832) + 6.2832) % 6.2832), tread = sin(tq) * .35;
     J.upper[i].rotation.set(mix(J.upper[i].rotation.x, crawl * mv + .2 * (1 - mv)), 0, mix(J.upper[i].rotation.z, (i ? 1 : -1) * (.15 * mv + (.9 + tread) * (1 - mv))));
     J.fore[i].rotation.x = mix(J.fore[i].rotation.x, -.35 * mv - .5 * (1 - mv));
-    J.thigh[i].rotation.set(mix(J.thigh[i].rotation.x, (.3 + sin(q * 2.5) * .25) * mv + (-.5 + sin(tq) * .35) * (1 - mv)), 0, 0);
+    J.thigh[i].rotation.set(mix(J.thigh[i].rotation.x, (.45 + sin(q * 2.5) * .18) * mv + (-.5 + sin(tq) * .35) * (1 - mv)), 0, 0);
     J.shin[i].rotation.x = mix(J.shin[i].rotation.x, (.15 + Math.max(0, sin(q * 2.5 + 1)) * .3) * mv + (.8 + sin(tq + 1) * .4) * (1 - mv));
-    J.foot[i].rotation.x = mix(J.foot[i].rotation.x, .9 * mv); }
+    J.foot[i].rotation.x = mix(J.foot[i].rotation.x, .6 * mv); }
   if (J.skirt) for (let i = 0; i < 2; i++) J.skirt[i].rotation.x = J.thigh[i].rotation.x;
 }
 window.HXFIG = { KATALOG, make, pose, byId: id => { if (id === 'eigen') { try { const d = JSON.parse(localStorage.getItem('hx.figurEigen')); if (d) return d; } catch (e) {} } return KATALOG.find(r => r.id === id) || KATALOG[0]; } };

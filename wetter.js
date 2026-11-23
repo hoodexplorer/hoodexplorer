@@ -297,7 +297,7 @@ WX.update = function (dt, time) {
       else if (W.frost && W.ice > .5) stepSnd('ice', fast ? .9 : .7); // black ice
       else if (W.wet > .3) stepSnd('wet', (fast ? 1.2 : 1) * Math.min(1, W.wet)); } } // wet ground: a soft wet slap (was silent)
   else if (DRV.on) stepN = -1;
-  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { const s = Math.floor(P.phase / Math.PI); if (s !== swimN) { swimN = s; stepSnd(P.swim ? 'swim' : 'splash', P.swim ? 1 : .8); } } // Runde 181: strokes and wading
+  if (!DRV.on && (P.swim || P.wade) && Math.abs(P.speed) > .4) { const s = Math.floor(P.phase / Math.PI); if (s !== swimN) { swimN = s; stepSnd(P.swim ? 'swim' : 'splash', P.swim ? .65 : .8); } } // Runde 181: strokes and wading
   waterAmb(dt, DRV.on ? DV.x : P.x, DRV.on ? DV.z : P.z, P.swim); fishStep(dt);
 
   // driving: spray behind the wheels on a wet road, big splashes through puddles, tracks and white spray in snow

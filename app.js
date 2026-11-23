@@ -216,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=791' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=792' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -2216,9 +2216,10 @@ const wakeMat = new THREE.ShaderMaterial({ uniforms: { uTime: waterTime, uLight:
     k = min(1.0, k * uStr); k = floor(k * 3.0 + 0.2) / 3.0; if (k < 0.3) discard;               // quantised: pixel-art steps
     if (hxBayer(gl_FragCoord.xy) > k * 0.75) discard;
     gl_FragColor = vec4(mix(vec3(0.62, 0.80, 0.84), vec3(0.93, 0.98, 1.0), k) * uLight, 1.0); }` });
+wakeMat.transparent = true; /* Runde 268: drawn after the see-through water (Runde 264), not under it */
 const wakeMesh = new THREE.Mesh(wakeGeo, wakeMat); wakeMesh.frustumCulled = false; wakeMesh.renderOrder = 2; wakeMesh.visible = false; scene.add(wakeMesh);
 const ringGeo = new THREE.RingGeometry(.86, 1, 28, 1); ringGeo.rotateX(-Math.PI / 2);
-const rings = [0, .5].map(ph => { const m = new THREE.Mesh(ringGeo, new THREE.ShaderMaterial({ uniforms: { uA: { value: 1 }, uLight: spriteUniforms.uLight }, depthWrite: false,
+const rings = [0, .5].map(ph => { const m = new THREE.Mesh(ringGeo, new THREE.ShaderMaterial({ uniforms: { uA: { value: 1 }, uLight: spriteUniforms.uLight }, depthWrite: false, transparent: true,
     vertexShader: 'void main(){ gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0); }',
     fragmentShader: 'uniform float uA; uniform vec3 uLight; ' + WAKE_GLSL_DITHER + ' void main(){ if (hxBayer(gl_FragCoord.xy) > uA) discard; gl_FragColor = vec4(vec3(0.85, 0.95, 0.98) * uLight, 1.0); }' }));
   m.userData.ph = ph; m.renderOrder = 2; m.visible = false; scene.add(m); return m; });
