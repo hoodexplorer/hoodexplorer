@@ -216,7 +216,7 @@ function updateFar() {
 function makeWorker(lat, lon) {
   if (worker && workerOrigin && workerOrigin.lat === lat && workerOrigin.lon === lon) return;
   if (worker) worker.terminate();
-  worker = new Worker('worker.js?v=786' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
+  worker = new Worker('worker.js?v=787' + (self.HX_AUSFALL ? '&ausfall=' + encodeURIComponent(new URLSearchParams(location.search).get('ausfall')) : '') + (new URLSearchParams(location.search).get('sonder') === '0' ? '&sonder=0' : '')); /* Runde 208: ?sonder=0 = landmark models off (comparison) */ // Runde 120: simulated outages reach the worker too
   worker.onmessage = onData;
   workerOrigin = { lat, lon };
   worker.postMessage({ type: 'prefetch', lat, lon, terrain: TERRAIN, weld: WELD });
@@ -506,16 +506,28 @@ function waterMat(f) {
       /* Runde 259 (Nutzer: outdoor pool water like a pool - clear, tiled floor visible): basins marked with the outdoor-pool colour show light
          tiles with grout lines through clear water and moving light rings (caustics), no shore foam */
       if (abs(vColor.r - 0.3137) < .006 && abs(vColor.g - 0.7216) < .006) { /* (blue channel: the bank skirt of the water mesh carries a code there - Runde 260: it becomes a tiled wall too) */
-        bool wallF = vColor.b < .7; vec2 tq = wallF ? vec2((vGW.x + vGW.z * .73) / .5, vGW.y / .25) : vGW.xz / 0.5; float gr = max(step(.9, fract(tq.x)), step(.9, fract(tq.y)));
-        vec3 pc = wallF ? mix(vec3(.80, .91, .94), vec3(.62, .76, .80), gr) : mix(vec3(.47, .80, .90), vec3(.36, .66, .78), gr);
+        bool wallF = vColor.b < .7; float wa = (vColor.b - .05) / .6 * 3.14159; /* Runde 263 (Nutzer: wall tiles like the floor ones): same 0.5 m squares and colours, along the wall direction */
+        vec2 tq = wallF ? vec2(dot(vGW.xz, vec2(cos(wa), sin(wa))) / .5, vGW.y / .5) : vGW.xz / 0.5; float gr = max(step(.9, fract(tq.x)), step(.9, fract(tq.y)));
+        vec3 pc = mix(vec3(.47, .80, .90), vec3(.36, .66, .78), gr);
         float ca = texture2D(uCaus, vGW.xz / 3.5 + vec2(t * .03, t * .02)).r * texture2D(uCaus, vGW.xz / 2.7 - vec2(t * .025, -t * .018)).r;
         pc += vec3(.35, .4, .4) * smoothstep(.25, .6, ca);
+        if (!wallF && abs(vColor.b - .749) < .02) pc = mix(vec3(.16, .32, .62), pc, .25); /* Runde 263: lane lines on the floor */
         diffuseColor.rgb = pc; } } `); // outside the own tile (overlap with the neighbour) the edge value of the field continues (clamped)
   };
   return mat;
 }
 spriteUniforms.uAtlas.value = makeSpriteAtlas();
 WATER_DROP = TERRAIN ? 1.2 : 0;
+/* Runde 263 (Nutzer: pool water see-through, the tiled floor and walls visible below it): the surface of outdoor pools is its own mesh, a light
+   turquoise veil with drifting light lines (caustics) - the tiled basin in the water mesh shows through */
+const poolWMat = new THREE.MeshBasicMaterial({ color: 0x7fd8ec, transparent: true, opacity: .32, depthWrite: false });
+poolWMat.customProgramCacheKey = () => 'hxpoolw';
+poolWMat.onBeforeCompile = sh => { sh.uniforms.uCaus = { value: causticTex }; sh.uniforms.uTime = waterTime;
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW; uniform sampler2D uCaus; uniform float uTime;').replace('#include <color_fragment>', `#include <color_fragment>
+    { float t = uTime; vec2 q = floor(vGW.xz * 3.0) / 3.0;
+      float c = min(texture2D(uCaus, q / 4.0 + vec2(t * .03, t * .02)).r, texture2D(uCaus, q / 5.0 - vec2(t * .025, -t * .018)).r);
+      float hl = smoothstep(.35, .55, c); diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), hl * .8); diffuseColor.a = mix(diffuseColor.a, .75, hl); } `); };
 initCars(scene); // real low-poly cars, one instanced draw per type (cars.js)
 const lampMat = new THREE.MeshBasicMaterial({ color: '#cfcac0', vertexColors: true }); // street lamp heads and traffic lights: dim by day, glowing at night
 /* Pixel facade kit: one 128x128 atlas, 16x16 px per module, drawn once at start.
@@ -1535,6 +1547,7 @@ function onData(e) {
   else if (m.type === 'wo') { if (m.id === WO.id && m.r) { WO.r = m.r; WO.last = ''; if (!$('bigmap').hidden) hereText(); } }
   else if (m.type === 'maptile') { BIG.pending.delete(m.key); const sc = m.z >= 14 ? .4 : m.z === 13 ? .2 : m.z === 12 ? .1 : .05; const mp = m.map && drawTileMap(m.map, sc); BIG.tiles.set(m.key, mp ? { z: m.z, map: mp } : null);
     if (BIG.tiles.size > 220) { const k0 = BIG.tiles.keys().next().value; BIG.tiles.delete(k0); } drawBig(); }
+  else if (m.type === 'poolw') addMesh(m.key, m, poolWMat); /* Runde 263: see-through pool water */
   else if (m.type === 'water') { if (m.field) WFIELDS.set(m.key, m.field); const mat = m.field ? waterMat(m.field) : groundMat; addMesh(m.key, m, mat); const o = meshes.get(m.key); if (o && m.field) o.userData.ownMat = true; }
   else if (m.type === 'lod2idx') { // LoD2 buildings replaced by OSM buildings (implausible blocks)
     const o = meshes.get(m.key); if (o) { o.geometry.setIndex(new THREE.BufferAttribute(m.idx, 1)); }
@@ -1782,7 +1795,7 @@ function waterSurf(x, z) {
 }
 function waterFloor(x, z) { const d = waterInfo(x, z); if (d === null) return null; const surf = waterSurf(x, z);
   if (waterIce.value.x * 1.25 > .1 + .8 * Math.min(d, 16) / 16) return { y: surf + .03, swim: false, ice: true }; // Runde 143: frozen - one walks on the ice wherever it is drawn (from the shore outwards, as in the shader)
-  if (POOLS_APP.size && inPool(x, z, 1)) return { y: surf - 1.5, swim: true }; /* Runde 262: a pool basin is deep at once */
+  if (POOLS_APP.size && inPool(x, z, 1)) return { y: surf - 1.25, swim: true }; /* (the tiled floor lies 1.32 m below the surface) */ /* Runde 262: a pool basin is deep at once */
   return d < 2.5 && !waterInfo.hard ? { y: surf - Math.min(.95, .2 + d * .32), swim: false } : { y: surf - 1.5, swim: true }; } // at a quay wall the water is deep at once
 function waterAt(x, z) {
   for (const f of WFIELDS.values()) { const cx = Math.floor((x - f.x0) / f.c), cz = Math.floor((z - f.z0) / f.c); if (cx < 0 || cz < 0 || cx >= f.w || cz >= f.h) continue; if (f.dry && f.dry[cz * f.w + cx]) continue; if (f.data[(cz * f.w + cx) * 2] > 4) return true; /* more than 1 m from the shore: ditches and the waterline stay walkable */ }
